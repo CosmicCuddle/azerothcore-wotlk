@@ -1,0 +1,54 @@
+name: Owner Core F14 default-FALSE script API (UNWIRED; NO SERVER)
+
+on:
+  push:
+    branches:
+      - feature/cs01-f14-unwired-suppression-hook-default-false-20261107
+  pull_request:
+    branches:
+      - feature/cs01-paid-receipt-row-preservation-20261107
+
+permissions:
+  contents: read
+
+jobs:
+  source-only-negative-api-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact Core fork head only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert exact parent and limited source write set
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=1e37f3343cf08618101b625601cd299f0a1770ca
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/actual-f14-paths
+          printf '%s\n' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'tests/cosmic_f14_unwired_hook/test_f14_unwired_hook_source.py' \
+            '.github/workflows/cosmic-f14-unwired-default-false-api-20261107.yml' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'docs/COSMIC_F14_CORE_UNWIRED_API_20261107.md' | sort > /tmp/expected-f14-paths
+          diff -u /tmp/expected-f14-paths /tmp/actual-f14-paths
+          test -z "$(git diff --name-only "$parent" HEAD -- \
+            src/server/game/Entities/Player \
+            src/server/game/Entities/Object \
+            src/server/game/Entities/Creature \
+            data sql conf modules)"
+          echo 'PASS: only F14 Core API and tests/docs, no live visibility or config'
+      - name: Verify original lifecycle hooks and uninvoked FALSE-only F14 API
+        run: python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook -p 'test_f14_unwired_hook_source.py' -v
+      - name: State exact evidence boundary
+        run: |
+          echo 'Source test only; native Worldserver compilation NOT established.'
+          echo 'No registered positive F14 listener, no player visibility call site, no client or DB changes.'
+          echo 'Keep F14 OFF. No production, migration or master merge authorisation.'

@@ -738,6 +738,13 @@ public: /* WorldObjectScript */
     void OnWorldObjectResetMap(WorldObject* object);
     void OnWorldObjectUpdate(WorldObject* object, uint32 diff);
 
+    // CosmicCuddle F14 API PREPARATION ONLY. No call site or positive
+    // implementation is wired: this cannot suppress a visible creature.
+    // Future use requires full human rights, genuine RNDBOT proof and
+    // exact previously-hidden viewer/creature restoration before activation.
+    [[nodiscard]] bool ShouldF14SuppressCreatureForViewer(
+        Player const* viewer, WorldObject const* creature);
+
 public: /* PetScript */
 
     void OnPetAddToWorld(Pet* pet);
