@@ -1,0 +1,62 @@
+name: Vanilla creature mechanic mask and negative resistance (SOURCE-ONLY)
+
+on:
+  push:
+    branches:
+      - test/cs01-vanilla-immunity-and-negative-resistance-source-contract-20261107
+  pull_request:
+    branches:
+      - feature/cs01-f14-unwired-suppression-hook-default-false-20261107
+    paths:
+      - 'tests/cosmic_vanilla_creature_stats/**'
+      - 'docs/COSMIC_VANILLA_CREATURE_IMMUNITY_RESISTANCE_AUDIT_20261107.md'
+      - 'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md'
+      - '.github/workflows/cosmic-vanilla-immunity-negative-resistance-source-20261107.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  immutable-owner-source-contract:
+    name: Existing Core only; no Worldserver/SQL/client launched
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact owner source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Strict owner Core2 parent and FOUR review-only changed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=d2066943e19cd959de2a0e9897135573e4124219
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            'tests/cosmic_vanilla_creature_stats/test_source_mechanics_and_negative_resistance.py' \
+            '.github/workflows/cosmic-vanilla-immunity-negative-resistance-source-20261107.yml' \
+            'docs/COSMIC_VANILLA_CREATURE_IMMUNITY_RESISTANCE_AUDIT_20261107.md' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- src conf data sql modules)"
+          echo 'PASS: only tests, docs and CI; no production Core, SQL, configuration or runtime source modified'
+
+      - name: Actual pinned owner source invariants and historical arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_vanilla_creature_stats -p 'test_source_mechanics_and_negative_resistance.py' -v
+          echo 'PASS: source-only mechanics 15/16/22, signed load and zero-clamp remain explicit'
+
+      - name: Safety confidence boundary
+        if: always()
+        run: |
+          echo 'Source-only and no actual creature spells, original Vanilla numeric weakness or active host proven.'
+          echo 'No installed character/World DB, schema/migration, SQL query, owner server, client or DBC touched.'
+          echo 'Never shift archived immunity masks or globally alter negative resistance based on wiki mapping.'
+          echo 'These tests detect upstream source drift; human Gameplay S6 and owner approval remain required.'
