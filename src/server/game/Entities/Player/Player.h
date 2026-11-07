@@ -3076,6 +3076,9 @@ private:
     bool _wasOutdoor;
 
     PlayerSettingMap m_charSettingsMap;
+    // A paid-expansion RAW settings row was malformed at login. Block even
+    // implicit GetPlayerSetting zero-initialisation until a reviewed repair.
+    bool m_preserveMalformedPaidSettingsRow = false;
 
     Seconds m_creationTime;
 
