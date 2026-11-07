@@ -54,6 +54,18 @@ void ScriptMgr::OnWorldObjectUpdate(WorldObject* object, uint32 diff)
     CALL_ENABLED_HOOKS(WorldObjectScript, WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE, script->OnWorldObjectUpdate(object, diff));
 }
 
+bool ScriptMgr::ShouldF14SuppressCreatureForViewer(
+    Player const* viewer, WorldObject const* creature)
+{
+    ASSERT(viewer && creature);
+    // Unwired F14 API preparation: when there is no registered positive
+    // script, this API always returns FALSE. No Player visibility caller,
+    // IP policy listener, or other activation is added in this draft.
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
+        script->OnF14ShouldSuppressCreatureForViewer(viewer, creature));
+}
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {
