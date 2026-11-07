@@ -28,6 +28,7 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_SET_MAP,
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_RESET_MAP,
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE,
+    WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
     WORLDOBJECTHOOK_END
 };
 
@@ -74,6 +75,13 @@ public:
      * @param diff Contains information about the diff time
      */
     virtual void OnWorldObjectUpdate(WorldObject* /*object*/, uint32 /*diff*/) { }
+
+    // Diagnostic/compatibility API preparation only: no call site exists in
+    // Player::UpdateVisibilityOf; no positive policy is installed by Core.
+    // Before any future caller may honor TRUE, require full viewer rights,
+    // verified rndbot attacker identity and exact creature restore ledger.
+    [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(
+        Player const* /*viewer*/, WorldObject const* /*creature*/) { return false; }
 };
 
 #endif
