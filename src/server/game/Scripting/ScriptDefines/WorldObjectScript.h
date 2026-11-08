@@ -31,6 +31,7 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE,
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
     WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
+    WORLDOBJECTHOOK_ON_F14_VIEWER_PLAYER_SUPPRESSION_QUERY,
     WORLDOBJECTHOOK_END
 };
 
@@ -92,6 +93,11 @@ public:
     [[nodiscard]] virtual bool OnF14ShouldExcludeWhoEntryForViewer(
         Player const* /*viewer*/, ObjectGuid const& /*targetGuid*/,
         uint32 /*cachedRace*/) { return false; }
+
+    // Source-only F14 per-viewer player actor query, default FALSE.
+    // Headless/race is NOT genuine RandomBot identity or IP era authority.
+    [[nodiscard]] virtual bool OnF14ShouldSuppressPlayerForViewer(
+        Player const* /*viewer*/, Player const* /*actor*/) { return false; }
 };
 
 #endif
