@@ -47,10 +47,16 @@ class DefaultFalseScriptAPIGuard(unittest.TestCase):
 
     def test_manager_dispatch_has_default_false_contract(self):
         self.assertEqual(self.cpp.count("bool ScriptMgr::ShouldF14SuppressCreatureForViewer("), 1)
-        self.assertEqual(self.cpp.count("CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE("), 1)
+        # The independent /who hook in the child is also default-FALSE;
+        # continue checking the ORIGINAL creature callback in isolation.
+        # Do not weaken the Core2 safety contract as APIs are appended.
+        creature_impl = self.cpp.split(
+            "bool ScriptMgr::ShouldF14SuppressCreatureForViewer(", 1
+        )[1].split("bool ScriptMgr::ShouldF14ExcludeWhoEntryForViewer(", 1)[0]
+        self.assertEqual(creature_impl.count("CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE("), 1)
         self.assertIn(
             "WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,",
-            self.cpp,
+            creature_impl,
         )
         self.assertIn("script->OnF14ShouldSuppressCreatureForViewer(viewer, creature)", self.cpp)
         self.assertIn("ASSERT(viewer && creature);", self.cpp)
