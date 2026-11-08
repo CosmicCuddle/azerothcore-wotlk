@@ -35,7 +35,8 @@ jobs:
             'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
             'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
             'docs/COSMIC_F14_WHO_GUID_SEAM_OFF_20261108.md' \
-            'tests/cosmic_f14_who/test_f14_who_guid_source.py' | sort >/tmp/expected
+            'tests/cosmic_f14_who/test_f14_who_guid_source.py' \
+            'tests/cosmic_f14_unwired_hook/test_f14_unwired_hook_source.py' | sort >/tmp/expected
           diff -u /tmp/expected /tmp/actual
           test -z "$(git diff --name-only "$parent" HEAD -- data/ conf/)"
       - name: New WHO default-FALSE source placement tests
