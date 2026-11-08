@@ -751,6 +751,10 @@ public: /* WorldObjectScript */
     [[nodiscard]] bool ShouldF14ExcludeWhoEntryForViewer(
         Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace);
 
+    // New player character client-viewer query, OFF absent compile macro.
+    [[nodiscard]] bool ShouldF14SuppressPlayerForViewer(
+        Player const* viewer, Player const* actor);
+
 public: /* PetScript */
 
     void OnPetAddToWorld(Pet* pet);
