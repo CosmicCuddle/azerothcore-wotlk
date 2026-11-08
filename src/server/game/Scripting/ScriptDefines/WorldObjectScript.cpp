@@ -58,9 +58,9 @@ bool ScriptMgr::ShouldF14SuppressCreatureForViewer(
     Player const* viewer, WorldObject const* creature)
 {
     ASSERT(viewer && creature);
-    // Unwired F14 API preparation: when there is no registered positive
-    // script, this API always returns FALSE. No Player visibility caller,
-    // IP policy listener, or other activation is added in this draft.
+    // No registered positive script: this API returns FALSE. The optional
+    // PlayerUpdates.cpp query call sites are compile-time OFF by default;
+    // Core alone supplies no creature-hiding policy or restoration events.
     CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
         WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
         script->OnF14ShouldSuppressCreatureForViewer(viewer, creature));
