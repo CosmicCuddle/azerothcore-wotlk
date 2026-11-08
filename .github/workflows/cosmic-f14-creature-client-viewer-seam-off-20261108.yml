@@ -1,0 +1,94 @@
+name: CosmicCuddle F14 Creature Client Viewer Query (OFF; SOURCE ONLY)
+on:
+  push:
+    branches:
+      - feature/cs01-f14-creature-client-viewer-seam-off-20261108
+  pull_request:
+    branches:
+      - feature/cs01-f14-unwired-creature-script-hook-20261107
+    paths:
+      - 'src/server/game/Entities/Player/PlayerUpdates.cpp'
+      - 'src/server/game/Entities/Player/F14CreatureClientVisibilityQuery.h'
+      - 'src/server/game/Scripting/ScriptMgr.h'
+      - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h'
+      - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp'
+      - 'tests/cosmic_f14/creature_client_viewer_query_policy.cpp'
+      - 'tests/cosmic_f14/test_creature_client_viewer_query_source.py'
+      - 'docs/COSMIC_F14_CREATURE_CLIENT_VIEWER_SEAM_OFF_20261108.md'
+      - '.github/workflows/cosmic-f14-creature-client-viewer-seam-off-20261108.yml'
+permissions:
+  contents: read
+
+jobs:
+  f14-inert-client-viewer-guards:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - name: Check out owner F14 review branch exactly
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require exact parent and only reviewed source/tests/docs paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=d2066943e19cd959de2a0e9897135573e4124219
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/actual-paths
+          printf '%s\n' \
+            '.github/workflows/cosmic-f14-creature-client-viewer-seam-off-20261108.yml' \
+            'src/server/game/Entities/Player/PlayerUpdates.cpp' \
+            'src/server/game/Entities/Player/F14CreatureClientVisibilityQuery.h' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'tests/cosmic_f14/creature_client_viewer_query_policy.cpp' \
+            'tests/cosmic_f14/test_creature_client_viewer_query_source.py' \
+            'docs/COSMIC_F14_CREATURE_CLIENT_VIEWER_SEAM_OFF_20261108.md' \
+            | sort > /tmp/expected-paths
+          diff -u /tmp/expected-paths /tmp/actual-paths
+          echo 'PASS F14 core creature-viewer query review is exactly scoped; no SQL/config/DBC/client changes'
+
+      - name: Protect both actual Player CREATE/OUT consumers and default-FALSE API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14 -p test_creature_client_viewer_query_source.py -v
+
+      - name: Compile and execute all 128 negative/ordinary NPC cases in 8 variants
+        shell: bash
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          for standard in c++17 c++20; do
+            for mode in normal ndebug; do
+              for macro in 0 1; do
+                flags=()
+                if [[ "$mode" == ndebug ]]; then flags+=(-DNDEBUG); fi
+                "$CXX" -std="$standard" -Wall -Wextra -Werror -pedantic \
+                  "${flags[@]}" \
+                  -DCOSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT="$macro" \
+                  tests/cosmic_f14/creature_client_viewer_query_policy.cpp -o /tmp/f14-client-query-guard
+                /tmp/f14-client-query-guard | tee /tmp/f14-query-guard-stdout
+                grep -q '^F14 CLIENT VIEWER POLICY 128/128 SAFE$' /tmp/f14-query-guard-stdout
+                echo "PASS ${CXX} ${standard} ${mode} macro=${macro}; PURE QUERY ONLY, NOT WORLDserver"
+              done
+            done
+          done
+
+      - name: State confidence limits truthfully
+        if: always()
+        run: |
+          echo 'NO owner PC, installed binary, MySQL, gameplay, WHO, RNDBOT first-birth proof or visible NPC hide tested'
+          echo 'Macro is undefined by default and no registered positive suppression script exists'
+          echo 'Not a gameplay fix: rights, prior-hidden restoration, reliable map-thread client refresh still missing'
+          echo 'Do not merge, enable F14 positive concealment, run owner SQL cleanups, install or deploy'
