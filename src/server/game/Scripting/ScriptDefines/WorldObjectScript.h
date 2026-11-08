@@ -19,6 +19,7 @@
 #define SCRIPT_OBJECT_WORLD_OBJECT_SCRIPT_H_
 
 #include "ScriptObject.h"
+#include "ObjectGuid.h"
 #include <vector>
 
 enum WorldObjectHook
@@ -29,6 +30,7 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_RESET_MAP,
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE,
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
+    WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
     WORLDOBJECTHOOK_END
 };
 
@@ -83,6 +85,13 @@ public:
     // and exact creature restore ledger; this hook must not be enabled alone.
     [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(
         Player const* /*viewer*/, WorldObject const* /*creature*/) { return false; }
+
+    // Cached /who GUID is NOT authentication. This intentionally returns FALSE
+    // absent a future, separate, verified headless-RNDBOT-only IP listener.
+    // Real humans, Altbots, GMs and eligible TBC+ viewers stay visible.
+    [[nodiscard]] virtual bool OnF14ShouldExcludeWhoEntryForViewer(
+        Player const* /*viewer*/, ObjectGuid const& /*targetGuid*/,
+        uint32 /*cachedRace*/) { return false; }
 };
 
 #endif
