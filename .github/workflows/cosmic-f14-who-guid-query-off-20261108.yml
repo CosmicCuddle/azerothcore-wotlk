@@ -1,0 +1,52 @@
+name: CosmicCuddle F14 WHO GUID query OFF (source only)
+on:
+  push:
+    branches:
+      - feature/cs01-f14-who-guid-query-off-20261108
+  pull_request:
+    branches:
+      - feature/cs01-f14-creature-client-viewer-seam-off-20261108
+permissions:
+  contents: read
+jobs:
+  default-off-who-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact proposed head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact Core4 parent and only approved eight paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=4e0a3452ea50299e9a80cb250927417d3cc4b652
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/cosmic-f14-who-guid-query-off-20261108.yml' \
+            'src/server/game/Handlers/MiscHandler.cpp' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'docs/COSMIC_F14_WHO_GUID_SEAM_OFF_20261108.md' \
+            'tests/cosmic_f14_who/test_f14_who_guid_source.py' | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- data/ conf/)"
+      - name: New WHO default-FALSE source placement tests
+        run: python3 -B -m unittest discover -s tests/cosmic_f14_who -p test_f14_who_guid_source.py -v
+      - name: Preserve inherited Core2 and Core4 default-OFF API tests
+        run: |
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook -p test_f14_unwired_hook_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14 -p test_creature_client_viewer_query_source.py -v
+      - name: State critical evidence boundary
+        if: always()
+        run: |
+          echo 'Source-only: NO WHO gameplay, real client packet, native worldserver ABI, DB birth receipt or RNDBOT positive identity proof'
+          echo 'OFF by default, no script returns TRUE, no actual suppression, no owner host operation'
+          echo 'Do not merge, deploy, enable F14, modify SQL or run on live server'
