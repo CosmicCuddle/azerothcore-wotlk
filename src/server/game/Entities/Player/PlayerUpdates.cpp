@@ -22,6 +22,7 @@
 #include "ChannelMgr.h"
 #include "Formulas.h"
 #include "F14CreatureClientVisibilityQuery.h"
+#include "F14PlayerClientVisibilityQuery.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
 #include "Group.h"
@@ -1738,6 +1739,41 @@ static bool IsF14CreatureSuppressedFromClientView(
 #endif
 }
 
+// F14 player-character client CREATE/OUT query ONLY; not an interaction,
+// combat or global phase restriction. No positive listener is registered.
+// A race-10/11 headless Player can still be an Altbot; future IP policy must
+// independently prove actual RNDBOT identity and observer's Vanilla stage.
+static bool IsF14PlayerSuppressedFromClientView(
+    Player const* viewer, WorldObject const* target)
+{
+#if defined(COSMIC_F14_PLAYER_CLIENT_VIEWER_QUERY_EXPERIMENT) && COSMIC_F14_PLAYER_CLIENT_VIEWER_QUERY_EXPERIMENT >= 1
+    if (!viewer || !target || !target->IsPlayer())
+        return false;
+
+    Player const* actor = target->ToPlayer();
+    if (!actor || !viewer->GetSession() || !actor->GetSession())
+        return false;
+
+    using CosmicF14PlayerClientVisibilityQuery::Candidate;
+    using CosmicF14PlayerClientVisibilityQuery::MayAskScript;
+    Candidate const c {
+        true,
+        actor == viewer,
+        viewer->IsGameMaster(),
+        viewer->GetSession()->IsHeadless(),
+        actor->GetSession()->IsHeadless(),
+        actor->getRace() == RACE_BLOODELF || actor->getRace() == RACE_DRAENEI,
+        actor->IsGameMaster()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressPlayerForViewer(viewer, actor);
+#else
+    (void)viewer;
+    (void)target;
+    return false;
+#endif
+}
+
 template <class T>
 void Player::UpdateVisibilityOf(T* target, UpdateData& data,
                                 std::vector<Unit*>& visibleNow)
@@ -1747,7 +1783,8 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
     if (HaveAtClient(target))
     {
         if (!CanSeeOrDetect(target, false, true) ||
-            IsF14CreatureSuppressedFromClientView(this, target))
+            IsF14CreatureSuppressedFromClientView(this, target) ||
+            IsF14PlayerSuppressedFromClientView(this, target))
         {
             BeforeVisibilityDestroy<T>(target, this);
 
@@ -1758,7 +1795,8 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
     else
     {
         if (CanSeeOrDetect(target, false, true) &&
-            !IsF14CreatureSuppressedFromClientView(this, target))
+            !IsF14CreatureSuppressedFromClientView(this, target) &&
+            !IsF14PlayerSuppressedFromClientView(this, target))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);
             UpdateVisibilityOf_helper(this, target, visibleNow);
@@ -1782,7 +1820,8 @@ void Player::UpdateVisibilityOf(WorldObject* target)
     if (HaveAtClient(target))
     {
         if (!CanSeeOrDetect(target, false, true) ||
-            IsF14CreatureSuppressedFromClientView(this, target))
+            IsF14CreatureSuppressedFromClientView(this, target) ||
+            IsF14PlayerSuppressedFromClientView(this, target))
         {
             if (target->IsCreature())
                 BeforeVisibilityDestroy<Creature>(target->ToCreature(), this);
@@ -1794,7 +1833,8 @@ void Player::UpdateVisibilityOf(WorldObject* target)
     else
     {
         if (CanSeeOrDetect(target, false, true) &&
-            !IsF14CreatureSuppressedFromClientView(this, target))
+            !IsF14CreatureSuppressedFromClientView(this, target) &&
+            !IsF14PlayerSuppressedFromClientView(this, target))
         {
             target->SendUpdateToPlayer(this);
             GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
