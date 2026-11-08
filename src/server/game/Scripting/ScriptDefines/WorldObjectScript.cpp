@@ -80,6 +80,16 @@ bool ScriptMgr::ShouldF14ExcludeWhoEntryForViewer(
         script->OnF14ShouldExcludeWhoEntryForViewer(viewer, targetGuid, cachedRace));
 }
 
+bool ScriptMgr::ShouldF14SuppressPlayerForViewer(
+    Player const* viewer, Player const* actor)
+{
+    ASSERT(viewer && actor);
+    // No positive IP/RandomBot policy is registered in this Core draft.
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_PLAYER_SUPPRESSION_QUERY,
+        script->OnF14ShouldSuppressPlayerForViewer(viewer, actor));
+}
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {
