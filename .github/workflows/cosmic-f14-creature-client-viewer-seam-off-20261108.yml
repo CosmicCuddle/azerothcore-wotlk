@@ -12,6 +12,8 @@ on:
       - 'src/server/game/Scripting/ScriptMgr.h'
       - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h'
       - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp'
+      - 'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md'
+      - 'tests/cosmic_f14_unwired_hook/test_f14_unwired_hook_source.py'
       - 'tests/cosmic_f14/creature_client_viewer_query_policy.cpp'
       - 'tests/cosmic_f14/test_creature_client_viewer_query_source.py'
       - 'docs/COSMIC_F14_CREATURE_CLIENT_VIEWER_SEAM_OFF_20261108.md'
@@ -50,6 +52,8 @@ jobs:
             'src/server/game/Scripting/ScriptMgr.h' \
             'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
             'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'tests/cosmic_f14_unwired_hook/test_f14_unwired_hook_source.py' \
             'tests/cosmic_f14/creature_client_viewer_query_policy.cpp' \
             'tests/cosmic_f14/test_creature_client_viewer_query_source.py' \
             'docs/COSMIC_F14_CREATURE_CLIENT_VIEWER_SEAM_OFF_20261108.md' \
@@ -62,6 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s tests/cosmic_f14 -p test_creature_client_viewer_query_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook -p test_f14_unwired_hook_source.py -v
 
       - name: Compile and execute all 128 negative/ordinary NPC cases in 8 variants
         shell: bash
