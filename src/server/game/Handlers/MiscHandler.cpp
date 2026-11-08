@@ -388,6 +388,20 @@ void WorldSession::HandleWhoOpcode(WorldPacket& recvData)
             continue;
         }
 
+        // F14 /who client-list query. OFF in all ordinary builds and NO positive
+        // script exists. Exact cached GUID is only a lookup key: a future
+        // positive listener MUST independently prove genuine headless RNDBOT
+        // identity and the human observer's effective Vanilla era. Never infer
+        // identity from this cached race, level, name or account alone.
+        // Deliberately before matchCount++ so the two SMSG_WHO counts agree.
+#if defined(COSMIC_F14_WHO_GUID_QUERY_EXPERIMENT) && COSMIC_F14_WHO_GUID_QUERY_EXPERIMENT >= 1
+        if (AccountMgr::IsPlayerAccount(GetSecurity()) && !_player->IsGameMaster() &&
+            !target.GetGuid().IsEmpty() && target.GetGuid() != _player->GetGUID() &&
+            (race == RACE_BLOODELF || race == RACE_DRAENEI) &&
+            sScriptMgr->ShouldF14ExcludeWhoEntryForViewer(_player, target.GetGuid(), race))
+            continue;
+#endif
+
         // 49 is maximum player count sent to client - can be overridden
         // through config, but is unstable
         if ((matchCount++) >= sWorld->getIntConfig(CONFIG_MAX_WHO_LIST_RETURN))

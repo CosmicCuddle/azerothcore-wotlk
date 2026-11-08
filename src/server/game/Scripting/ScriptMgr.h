@@ -746,6 +746,11 @@ public: /* WorldObjectScript */
     [[nodiscard]] bool ShouldF14SuppressCreatureForViewer(
         Player const* viewer, WorldObject const* creature);
 
+    // Experimental /who GUID exclusion. The handler only calls this when
+    // COSMIC_F14_WHO_GUID_QUERY_EXPERIMENT is enabled. Defaults FALSE.
+    [[nodiscard]] bool ShouldF14ExcludeWhoEntryForViewer(
+        Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace);
+
 public: /* PetScript */
 
     void OnPetAddToWorld(Pet* pet);
