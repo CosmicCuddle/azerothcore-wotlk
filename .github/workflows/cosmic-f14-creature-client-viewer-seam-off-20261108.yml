@@ -5,7 +5,7 @@ on:
       - feature/cs01-f14-creature-client-viewer-seam-off-20261108
   pull_request:
     branches:
-      - feature/cs01-f14-unwired-creature-script-hook-20261107
+      - feature/cs01-f14-unwired-suppression-hook-default-false-20261107
     paths:
       - 'src/server/game/Entities/Player/PlayerUpdates.cpp'
       - 'src/server/game/Entities/Player/F14CreatureClientVisibilityQuery.h'
