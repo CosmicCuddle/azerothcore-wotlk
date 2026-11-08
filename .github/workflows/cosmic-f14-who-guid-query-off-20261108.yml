@@ -19,7 +19,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify exact Core4 parent and only approved eight paths
+      - name: Verify exact Core4 parent and only approved nine paths
         shell: bash
         run: |
           set -euo pipefail
