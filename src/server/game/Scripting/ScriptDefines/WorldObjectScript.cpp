@@ -66,6 +66,20 @@ bool ScriptMgr::ShouldF14SuppressCreatureForViewer(
         script->OnF14ShouldSuppressCreatureForViewer(viewer, creature));
 }
 
+bool ScriptMgr::ShouldF14ExcludeWhoEntryForViewer(
+    Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace)
+{
+    ASSERT(viewer);
+    if (targetGuid.IsEmpty())
+        return false;
+
+    // Never trust a race-10/11 WHO cache entry as proof of RNDBOT origin.
+    // There is no positive listener; normal compilation never calls this.
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
+        script->OnF14ShouldExcludeWhoEntryForViewer(viewer, targetGuid, cachedRace));
+}
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {
