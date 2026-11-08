@@ -76,10 +76,11 @@ public:
      */
     virtual void OnWorldObjectUpdate(WorldObject* /*object*/, uint32 /*diff*/) { }
 
-    // Diagnostic/compatibility API preparation only: no call site exists in
-    // Player::UpdateVisibilityOf; no positive policy is installed by Core.
-    // Before any future caller may honor TRUE, require full viewer rights,
-    // verified rndbot attacker identity and exact creature restore ledger.
+    // Diagnostic/compatibility API preparation: only the compile-time-OFF
+    // Player::UpdateVisibilityOf experiment may consult this hook.
+    // No positive IP policy listener is installed by Core. Before allowing
+    // TRUE, require complete viewer rights, verified RNDBOT attacker identity
+    // and exact creature restore ledger; this hook must not be enabled alone.
     [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(
         Player const* /*viewer*/, WorldObject const* /*creature*/) { return false; }
 };

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Core fork: F14 default-FALSE SCRIPT API, NEVER called by visibility code.
+"""Core fork: F14 default-FALSE SCRIPT API, only compile-time-OFF visibility consumer.
 
 Source contracts only. This is not a compile, gameplay, client or SQL test.
 No feature may be enabled by this draft.
@@ -64,14 +64,26 @@ class DefaultFalseScriptAPIGuard(unittest.TestCase):
         self.assertIn("if (action) return true;", body)
         self.assertEqual(body.count("return false;"), 2)
 
-    def test_no_active_visibility_or_packet_call_site(self):
-        # Critical: adding an API does NOT wire it to Player's two visibility
-        # pathways, even for real Blood Elf/Draenei human actors.
-        for name, source in (("PlayerUpdates", self.updates), ("WorldObject", self.view)):
-            with self.subTest(name=name):
-                self.assertNotIn("ShouldF14SuppressCreatureForViewer", source)
-                self.assertNotIn("f14PositiveSuppression", source)
-                self.assertNotIn("F14BeforeCreatureSuppression", source)
+    def test_no_active_query_in_normal_build_or_generic_world_detection(self):
+        # Core #4 intentionally consumes this script API at both Player
+        # client CREATE/OUT paths, but ONLY inside a compile-time-OFF block.
+        # The old Core #2 "no caller exists" assertion is superseded.
+        self.assertEqual(
+            self.updates.count("IsF14CreatureSuppressedFromClientView(this, target)"), 4
+        )
+        self.assertIn(
+            "#if defined(COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT) && "
+            "COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT >= 1",
+            self.updates
+        )
+        self.assertIn(
+            "sScriptMgr->ShouldF14SuppressCreatureForViewer(viewer, creature)",
+            self.updates
+        )
+        self.assertIn("(void)target;\n    return false;\n#endif", self.updates)
+        self.assertNotIn("ShouldF14SuppressCreatureForViewer", self.view)
+        self.assertNotIn("f14PositiveSuppression", self.view)
+        self.assertNotIn("F14BeforeCreatureSuppression", self.view)
         self.assertNotIn("OnF14CreatureSuppressionDecision", self.cpp)
         self.assertNotIn("SendUpdateToPlayer(", self.cpp)
 

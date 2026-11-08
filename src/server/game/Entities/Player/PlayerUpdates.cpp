@@ -21,6 +21,7 @@
 #include "Channel.h"
 #include "ChannelMgr.h"
 #include "Formulas.h"
+#include "F14CreatureClientVisibilityQuery.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
 #include "Group.h"
@@ -1698,6 +1699,45 @@ inline void BeforeVisibilityDestroy<Creature>(Creature* t, Player* p)
         ((Pet*) t)->Remove(PET_SAVE_NOT_IN_SLOT, true);
 }
 
+// F14 CLIENT-VISIBILITY SEAM ONLY; compiled inert on every normal build.
+// This is *not* a general CanSeeOrDetect/combat filter. A future caller may
+// only request creature suppression after positive PB actor proof and IP's
+// full independent human tap/quest/loot/assist/pet rights + restore ledger.
+// Do not enable the experimental macro on a live or test server from this
+// PR. Even with the macro explicitly set, Core's script query returns FALSE
+// unless an independently reviewed, registered implementation says TRUE.
+static bool IsF14CreatureSuppressedFromClientView(
+    Player const* viewer, WorldObject const* target)
+{
+#if defined(COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT) && COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT >= 1
+    if (!viewer || !target || !target->IsCreature())
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature)
+        return false;
+
+    using CosmicF14CreatureClientVisibilityQuery::Candidate;
+    using CosmicF14CreatureClientVisibilityQuery::MayAskScript;
+
+    Candidate const c {
+        true,
+        viewer->IsGameMaster(),
+        bool(creature->GetCharmerOrOwnerGUID()),
+        creature->IsPet(),
+        creature->IsSummon(),
+        creature->IsGuardian(),
+        creature->IsTotem()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressCreatureForViewer(viewer, creature);
+#else
+    (void)viewer;
+    (void)target;
+    return false;
+#endif
+}
+
 template <class T>
 void Player::UpdateVisibilityOf(T* target, UpdateData& data,
                                 std::vector<Unit*>& visibleNow)
@@ -1706,7 +1746,8 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
 
     if (HaveAtClient(target))
     {
-        if (!CanSeeOrDetect(target, false, true))
+        if (!CanSeeOrDetect(target, false, true) ||
+            IsF14CreatureSuppressedFromClientView(this, target))
         {
             BeforeVisibilityDestroy<T>(target, this);
 
@@ -1716,7 +1757,8 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
     }
     else
     {
-        if (CanSeeOrDetect(target, false, true))
+        if (CanSeeOrDetect(target, false, true) &&
+            !IsF14CreatureSuppressedFromClientView(this, target))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);
             UpdateVisibilityOf_helper(this, target, visibleNow);
@@ -1739,7 +1781,8 @@ void Player::UpdateVisibilityOf(WorldObject* target)
 {
     if (HaveAtClient(target))
     {
-        if (!CanSeeOrDetect(target, false, true))
+        if (!CanSeeOrDetect(target, false, true) ||
+            IsF14CreatureSuppressedFromClientView(this, target))
         {
             if (target->IsCreature())
                 BeforeVisibilityDestroy<Creature>(target->ToCreature(), this);
@@ -1750,7 +1793,8 @@ void Player::UpdateVisibilityOf(WorldObject* target)
     }
     else
     {
-        if (CanSeeOrDetect(target, false, true))
+        if (CanSeeOrDetect(target, false, true) &&
+            !IsF14CreatureSuppressedFromClientView(this, target))
         {
             target->SendUpdateToPlayer(this);
             GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
