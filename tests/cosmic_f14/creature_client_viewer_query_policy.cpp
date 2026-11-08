@@ -42,7 +42,11 @@ int main()
             bool(bits & 64)
         };
         bool const expected = bits == 1;
-        assert(P::MayAskScript(current) == expected);
+        if (P::MayAskScript(current) != expected)
+        {
+            std::fprintf(stderr, "F14 safe query precondition mismatch at case %u\\n", bits);
+            return 1;
+        }
         ++checked;
     }
     std::printf("F14 CLIENT VIEWER POLICY 128/128 SAFE\n");
