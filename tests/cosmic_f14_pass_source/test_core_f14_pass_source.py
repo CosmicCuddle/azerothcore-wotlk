@@ -18,7 +18,11 @@ class CoreF14PassSource(unittest.TestCase):
         self.assertIn("i_visibleNow.clear();", h)
         self.assertIn("UpdateData i_data;", h)
         self.assertNotIn("F14VisibilityPassToken", h)
-        self.assertNotIn("~VisibleNotifier", h)
+        # Core8 adds an opt-in-only stack destructor to close a real pass.
+        # The original Core7 absence assertion must evolve, not disappear.
+        self.assertIn("~VisibleNotifier();", h)
+        self.assertIn("COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT", h)
+        self.assertIn("BeginF14NotifierPass();", h)
 
     def test_visits_receive_same_visitor_by_reference(self):
         h = source("src/server/game/Grids/Cells/Cell.h")
