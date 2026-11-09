@@ -755,6 +755,14 @@ public: /* WorldObjectScript */
     [[nodiscard]] bool ShouldF14SuppressPlayerForViewer(
         Player const* viewer, Player const* actor);
 
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+    // No client ACK and no per-creature/GUID signal; never use these as
+    // evidence that a previously-hidden world object was restored.
+    void OnF14ViewerVisibilityPassBegin(Player const* viewer, uint64 token);
+    void OnF14ViewerVisibilityPassBatchSendAttempt(Player const* viewer, uint64 token);
+    void OnF14ViewerVisibilityPassEnd(Player const* viewer, uint64 token);
+#endif
+
 public: /* PetScript */
 
     void OnPetAddToWorld(Pet* pet);
