@@ -46,11 +46,21 @@ namespace Acore
         std::vector<Unit*>& i_visibleNow;
         bool i_gobjOnly;
         UpdateData i_data;
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+        // Stack notifier is the sole owner of the token. No cached Player
+        // pointer, no client/creature GUID tag, and NO positive visibility.
+        uint64 _f14PassToken = 0;
+        void BeginF14NotifierPass();
+        ~VisibleNotifier();
+#endif
 
         VisibleNotifier(Player& player, bool gobjOnly) :
             i_player(player), i_visibleNow(player.m_newVisible), i_gobjOnly(gobjOnly)
         {
             i_visibleNow.clear();
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+            BeginF14NotifierPass(); // before any near/far and zone-wide scan.
+#endif
         }
 
         void Visit(GameObjectMapType&);
