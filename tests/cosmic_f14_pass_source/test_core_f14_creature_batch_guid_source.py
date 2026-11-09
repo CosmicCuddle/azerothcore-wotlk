@@ -51,7 +51,13 @@ class Core9RealCreatureBatchEvidence(unittest.TestCase):
         self.assertIn("F14RecordCreatureBatchCandidate(", h)
         self.assertIn("_f14CreatureCandidates.Record(creatureGuid, direction)", h)
         self.assertIn("F14CreatureCandidatesPoisoned()", h)
+        self.assertIn("CompatibleWithRealOutGuids(m_outOfRangeGUIDs)", h)
         self.assertIn("F14CreatureBatchCandidates()", h)
+        real_ledger = read(
+            "src/server/game/Entities/Object/Updates/F14CreatureBatchGuidCandidateLedger.h")
+        self.assertIn("CompatibleWithRealOutGuids(std::vector<Guid> const& outGuids)", real_ledger)
+        self.assertIn("candidate.direction == CreatureBatchDirection::Create && count != 0", real_ledger)
+        self.assertIn("candidate.direction == CreatureBatchDirection::OutOfRange && count != 1", real_ledger)
         self.assertIn("_f14CreatureCandidates.Poison();", cpp)
         self.assertIn("_f14CreatureCandidates.Clear();", cpp)
         start=cpp.index("bool UpdateData::BuildPacket(WorldPacket& packet)")
