@@ -118,6 +118,19 @@ void ScriptMgr::OnF14ViewerVisibilityPassEnd(Player const* viewer, uint64 token)
 }
 #endif
 
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+void ScriptMgr::OnF14ViewerCreatureBatchGuidSendAttempt(
+    Player const* viewer, ObjectGuid const& creatureGuid, bool isCreate, uint64 token)
+{
+    ASSERT(viewer && !creatureGuid.IsEmpty() && token);
+    // This is after ONE batch SendDirectMessage CALL. The nominated GUID was
+    // in the serialized UpdateData, but no client has ACKed or restored it.
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_BATCH_GUID_SEND_ATTEMPT,
+        script->OnF14ViewerCreatureBatchGuidSendAttempt(viewer, creatureGuid, isCreate, token));
+}
+#endif
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {

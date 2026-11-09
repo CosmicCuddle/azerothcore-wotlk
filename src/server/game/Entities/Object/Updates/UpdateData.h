@@ -21,6 +21,10 @@
 #include "ByteBuffer.h"
 #include "ObjectGuid.h"
 
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+#include "F14CreatureBatchGuidCandidateLedger.h"
+#endif
+
 class WorldPacket;
 
 enum OBJECT_UPDATE_TYPE
@@ -60,9 +64,33 @@ public:
     [[nodiscard]] bool HasData() const { return m_blockCount > 0 || !m_outOfRangeGUIDs.empty(); }
     void Clear();
 
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    // Metadata SIDE-CAR ONLY: not serialized into SMSG_UPDATE_OBJECT.
+    // Only actual Player::UpdateVisibilityOf<T> creature CREATE/OUT writes may
+    // nominate a GUID. Existing unconditional AddOutOfRangeGUID callers are
+    // intentionally NOT attributed to F14. Unknown => no evidence.
+    void F14RecordCreatureBatchCandidate(
+        ObjectGuid const& creatureGuid, CosmicF14::CreatureBatchDirection direction)
+    {
+        _f14CreatureCandidates.Record(creatureGuid, direction);
+    }
+    // Include the older independent generic OUT list in the same real
+    // packet. A CREATE+OUT for one GUID, or a duplicate OUT, is not evidence.
+    bool F14CreatureCandidatesPoisoned() const
+    {
+        return _f14CreatureCandidates.Poisoned() ||
+            !_f14CreatureCandidates.CompatibleWithRealOutGuids(m_outOfRangeGUIDs);
+    }
+    std::vector<CosmicF14::CreatureBatchGuidCandidateLedger<ObjectGuid>::Candidate> const&
+    F14CreatureBatchCandidates() const { return _f14CreatureCandidates.Entries(); }
+#endif
+
 protected:
     uint32 m_blockCount;
     GuidVector m_outOfRangeGUIDs;
     ByteBuffer m_data;
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    CosmicF14::CreatureBatchGuidCandidateLedger<ObjectGuid> _f14CreatureCandidates;
+#endif
 };
 #endif

@@ -37,6 +37,9 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BATCH_SEND_ATTEMPT,
     WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_END,
 #endif
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_BATCH_GUID_SEND_ATTEMPT,
+#endif
     WORLDOBJECTHOOK_END
 };
 
@@ -111,6 +114,16 @@ public:
     virtual void OnF14ViewerVisibilityPassBegin(Player const* /*viewer*/, uint64 /*token*/) { }
     virtual void OnF14ViewerVisibilityPassBatchSendAttempt(Player const* /*viewer*/, uint64 /*token*/) { }
     virtual void OnF14ViewerVisibilityPassEnd(Player const* /*viewer*/, uint64 /*token*/) { }
+#endif
+
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    // Synchronous, event-only per-NONOWNED-creature GUID from a real batch.
+    // isCreate=true means a CREATE block was appended; false = OUT block.
+    // Token was born in the actual VisibleNotifier. This is a packet send
+    // CALL, never network delivery, client ACK or restoration clearance.
+    virtual void OnF14ViewerCreatureBatchGuidSendAttempt(
+        Player const* /*viewer*/, ObjectGuid const& /*creatureGuid*/,
+        bool /*isCreate*/, uint64 /*passToken*/) { }
 #endif
 };
 

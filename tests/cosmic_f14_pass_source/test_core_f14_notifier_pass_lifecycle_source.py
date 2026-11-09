@@ -83,7 +83,14 @@ class Core8NotifierPassSource(unittest.TestCase):
         self.assertIn("target->SendUpdateToPlayer(this);", direct)
         self.assertNotIn("VisibleNotifier", direct)
         self.assertNotIn(MACRO, direct)
-        self.assertEqual(player, old("src/server/game/Entities/Player/PlayerUpdates.cpp"))
+        # Core9 adds ONLY compile-disabled exact batched creature metadata.
+        # Preserve the complete direct overload byte-for-byte, not merely
+        # a keyword absence, and keep the existing relocation source exact.
+        original = old("src/server/game/Entities/Player/PlayerUpdates.cpp")
+        olderStart = original.index("void Player::UpdateVisibilityOf(WorldObject* target)")
+        olderEnd = original.index("void Player::UpdateTriggerVisibility()", olderStart)
+        self.assertEqual(direct, original[olderStart:olderEnd])
+        self.assertIn("COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT", player)
         self.assertEqual(unit, old("src/server/game/Entities/Unit/Unit.cpp"))
 
     def test_real_script_hook_registration_and_no_positive_listener(self):
