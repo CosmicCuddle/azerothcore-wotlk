@@ -49,6 +49,29 @@ public:
         return true;
     }
 
+    // Real UpdateData may collect an OUT GUID via the independent legacy
+    // VisibleNotifier::SendToSelf sweep, not just BuildOutOfRangeUpdateBlock.
+    // Never attribute CREATE if the same GUID is also OUT in that packet;
+    // require exactly ONE real OUT entry for an OUT nomination. If any
+    // candidate conflicts, suppress ALL packet evidence, never just one.
+    bool CompatibleWithRealOutGuids(std::vector<Guid> const& outGuids) const
+    {
+        if (_poisoned)
+            return false;
+        for (Candidate const& candidate : _entries)
+        {
+            std::size_t count = 0;
+            for (Guid const& outGuid : outGuids)
+                if (outGuid == candidate.guid)
+                    ++count;
+            if (candidate.direction == CreatureBatchDirection::Create && count != 0)
+                return false;
+            if (candidate.direction == CreatureBatchDirection::OutOfRange && count != 1)
+                return false;
+        }
+        return true;
+    }
+
     void Poison()
     {
         _poisoned = true;
