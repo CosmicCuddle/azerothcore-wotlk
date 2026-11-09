@@ -43,6 +43,12 @@ void UpdateData::AddUpdateBlock(UpdateData const& block)
 {
     m_data.append(block.m_data);
     m_blockCount += block.m_blockCount;
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    // A merged packet may contain independent creature blocks for which the
+    // sidecar has no proof. Invalidate the ENTIRE candidate batch; never
+    // emit selected per-GUID evidence from an incompletely attributed merge.
+    _f14CreatureCandidates.Poison();
+#endif
 }
 
 bool UpdateData::BuildPacket(WorldPacket& packet)
@@ -73,4 +79,7 @@ void UpdateData::Clear()
     m_data.clear();
     m_outOfRangeGUIDs.clear();
     m_blockCount = 0;
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    _f14CreatureCandidates.Clear();
+#endif
 }
