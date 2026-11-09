@@ -1774,6 +1774,25 @@ static bool IsF14PlayerSuppressedFromClientView(
 #endif
 }
 
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) || COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT < 1
+#error "F14 per-creature batch evidence needs a genuine Core notifier pass token"
+#endif
+// Metadata candidate, NOT concealment authority. Never nominate controlled
+// creatures (pets, guardians, totems, summons, charmed/owned entities) or a
+// non-creature WorldObject. No global unit, combat or quest state is changed.
+static bool F14EligibleUncontrolledCreatureBatchCandidate(WorldObject const* target)
+{
+    if (!target || !target->IsCreature())
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    return creature && !creature->GetCharmerOrOwnerGUID() &&
+        !creature->IsPet() && !creature->IsGuardian() &&
+        !creature->IsSummon() && !creature->IsTotem();
+}
+#endif
+
 template <class T>
 void Player::UpdateVisibilityOf(T* target, UpdateData& data,
                                 std::vector<Unit*>& visibleNow)
@@ -1789,6 +1808,13 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
             BeforeVisibilityDestroy<T>(target, this);
 
             target->BuildOutOfRangeUpdateBlock(&data);
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+            // Real batch OUT block appended. A later send-call can only
+            // report its candidate GUID; no client delivery/ACK is proven.
+            if (F14EligibleUncontrolledCreatureBatchCandidate(target))
+                data.F14RecordCreatureBatchCandidate(
+                    target->GetGUID(), CosmicF14::CreatureBatchDirection::OutOfRange);
+#endif
             GetObjectVisibilityContainer().UnlinkWorldObjectVisibility(target);
         }
     }
@@ -1799,6 +1825,12 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
             !IsF14PlayerSuppressedFromClientView(this, target))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+            // Real batch CREATE block appended, not yet a client receipt.
+            if (F14EligibleUncontrolledCreatureBatchCandidate(target))
+                data.F14RecordCreatureBatchCandidate(
+                    target->GetGUID(), CosmicF14::CreatureBatchDirection::Create);
+#endif
             UpdateVisibilityOf_helper(this, target, visibleNow);
         }
     }
