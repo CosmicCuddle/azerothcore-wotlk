@@ -74,7 +74,13 @@ public:
     {
         _f14CreatureCandidates.Record(creatureGuid, direction);
     }
-    bool F14CreatureCandidatesPoisoned() const { return _f14CreatureCandidates.Poisoned(); }
+    // Include the older independent generic OUT list in the same real
+    // packet. A CREATE+OUT for one GUID, or a duplicate OUT, is not evidence.
+    bool F14CreatureCandidatesPoisoned() const
+    {
+        return _f14CreatureCandidates.Poisoned() ||
+            !_f14CreatureCandidates.CompatibleWithRealOutGuids(m_outOfRangeGUIDs);
+    }
     std::vector<CosmicF14::CreatureBatchGuidCandidateLedger<ObjectGuid>::Candidate> const&
     F14CreatureBatchCandidates() const { return _f14CreatureCandidates.Entries(); }
 #endif
