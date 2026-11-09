@@ -91,7 +91,7 @@ class Core9RealCreatureBatchEvidence(unittest.TestCase):
         # the 3 new, compile-disabled sections: helper + after OUT + CREATE.
         new=cpp
         start=new.index("#if defined("+MACRO+")")
-        stop=new.index("#endif\n\ntemplate <class T>",start)+len("#endif\n")
+        stop=new.index("#endif\n\ntemplate <class T>",start)+len("#endif\n\n")
         new=new[:start]+new[stop:]
         for direction in ("OutOfRange", "Create"):
             marker="CosmicF14::CreatureBatchDirection::"+direction
