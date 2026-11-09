@@ -32,6 +32,11 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
     WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
     WORLDOBJECTHOOK_ON_F14_VIEWER_PLAYER_SUPPRESSION_QUERY,
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+    WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BEGIN,
+    WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BATCH_SEND_ATTEMPT,
+    WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_END,
+#endif
     WORLDOBJECTHOOK_END
 };
 
@@ -98,6 +103,15 @@ public:
     // Headless/race is NOT genuine RandomBot identity or IP era authority.
     [[nodiscard]] virtual bool OnF14ShouldSuppressPlayerForViewer(
         Player const* /*viewer*/, Player const* /*actor*/) { return false; }
+
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+    // These are SYNCHRONOUS batch-stack lifetime signals only, NOT per-GUID
+    // creature nominations, network delivery, client ACK or hide authorization.
+    // Never store the Player* or mark a hidden NPC restored from these alone.
+    virtual void OnF14ViewerVisibilityPassBegin(Player const* /*viewer*/, uint64 /*token*/) { }
+    virtual void OnF14ViewerVisibilityPassBatchSendAttempt(Player const* /*viewer*/, uint64 /*token*/) { }
+    virtual void OnF14ViewerVisibilityPassEnd(Player const* /*viewer*/, uint64 /*token*/) { }
+#endif
 };
 
 #endif
