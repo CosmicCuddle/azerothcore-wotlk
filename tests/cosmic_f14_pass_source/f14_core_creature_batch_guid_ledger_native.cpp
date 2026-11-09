@@ -20,6 +20,16 @@ int main()
           "create exactly attached");
     check(a.Entries()[1].guid == 20 && a.Entries()[1].direction == Dir::OutOfRange,
           "out exactly attached");
+    check(a.CompatibleWithRealOutGuids({20}),
+          "exact one OUT for nominated OUT and none for nominated CREATE");
+    check(!a.CompatibleWithRealOutGuids({}),
+          "missing real OUT list cannot establish nominated OUT");
+    check(!a.CompatibleWithRealOutGuids({20, 20}),
+          "duplicate real OUT must invalidate all F14 evidence");
+    check(!a.CompatibleWithRealOutGuids({20, 10}),
+          "generic OUT for an intended CREATE is an ambiguity");
+    check(a.CompatibleWithRealOutGuids({20, 30}),
+          "unrelated generic OUT does not imply nominated creature GUID");
     check(!a.Record(10, Dir::OutOfRange), "same GUID contradictory direction refused");
     check(a.Poisoned() && a.Entries().empty(), "ambiguity poisons entire packet");
     check(!a.Record(30, Dir::Create), "poison permanent until explicit reset");
@@ -27,6 +37,8 @@ int main()
     a.Clear();
     check(!a.Poisoned() && a.Entries().empty(), "explicit clear resets ledger");
     check(a.Record(10, Dir::OutOfRange), "new packet can use same GUID");
+    check(a.CompatibleWithRealOutGuids({10}), "one exact real OUT matches");
+    check(!a.CompatibleWithRealOutGuids({10, 10}), "duplicate generic OUT fails");
     check(!a.Record(10, Dir::OutOfRange), "same-direction duplicate also poisons");
 
     a.Clear();
