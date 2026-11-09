@@ -52,6 +52,9 @@ namespace Acore
         uint64 _f14PassToken = 0;
         void BeginF14NotifierPass();
         ~VisibleNotifier();
+        // Never duplicate a pending end event via notifier copy/assignment.
+        VisibleNotifier(VisibleNotifier const&) = delete;
+        VisibleNotifier& operator=(VisibleNotifier const&) = delete;
 #endif
 
         VisibleNotifier(Player& player, bool gobjOnly) :
