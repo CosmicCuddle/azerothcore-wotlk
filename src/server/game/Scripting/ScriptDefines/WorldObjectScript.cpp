@@ -90,6 +90,34 @@ bool ScriptMgr::ShouldF14SuppressPlayerForViewer(
         script->OnF14ShouldSuppressPlayerForViewer(viewer, actor));
 }
 
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+void ScriptMgr::OnF14ViewerVisibilityPassBegin(Player const* viewer, uint64 token)
+{
+    ASSERT(viewer && token);
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BEGIN,
+        script->OnF14ViewerVisibilityPassBegin(viewer, token));
+}
+
+void ScriptMgr::OnF14ViewerVisibilityPassBatchSendAttempt(Player const* viewer, uint64 token)
+{
+    ASSERT(viewer && token);
+    // A send-call has happened for UpdateData. This does NOT identify which
+    // GUIDs were in the packet, that they were delivered, or client ACK.
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BATCH_SEND_ATTEMPT,
+        script->OnF14ViewerVisibilityPassBatchSendAttempt(viewer, token));
+}
+
+void ScriptMgr::OnF14ViewerVisibilityPassEnd(Player const* viewer, uint64 token)
+{
+    ASSERT(viewer && token);
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_END,
+        script->OnF14ViewerVisibilityPassEnd(viewer, token));
+}
+#endif
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {

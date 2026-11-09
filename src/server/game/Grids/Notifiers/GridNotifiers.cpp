@@ -22,7 +22,47 @@
 #include "UpdateData.h"
 #include "WorldPacket.h"
 
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+#include "F14VisibilityPassTokenSource.h"
+#include "ScriptMgr.h"
+#endif
+
 using namespace Acore;
+
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+namespace
+{
+    // One globally unique per-Core-process sequence across synchronous map
+    // notifier lifetimes. It does NOT encode human login epoch, creature GUID
+    // or client ACK; consumers need independent verified identity and ledger.
+    CosmicF14::VisibilityPassTokenSource f14PassTokenSource;
+}
+
+void VisibleNotifier::BeginF14NotifierPass()
+{
+    // Only a genuine non-headless Player WorldSession. GM may receive a
+    // no-op pass notification but can never be hidden by this producer.
+    if (!i_player.IsInWorld() || !i_player.GetSession() ||
+        i_player.GetSession()->IsHeadless())
+        return;
+
+    uint64 const token = f14PassTokenSource.Issue();
+    if (!token)
+        return;
+
+    _f14PassToken = token;
+    sScriptMgr->OnF14ViewerVisibilityPassBegin(&i_player, token);
+}
+
+VisibleNotifier::~VisibleNotifier()
+{
+    // Stack scope ends even after SendToSelf's early !HasData() return,
+    // skipped packet, empty batch or C++ stack unwinding. No raw pointers
+    // may be retained by consumers after this synchronous callback.
+    if (_f14PassToken)
+        sScriptMgr->OnF14ViewerVisibilityPassEnd(&i_player, _f14PassToken);
+}
+#endif
 
 void VisibleNotifier::Visit(GameObjectMapType& m)
 {
@@ -84,6 +124,12 @@ void VisibleNotifier::SendToSelf()
     WorldPacket packet;
     i_data.BuildPacket(packet);
     i_player.SendDirectMessage(&packet);
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+    // Exactly one batch send-call attempt, not a per-creature CREATE/OUT
+    // tag, network delivery, or proof of actual client restoration.
+    if (_f14PassToken)
+        sScriptMgr->OnF14ViewerVisibilityPassBatchSendAttempt(&i_player, _f14PassToken);
+#endif
 
     for (std::vector<Unit*>::const_iterator it = i_visibleNow.begin(); it != i_visibleNow.end(); ++it)
         i_player.GetInitialVisiblePackets(*it);
