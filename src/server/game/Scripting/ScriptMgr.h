@@ -762,6 +762,10 @@ public: /* WorldObjectScript */
     void OnF14ViewerVisibilityPassBatchSendAttempt(Player const* viewer, uint64 token);
     void OnF14ViewerVisibilityPassEnd(Player const* viewer, uint64 token);
 #endif
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    void OnF14ViewerCreatureBatchGuidSendAttempt(
+        Player const* viewer, ObjectGuid const& creatureGuid, bool isCreate, uint64 token);
+#endif
 
 public: /* PetScript */
 
