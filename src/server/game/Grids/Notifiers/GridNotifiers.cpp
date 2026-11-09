@@ -22,6 +22,12 @@
 #include "UpdateData.h"
 #include "WorldPacket.h"
 
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) || COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT < 1
+#error "F14 per-creature batch candidate send proof requires actual notifier pass producer"
+#endif
+#endif
+
 #if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
 #include "F14VisibilityPassTokenSource.h"
 #include "ScriptMgr.h"
@@ -129,6 +135,18 @@ void VisibleNotifier::SendToSelf()
     // tag, network delivery, or proof of actual client restoration.
     if (_f14PassToken)
         sScriptMgr->OnF14ViewerVisibilityPassBatchSendAttempt(&i_player, _f14PassToken);
+#endif
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    // All records came from genuine uncontrolled creature CREATE/OUT block
+    // builders attached to THIS UpdateData. A merge, duplicate or overflow
+    // poisons the ENTIRE list; never emit a partial misleading evidence set.
+    // No per-GUID dispatch if there was no authenticated notifier pass.
+    if (_f14PassToken && !i_data.F14CreatureCandidatesPoisoned())
+        for (auto const& candidate : i_data.F14CreatureBatchCandidates())
+            sScriptMgr->OnF14ViewerCreatureBatchGuidSendAttempt(
+                &i_player, candidate.guid,
+                candidate.direction == CosmicF14::CreatureBatchDirection::Create,
+                _f14PassToken);
 #endif
 
     for (std::vector<Unit*>::const_iterator it = i_visibleNow.begin(); it != i_visibleNow.end(); ++it)
