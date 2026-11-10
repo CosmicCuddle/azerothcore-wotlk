@@ -128,8 +128,12 @@ class Core9ViewerBatchRestoreSource(unittest.TestCase):
 
     def test_map_frame_is_not_an_automatic_restore_scheduler(self) -> None:
         # Core9's existing map update ordering alone does not schedule an F14 restore.
-        frame = excerpt(self.map, "HandleDelayedVisibility();",
-                        'METRIC_VALUE("map_creatures"')
+        frame = excerpt(
+            self.map,
+            "void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)",
+            "void Map::UpdateNonPlayerObjects(uint32 const diff)",
+        )
+        self.assertIn("HandleDelayedVisibility();", frame)
         self.assertIn("sScriptMgr->OnMapUpdate(this, t_diff);", frame)
         self.assertNotIn("F14Restore", frame)
         self.assertNotIn("UpdateVisibilityForPlayer(false)", frame)
