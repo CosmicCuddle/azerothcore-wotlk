@@ -40,14 +40,61 @@ def methods(player: str) -> tuple[str, str]:
     return batch, direct
 
 
+def creature_helper(player: str) -> str:
+    return section(
+        player,
+        "static bool IsF14CreatureSuppressedFromClientView(",
+        "// F14 player-character client CREATE/OUT query ONLY;",
+    )
+
+
+def compact(text: str) -> str:
+    return re.sub(r"\\s+", "", text)
+
+
 def require_two_sided_guard(body: str, destroy: str, create: str) -> None:
-    """Check both branches filter *before* the corresponding network operation."""
-    first = body.find(GUARD)
-    second = body.find(GUARD, first + len(GUARD))
-    assert first >= 0 and second > first, "OUT and CREATE both need the viewer seam"
-    assert body.count(GUARD) == 2, "unexpected guard count in the scoped route"
-    assert first < body.index(destroy), "OUT bypasses the per-viewer guard"
-    assert second < body.index(create), "CREATE bypasses the per-viewer guard"
+    """Check OUT/CREATE exact logic AND placement, not mere text occurrence."""
+    collapsed = compact(body)
+    out = (
+        "if(!CanSeeOrDetect(target,false,true)||"
+        "IsF14CreatureSuppressedFromClientView(this,target)||"
+        "IsF14PlayerSuppressedFromClientView(this,target))"
+    )
+    yes = (
+        "if(CanSeeOrDetect(target,false,true)&&"
+        "!IsF14CreatureSuppressedFromClientView(this,target)&&"
+        "!IsF14PlayerSuppressedFromClientView(this,target))"
+    )
+    assert collapsed.count(out) == 1, "missing/mis-signed OUT condition"
+    assert collapsed.count(yes) == 1, "missing/mis-signed CREATE condition"
+    assert collapsed.count(GUARD) == 2, "unexpected per-viewer query count"
+    first = collapsed.index(out)
+    second = collapsed.index(yes)
+    destroy_index = collapsed.index(compact(destroy))
+    create_index = collapsed.index(compact(create))
+    assert first < destroy_index < second < create_index, (
+        "OUT/CREATE checks must guard their own separate send blocks"
+    )
+
+
+def require_disabled_branch_false(helper: str) -> None:
+    """The explicit compile-disabled branch must be side-effect-free, FALSE."""
+    assert helper.count("#else") == 1 and helper.count("#endif") == 1
+    disabled = helper.split("#else", 1)[1].split("#endif", 1)[0]
+    assert compact(disabled) == "(void)viewer;(void)target;returnfalse;", (
+        "disabled F14 creature helper must only return FALSE"
+    )
+
+
+def require_creature_predicate(helper: str, query: str) -> None:
+    assert "return MayAskScript(c) &&" in helper, (
+        "creature hook must retain its own safe predicate"
+    )
+    expected = (
+        "returnc.targetIsCreature&&!c.gmModeViewer&&!c.ownedOrCharmed"
+        "&&!c.pet&&!c.summon&&!c.guardian&&!c.totem;"
+    )
+    assert expected in compact(query), "creature predicate polarity changed"
 
 
 def require_default_false(world: str) -> None:
@@ -68,31 +115,22 @@ class Core9ViewerRouteSource(unittest.TestCase):
         cls.batch, cls.direct = methods(cls.player)
 
     def test_explicit_off_guard_in_helper(self) -> None:
-        helper = section(
-            self.player,
-            "static bool IsF14CreatureSuppressedFromClientView(",
-            "// F14 player-character client CREATE/OUT query ONLY;",
-        )
+        helper = creature_helper(self.player)
         self.assertIn("COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT", helper)
         self.assertIn("COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT >= 1", helper)
         self.assertIn("sScriptMgr->ShouldF14SuppressCreatureForViewer(viewer, creature)", helper)
-        self.assertIn("#else", helper)
-        self.assertIn("return false;", helper)
+        require_disabled_branch_false(helper)
         self.assertIn("!viewer || !target || !target->IsCreature()", helper)
 
     def test_script_query_is_default_false(self) -> None:
         require_default_false(self.world)
 
     def test_uncontrolled_creature_filter_is_not_a_hide_decision(self) -> None:
-        for clause in (
-            "c.targetIsCreature", "!c.gmModeViewer", "!c.ownedOrCharmed",
-            "!c.pet", "!c.summon", "!c.guardian", "!c.totem",
-        ):
-            self.assertIn(clause, self.query)
+        require_creature_predicate(creature_helper(self.player), self.query)
         for forbidden in ("SetPhaseMask(", "UpdateObjectVisibility(",
                          "ModifyMoney(", "CanSeeOrDetect("):
             self.assertNotIn(forbidden, self.query)
-        self.assertIn("MayAskScript(c) &&", self.player)
+        self.assertIn("MayAskScript(c) &&", creature_helper(self.player))
 
     def test_batched_out_and_create_use_exact_viewer_guard(self) -> None:
         require_two_sided_guard(
@@ -157,6 +195,55 @@ class Core9ViewerRouteSource(unittest.TestCase):
         with self.assertRaises(AssertionError):
             require_two_sided_guard(changed, "target->BuildOutOfRangeUpdateBlock(&data)",
                                     "target->BuildCreateUpdateBlockForPlayer(&data, this)")
+
+    def test_negative_mutation_create_polarity_rejected_for_both_routes(self) -> None:
+        for body, destroy, create in (
+            (self.batch, "target->BuildOutOfRangeUpdateBlock(&data)",
+             "target->BuildCreateUpdateBlockForPlayer(&data, this)"),
+            (self.direct, "target->DestroyForPlayer(this)",
+             "target->SendUpdateToPlayer(this)"),
+        ):
+            changed = body.replace("!" + GUARD, GUARD, 1)
+            self.assertNotEqual(changed, body)
+            with self.assertRaises(AssertionError):
+                require_two_sided_guard(changed, destroy, create)
+
+    def test_negative_mutation_out_logic_operator_rejected(self) -> None:
+        for body, destroy, create in (
+            (self.batch, "target->BuildOutOfRangeUpdateBlock(&data)",
+             "target->BuildCreateUpdateBlockForPlayer(&data, this)"),
+            (self.direct, "target->DestroyForPlayer(this)",
+             "target->SendUpdateToPlayer(this)"),
+        ):
+            changed = body.replace("    if (!CanSeeOrDetect(target, false, true) ||",
+                                   "    if (!CanSeeOrDetect(target, false, true) &&", 1)
+            self.assertNotEqual(changed, body)
+            with self.assertRaises(AssertionError):
+                require_two_sided_guard(changed, destroy, create)
+
+    def test_negative_mutation_off_fallback_true_is_rejected(self) -> None:
+        helper = creature_helper(self.player)
+        changed = helper.replace(
+            "#else\n    (void)viewer;\n    (void)target;\n    return false;",
+            "#else\n    (void)viewer;\n    (void)target;\n    return true;", 1,
+        )
+        self.assertNotEqual(changed, helper)
+        with self.assertRaises(AssertionError):
+            require_disabled_branch_false(changed)
+
+    def test_negative_mutation_creature_predicate_removed_is_rejected(self) -> None:
+        helper = creature_helper(self.player)
+        changed = helper.replace("MayAskScript(c) &&", "true &&", 1)
+        self.assertNotEqual(changed, helper)
+        with self.assertRaises(AssertionError):
+            require_creature_predicate(changed, self.query)
+
+    def test_negative_mutation_creature_predicate_polarity_rejected(self) -> None:
+        changed = self.query.replace("return c.targetIsCreature &&",
+                                     "return !c.targetIsCreature &&", 1)
+        self.assertNotEqual(changed, self.query)
+        with self.assertRaises(AssertionError):
+            require_creature_predicate(creature_helper(self.player), changed)
 
     def test_negative_mutation_positive_default_is_rejected(self) -> None:
         changed = self.world.replace("/*creature*/) { return false; }", "/*creature*/) { return true; }", 1)
