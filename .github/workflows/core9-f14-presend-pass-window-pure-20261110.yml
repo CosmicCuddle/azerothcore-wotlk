@@ -1,0 +1,53 @@
+name: F14 Core9 pre-send pass replay pure model (OFF)
+on:
+  push:
+    branches:
+      - test/cs01-core12-f14-presend-pass-window-pure-20261110
+  pull_request:
+    branches:
+      - test/cs01-core11-owner-viewer-batch-restore-source-20261110
+permissions:
+  contents: read
+jobs:
+  model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+        std: [c++17, c++20]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact 2-path source-test-only child
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=0f0075e7c568e1fdb29d7fee0ade7457ac999b83
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core9-f14-presend-pass-window-pure-20261110.yml' \
+            'tests/cosmic_f14_pass_source/f14_core_pass_window_pure_model.cpp' | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- src conf sql data modules docs)"
+      - name: Compile and run source-only C++ model with and without NDEBUG
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in normal ndebug; do
+            flags=()
+            if [[ "$mode" == ndebug ]]; then flags=(-DNDEBUG); fi
+            ${{ matrix.cxx }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Werror -pedantic "${flags[@]}" \
+              tests/cosmic_f14_pass_source/f14_core_pass_window_pure_model.cpp -o /tmp/f14-pass
+            /tmp/f14-pass | tee /tmp/f14-result
+            grep -q 'NO CLIENT ACK OR RUNTIME' /tmp/f14-result
+          done
+      - name: Safety disclaimer
+        if: always()
+        run: echo 'Pure test model only. No Core pass producer, IP listener, positive hide, DB/SQL, owner host or client test.'
