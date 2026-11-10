@@ -3,8 +3,8 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
-enum class Status { Admitted, Replayed, Excluded, Nested, Full, Nomination, Late, NoPass, Sealed, SendCall, Unsealed, Ended, Frozen };
-struct Pass { uint64_t viewer=0, epoch=0, token=0; bool nominated=false, sealed=false; };
+enum class Status { Admitted, Replayed, Excluded, Nested, Full, Nomination, Late, NoPass, Sealed, SendCall, Unsealed, Ended, Frozen, RepeatedSend };
+struct Pass { uint64_t viewer=0, epoch=0, token=0; bool nominated=false, sealed=false, reported=false; };
 template<unsigned N=2> struct Window {
     std::array<Pass,N> active{};
     uint64_t highwater=0;
@@ -19,7 +19,7 @@ template<unsigned N=2> struct Window {
         highwater=token; // consume token even if viewer unknown/GM; no E1 tombstone
         if(!v || !epoch || epoch!=verifiedEpoch || !eligible) return Status::Excluded;
         for(auto const& p:active) if(p.token && p.viewer==v) return Status::Nested;
-        for(auto& p:active) if(!p.token) { p={v,epoch,token,false,false}; return Status::Admitted; }
+        for(auto& p:active) if(!p.token) { p={v,epoch,token,false,false,false}; return Status::Admitted; }
         return Status::Full; // no eviction of a real existing pass
     }
     Status nominate(uint64_t v,uint64_t e,uint64_t t) {
@@ -29,11 +29,14 @@ template<unsigned N=2> struct Window {
     }
     Status sealBeforeSend(uint64_t v,uint64_t e,uint64_t t) {
         Pass* p=find(v,e,t); if(!p) return Status::NoPass;
+        if(p->sealed) return Status::Late;
         p->sealed=true; return Status::Sealed;
     }
     Status observePostSend(uint64_t v,uint64_t e,uint64_t t) {
         Pass* p=find(v,e,t); if(!p) return Status::NoPass;
         if(!p->sealed) return Status::Unsealed;
+        if(p->reported) return Status::RepeatedSend;
+        p->reported=true;
         return p->nominated ? Status::SendCall : Status::NoPass;
     }
     Status end(uint64_t v,uint64_t e,uint64_t t) {
@@ -52,6 +55,8 @@ int main() {
     CHECK(w.observePostSend(101,7,10)==Status::Unsealed);
     CHECK(w.sealBeforeSend(101,7,10)==Status::Sealed);
     CHECK(w.observePostSend(101,7,10)==Status::SendCall);
+    CHECK(w.observePostSend(101,7,10)==Status::RepeatedSend);
+    CHECK(w.sealBeforeSend(101,7,10)==Status::Late);
     CHECK(w.nominate(101,7,10)==Status::Late);
     CHECK(w.end(101,7,10)==Status::Ended);
     w.forget(101);
