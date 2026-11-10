@@ -6,6 +6,7 @@ These tests prove code-shape/negative mutations, NOT any queued restore,
 3.3.5a redraw, client receipt, identity authority, or in-game behavior.
 """
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,22 +35,25 @@ def require_order(section: str, *anchors: str) -> None:
 
 
 def require_viewer_batch_path(section: str) -> None:
+    # Pin whole calls including viewer sight position and real view radii;
+    # a bare Cell::VisitObjects anchor would accept a fake 5-yard scan.
+    compact = re.sub(r"\s+", "", section)
     require_order(
-        section,
-        "Acore::VisibleNotifier notifier(*this, mapChange);",
-        "Cell::VisitObjects(",
-        "Cell::VisitFarVisibleObjects(",
+        compact,
+        "Acore::VisibleNotifiernotifier(*this,mapChange);",
+        "Cell::VisitObjects(GetSightPosition().GetPositionX(),GetSightPosition().GetPositionY(),GetMap(),notifier,GetSightRange());",
+        "Cell::VisitFarVisibleObjects(GetSightPosition().GetPositionX(),GetSightPosition().GetPositionY(),GetMap(),notifier,VISIBILITY_DISTANCE_GIGANTIC);",
         "notifier.SendToSelf();",
     )
-    assert "GetSightPosition()" in section, "Visibility uses the viewer's sight position"
-    assert "m_seer != this" in section, "Seer handling needs separate review"
-    for forbidden in (
-        "Unit::UpdateObjectVisibility(true)",
-        "WorldObject::UpdateObjectVisibility(true)",
-        "AIRelocationNotifier",
-        "VisibleChangesNotifier",
-        "bRequestForcedVisibilityUpdate = true",
-    ):
+    # This mapChange-only reset is NOT a veto. Farsight may redirect the
+    # sight position during a normal false call. The future queued caller
+    # must independently refuse m_seer != viewer before F14 re-evaluation.
+    assert "if(mapChange&&m_seer!=this)" in compact
+    # Both qualified and unqualified forced/nonforced forms broadcast or
+    # defer the visibility and AI relocation path, never viewer-only.
+    assert not re.search(r"\bUpdateObjectVisibility\s*\(", section), "Global visibility method in viewer-only batch"
+    for forbidden in ("AIRelocationNotifier", "VisibleChangesNotifier",
+                      "bRequestForcedVisibilityUpdate = true"):
         assert forbidden not in section, f"Broadcast/AI path entered viewer-only batch: {forbidden}"
 
 
@@ -147,6 +151,11 @@ class Core9ViewerBatchRestoreSource(unittest.TestCase):
             original.replace("notifier.SendToSelf();",
                              "Unit::UpdateObjectVisibility(true);\n    notifier.SendToSelf();", 1),
             original.replace("notifier.SendToSelf();", "bRequestForcedVisibilityUpdate = true;\n    notifier.SendToSelf();", 1),
+            original.replace("notifier.SendToSelf();", "UpdateObjectVisibility(true);\n    notifier.SendToSelf();", 1),
+            original.replace("notifier.SendToSelf();", "this->UpdateObjectVisibility(false);\n    notifier.SendToSelf();", 1),
+            original.replace("GetSightRange());", "5.0f);", 1),
+            original.replace("VISIBILITY_DISTANCE_GIGANTIC);", "0.0f);", 1),
+            original.replace("GetSightPosition().GetPositionX()", "GetPositionX()", 1),
             original.replace("Cell::VisitFarVisibleObjects(",
                              "notifier.SendToSelf();\n    Cell::VisitFarVisibleObjects(", 1).replace(
                                  "notifier.SendToSelf();\n\n    if (mapChange)",
