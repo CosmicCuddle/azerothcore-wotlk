@@ -49,7 +49,7 @@ def creature_helper(player: str) -> str:
 
 
 def compact(text: str) -> str:
-    return re.sub(r"\\s+", "", text)
+    return re.sub(r"\s+", "", text)
 
 
 def require_two_sided_guard(body: str, destroy: str, create: str) -> None:
@@ -67,7 +67,7 @@ def require_two_sided_guard(body: str, destroy: str, create: str) -> None:
     )
     assert collapsed.count(out) == 1, "missing/mis-signed OUT condition"
     assert collapsed.count(yes) == 1, "missing/mis-signed CREATE condition"
-    assert collapsed.count(GUARD) == 2, "unexpected per-viewer query count"
+    assert collapsed.count(compact(GUARD)) == 2, "unexpected per-viewer query count"
     first = collapsed.index(out)
     second = collapsed.index(yes)
     destroy_index = collapsed.index(compact(destroy))
