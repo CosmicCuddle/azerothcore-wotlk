@@ -89,7 +89,9 @@ class Core9ViewerRouteSource(unittest.TestCase):
             "!c.pet", "!c.summon", "!c.guardian", "!c.totem",
         ):
             self.assertIn(clause, self.query)
-        self.assertIn("not", "not")  # no invocation or mutation of player rights
+        for forbidden in ("SetPhaseMask(", "UpdateObjectVisibility(",
+                         "ModifyMoney(", "CanSeeOrDetect("):
+            self.assertNotIn(forbidden, self.query)
         self.assertIn("MayAskScript(c) &&", self.player)
 
     def test_batched_out_and_create_use_exact_viewer_guard(self) -> None:
