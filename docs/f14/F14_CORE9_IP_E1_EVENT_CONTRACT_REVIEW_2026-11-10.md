@@ -37,7 +37,7 @@ The existing [IP105 DRAFT](https://github.com/CosmicCuddle/mod-individual-progre
 4. **GM/classification freshness is not automatic.** The cached account name/GM/bot/excluded classification can remain stale after a mid-session security change; config reload clears its cache but does not by itself establish an atomic new map-safe epoch. Verify both GM-account authority **and** GM mode at the actual suppression decision, using an immutable published session/config-generation snapshot. Any missing/reloaded/security-changed input must revoke visibility eligibility and preserve restoration debt.
 5. For a future integration, reuse the **unique epoch issuer and logout invalidation idea**, but move expensive account/source verification to a safe login/config publication path, bind classification and config-generation validity to an immutable current session stamp, and make the map-worker read **cache-only and fail visible** on absent/stale facts. Reload and logout must revoke stale stamps/consumers without a lock or reentrant Core callback. A separate reviewed IP runtime child and actual Core9 native build are required; do not quietly cherry-pick #105.
 
-These three points are **new integration review blockers** for this candidate, not defects claimed in its default-OFF current production behavior. The full E1/restore contract remains unimplemented.
+These five findings are **new integration review blockers** for this candidate, not defects claimed in its default-OFF current production behavior. The full E1/restore contract remains unimplemented.
 
 ## Proposed contract — fields, producer, consumer, ordering
 
@@ -92,7 +92,10 @@ These are **conceptual records**, not API symbols implemented in source. Use exa
 | Targeting, pet/minions, healer/assist, damage/DoT, group and quest-credit rights | Never hide a creature the Vanilla human still interacts with or needs |
 | Stationary observer awaiting restore, or request while a pass remains open | Explicit queued `viewer->UpdateVisibilityForPlayer(false)` **outside notifier pass**, one viewer only (whole-sight rescan), no movement prerequisite, no global AI relocation; measure busy-map costs |
 | Two real human clients + verified headless RandomBot, logins/map transitions/GM switch | 3.3.5a in-game comparison and observer-side rendering/targetability verified with full installed module stack |
-| Disabled config, over-capacity or failed restore | Stop positive hides; retain all original hidden debt; queue map-owned viewer-only rescan; no silent ledger reset or restart-as-proof |\n| Real F14 OUT vs withheld CREATE vs owed restore CREATE | Only genuine F14 OUT and separately validated owed restore CREATE can nominate pre-send; withheld CREATE has no packet; no synthetic post-send self-nomination |\n| GM account changes while mode remains OFF, config reload, partial cache | Fresh cache-only security and stage snapshot at every decision, absence/stale generation returns visible, no Auth DB map-thread calls |\n| Farsight, Eyes of the Beast, shared vision, map change, phased/ranged invisible pair | Validate the actual viewer and seer; old-map queued events drop while debt remains; no accidental new-epoch restoration or borrowed outer token |
+| Disabled config, over-capacity or failed restore | Stop positive hides; retain all original hidden debt; queue map-owned viewer-only rescan; no silent ledger reset or restart-as-proof |
+| Real F14 OUT vs withheld CREATE vs owed restore CREATE | Only genuine F14 OUT and separately validated owed restore CREATE can nominate pre-send; withheld CREATE has no packet; no synthetic post-send self-nomination |
+| GM account changes while mode remains OFF, config reload, partial cache | Fresh cache-only security and stage snapshot at every decision, absence/stale generation returns visible, no Auth DB map-thread calls |
+| Farsight, Eyes of the Beast, shared vision, map change, phased/ranged invisible pair | Validate the actual viewer and seer; old-map queued events drop while debt remains; no accidental new-epoch restoration or borrowed outer token |
 
 ## Review, release and rollback gates
 
