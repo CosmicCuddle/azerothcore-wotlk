@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          parent=ca63fab51650c4aa4813aaa7aeb7c03da6a32c74
+          parent=db5f2d4b5b682f4c51a06ed611d912a22659de3f
           git merge-base --is-ancestor "$parent" HEAD
           git diff --check "$parent" HEAD
           git diff --name-only "$parent" HEAD | sort > /tmp/actual
