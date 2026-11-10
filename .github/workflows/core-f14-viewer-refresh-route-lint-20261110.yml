@@ -1,0 +1,72 @@
+name: Core9 F14 per-viewer creature refresh route source contract (OFF)
+
+on:
+  push:
+    branches:
+      - test/cs01-core9-f14-viewer-refresh-source-contract-20261110
+  pull_request:
+    branches:
+      - feature/cs01-core8-f14-creature-batch-guid-send-attempt-off-20261109
+
+permissions:
+  contents: read
+
+jobs:
+  core9-viewer-route-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact child branch, no credentials retained
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Two additive paths only, parent Core9 immutable, runtime sources unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=865724cee8d0fb94d7496854c0f426f60bac2232
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core-f14-viewer-refresh-route-lint-20261110.yml' \
+            'tests/cosmic_f14_pass_source/test_core_f14_viewer_refresh_route_source.py' \
+            | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- src conf data sql modules)"
+          for file in \
+            src/server/game/Entities/Player/PlayerUpdates.cpp \
+            src/server/game/Entities/Player/F14CreatureClientVisibilityQuery.h \
+            src/server/game/Grids/Notifiers/GridNotifiers.cpp \
+            src/server/game/Scripting/ScriptDefines/WorldObjectScript.h \
+            src/server/game/Scripting/ScriptMgr.h; do
+            test "$(git rev-parse "HEAD:$file")" = "$(git rev-parse "$parent:$file")"
+          done
+
+      - name: Run direct/batch viewer-route guards and negative mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_viewer_refresh_route_source.py -v
+
+      - name: Retain original Core9 exact-GUID and pass-lifetime source regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_creature_batch_guid_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_notifier_pass_lifecycle_source.py -v
+
+      - name: Scope warning, test-only — no server launch or feature activation
+        if: always()
+        shell: bash
+        run: |
+          echo 'This source-only regression checks OFF hooks in Core9. It does not create a provider.'
+          echo 'One-viewer UpdateVisibilityOf is NOT a verified NPC hide/restore or a client ACK.'
+          echo 'Core9 lacks IP lifecycle hooks, E1 listener, immediate send provenance and restore ledger.'
+          echo 'No source/SQL/DB/DBC/client/config/host write, merge, deployment or in-game test.'
