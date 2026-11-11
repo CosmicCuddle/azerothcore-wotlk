@@ -100,10 +100,31 @@ class PreSendSource(unittest.TestCase):
         self.assertIn("CALL_ENABLED_HOOKS(",WORLD_CPP)
         self.assertIn("WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,",WORLD_CPP)
         self.assertIn("WorldObject const* /*creature*/) { return false; }",WORLD_H)
-        # GROK M1/P1/L1: source documentation only. The future policy
-        # must reserve *once* on an actual at-client batch OUT, and reuse
-        # outstanding debt read-only for hidden-pair direct/batch CREATE.
+        # GROK M1/P1/L1/Q1/Q2: source documentation only. The future
+        # positive policy requires the actual PRE_SEND producer, not the
+        # older query-only build where direct OUT lacks a tagged batch.
         # These tests do NOT simulate a registered Core/IP listener.
+        hook = WORLD_H.split("// Diagnostic/compatibility API preparation:", 1)[1].split(
+            "[[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(", 1)[0]
+        for required in (
+            "MUST return FALSE unless COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT",
+            "legacy direct OUT",
+            "OUT-only initial reservation / read-only idempotent CREATE contract",
+            "R2/L1 remain",
+        ):
+            self.assertIn(required, hook)
+        for required in (
+            "The OUT-only reservation discriminator is valid ONLY",
+            "No positive listener may answer TRUE with PRE_SEND disabled",
+            "COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT",
+        ):
+            self.assertIn(required, WORLD_H)
+        # With PRE_SEND OFF, the original direct OUT query remains in #else:
+        # Q1 requires the future listener to veto TRUE on that configuration.
+        direct = PLAYER.split("void Player::UpdateVisibilityOf(WorldObject* target)", 1)[1].split(
+            "void Player::UpdateTriggerVisibility()", 1)[0]
+        direct_out = direct.split("#if defined("+SOURCE_MACRO+")", 1)[1].split("#else", 1)[1].split("#endif", 1)[0]
+        self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)", direct_out)
         for required in (
             "viewer->HaveAtClient(creature) true",
             "ONLY a verified initial batch OUT may atomically reserve ONE exact",
