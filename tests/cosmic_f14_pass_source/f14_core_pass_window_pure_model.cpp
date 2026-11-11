@@ -115,6 +115,7 @@ int main() {
     // This does NOT authenticate the source of a future seemingly valid token.
     Window<> maxToken;
     CHECK(maxToken.begin(801,0,0,~uint64_t{0},false)==Status::Excluded);
+    CHECK(maxToken.begin(801,0,0,99999999,false)==Status::Excluded);
     CHECK(maxToken.begin(801,50,50,51,true)==Status::Admitted);
     CHECK(maxToken.end(801,50,51)==Status::Ended);
     CHECK(maxToken.begin(801,50,50,~uint64_t{0},true)==Status::Replayed);
