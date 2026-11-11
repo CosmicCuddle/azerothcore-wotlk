@@ -143,12 +143,25 @@ public:
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
     // OBSERVER/RECORD-ONLY. This notification is AFTER the server has
     // already unlinked the creature and built the OUT packet; it CANNOT veto
-    // a hide. A future positive ShouldF14SuppressCreatureForViewer listener
-    // MUST first atomically reserve exact (human viewer epoch, creature
-    // incarnation, owning map) restore debt under verified rights, and answer
-    // TRUE only when that reservation succeeds. Missing evidence => FALSE
-    // (VISIBLE). The post-send exact GUID/token signal must reconcile each
-    // reservation, including unsent/aborted passes; never silently drop debt.
+    // a hide. Any future positive ShouldF14SuppressCreatureForViewer
+    // listener MUST distinguish the actual at-client -> hidden batch OUT
+    // transition (viewer->HaveAtClient(creature) true) from an already-hidden
+    // pair's batch/direct CREATE visibility check (HaveAtClient false).
+    // ONLY a verified initial batch OUT may atomically reserve ONE exact
+    // (human viewer epoch, creature incarnation, owning map) restore debt
+    // under confirmed rights, BEFORE answering TRUE. No reservation or
+    // rights => FALSE (VISIBLE); never reserve on a read-only CREATE check.
+    // For an already-hidden pair, TRUE must be an idempotent read of the
+    // SAME existing owed record, not a second allocation; until a safe
+    // restore path exists, a missing/uncertain record cannot authorize hiding.
+    // The post-send GUID/token signal must reconcile new OUT reservations,
+    // including unsent/aborted passes; never silently drop restore debt.
+    // A future direct CREATE which returns FALSE on an outstanding record
+    // MUST retain "restore send attempted, delivery UNKNOWN" debt until an
+    // independently reviewed R2 reconciliation. That path emits no Core14
+    // per-GUID CREATE event and cannot be treated as a client render ACK.
+    // These are future-consumer contracts, NOT implemented runtime guards.
+    // Without R2/L1 and an authenticated listener, keep positive F14 OFF.
     // Listener MUST NOT call visibility updates, send packets, access DB, or
     // re-enter VisibleNotifier from this pre-send callback. Only record
     // value-only facts synchronously, then release locks before Core work.
