@@ -49,6 +49,10 @@ void UpdateData::AddUpdateBlock(UpdateData const& block)
     // emit selected per-GUID evidence from an incompletely attributed merge.
     _f14CreatureCandidates.Poison();
 #endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    _f14PositiveQueryOutPoisoned = true;
+    _f14PositiveQueryOutCandidates.clear();
+#endif
 }
 
 bool UpdateData::BuildPacket(WorldPacket& packet)
@@ -81,5 +85,9 @@ void UpdateData::Clear()
     m_blockCount = 0;
 #if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
     _f14CreatureCandidates.Clear();
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    _f14PositiveQueryOutCandidates.clear();
+    _f14PositiveQueryOutPoisoned = false;
 #endif
 }

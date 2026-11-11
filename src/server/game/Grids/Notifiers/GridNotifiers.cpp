@@ -129,6 +129,18 @@ void VisibleNotifier::SendToSelf()
 
     WorldPacket packet;
     i_data.BuildPacket(packet);
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // Real SendToSelf packet bound to this stack notifier's genuine token.
+    // No direct WorldObject visibility path reaches this dispatch.
+    if (_f14PassToken && !_f14PreSendDispatched)
+    {
+        _f14PreSendDispatched = true;
+        if (!i_data.F14PositiveQueryOutCandidatesPoisoned())
+            for (ObjectGuid const& guid : i_data.F14PositiveQueryOutCandidates())
+                sScriptMgr->OnF14ViewerCreaturePositiveQueryOutPreSend(
+                    &i_player, guid, _f14PassToken);
+    }
+#endif
     i_player.SendDirectMessage(&packet);
 #if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
     // Exactly one batch send-call attempt, not a per-creature CREATE/OUT

@@ -22,6 +22,18 @@
 #include "ObjectGuid.h"
 #include <vector>
 
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) || COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT < 1
+#error "F14 pre-send OUT evidence needs Core8 notifier tokens"
+#endif
+#if !defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) || COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT < 1
+#error "F14 pre-send OUT evidence needs Core9 creature sidecar"
+#endif
+#if !defined(COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT) || COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT < 1
+#error "F14 pre-send OUT evidence needs the creature query"
+#endif
+#endif
+
 enum WorldObjectHook
 {
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_DESTROY,
@@ -39,6 +51,9 @@ enum WorldObjectHook
 #endif
 #if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_BATCH_GUID_SEND_ATTEMPT,
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,
 #endif
     WORLDOBJECTHOOK_END
 };
@@ -124,6 +139,14 @@ public:
     virtual void OnF14ViewerCreatureBatchGuidSendAttempt(
         Player const* /*viewer*/, ObjectGuid const& /*creatureGuid*/,
         bool /*isCreate*/, uint64 /*passToken*/) { }
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // A positively answered creature-view query produced a real batched OUT
+    // block before SendDirectMessage. This is NOT IP rights, true RNDBOT
+    // identity, human login epoch, incarnation, debt or client presentation.
+    virtual void OnF14ViewerCreaturePositiveQueryOutPreSend(
+        Player const* /*viewer*/, ObjectGuid const& /*creatureGuid*/,
+        uint64 /*passToken*/) { }
 #endif
 };
 

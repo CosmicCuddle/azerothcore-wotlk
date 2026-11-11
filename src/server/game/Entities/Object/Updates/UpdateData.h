@@ -27,6 +27,18 @@
 
 class WorldPacket;
 
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) || COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT < 1
+#error "F14 pre-send OUT evidence needs Core8 notifier tokens"
+#endif
+#if !defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) || COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT < 1
+#error "F14 pre-send OUT evidence needs Core9 creature sidecar"
+#endif
+#if !defined(COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT) || COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT < 1
+#error "F14 pre-send OUT evidence needs the creature query"
+#endif
+#endif
+
 enum OBJECT_UPDATE_TYPE
 {
     UPDATETYPE_VALUES               = 0,
@@ -84,6 +96,52 @@ public:
     std::vector<CosmicF14::CreatureBatchGuidCandidateLedger<ObjectGuid>::Candidate> const&
     F14CreatureBatchCandidates() const { return _f14CreatureCandidates.Entries(); }
 #endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // Only the exact Core batched positive-query OUT branch can call this.
+    // Never serialized to SMSG_UPDATE_OBJECT. Duplicate/overflow fail closed.
+    void F14RecordPositiveQueryCreatureOut(ObjectGuid const& guid)
+    {
+        if (_f14PositiveQueryOutPoisoned)
+            return;
+        if (guid.IsEmpty() || _f14PositiveQueryOutCandidates.size() >= 256)
+        {
+            _f14PositiveQueryOutPoisoned = true;
+            _f14PositiveQueryOutCandidates.clear();
+            return;
+        }
+        for (ObjectGuid const& prior : _f14PositiveQueryOutCandidates)
+            if (prior == guid)
+            {
+                _f14PositiveQueryOutPoisoned = true;
+                _f14PositiveQueryOutCandidates.clear();
+                return;
+            }
+        _f14PositiveQueryOutCandidates.push_back(guid);
+    }
+    bool F14PositiveQueryOutCandidatesPoisoned() const
+    {
+        if (_f14PositiveQueryOutPoisoned || F14CreatureCandidatesPoisoned())
+            return true;
+        for (ObjectGuid const& guid : _f14PositiveQueryOutCandidates)
+        {
+            bool actualOutBlock = false;
+            for (auto const& c : F14CreatureBatchCandidates())
+                if (c.guid == guid &&
+                    c.direction == CosmicF14::CreatureBatchDirection::OutOfRange)
+                {
+                    actualOutBlock = true;
+                    break;
+                }
+            if (!actualOutBlock)
+                return true;
+        }
+        return false;
+    }
+    std::vector<ObjectGuid> const& F14PositiveQueryOutCandidates() const
+    {
+        return _f14PositiveQueryOutCandidates;
+    }
+#endif
 
 protected:
     uint32 m_blockCount;
@@ -91,6 +149,10 @@ protected:
     ByteBuffer m_data;
 #if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
     CosmicF14::CreatureBatchGuidCandidateLedger<ObjectGuid> _f14CreatureCandidates;
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    std::vector<ObjectGuid> _f14PositiveQueryOutCandidates;
+    bool _f14PositiveQueryOutPoisoned = false;
 #endif
 };
 #endif

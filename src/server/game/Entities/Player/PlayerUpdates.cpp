@@ -1801,9 +1801,19 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
 
     if (HaveAtClient(target))
     {
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        // Separate genuinely positive F14 creature query from ordinary Core
+        // invisibility. Default builds keep the original path byte-identical.
+        bool const ordinaryVisible = CanSeeOrDetect(target, false, true);
+        bool const positiveF14CreatureQuery =
+            ordinaryVisible && IsF14CreatureSuppressedFromClientView(this, target);
+        if (!ordinaryVisible || positiveF14CreatureQuery ||
+            IsF14PlayerSuppressedFromClientView(this, target))
+#else
         if (!CanSeeOrDetect(target, false, true) ||
             IsF14CreatureSuppressedFromClientView(this, target) ||
             IsF14PlayerSuppressedFromClientView(this, target))
+#endif
         {
             BeforeVisibilityDestroy<T>(target, this);
 
@@ -1814,6 +1824,14 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
             if (F14EligibleUncontrolledCreatureBatchCandidate(target))
                 data.F14RecordCreatureBatchCandidate(
                     target->GetGUID(), CosmicF14::CreatureBatchDirection::OutOfRange);
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+            // Only a true F14 query during the ACTUAL batched creature OUT
+            // build may enter the new pre-send positive sidecar. No CREATE,
+            // normal range/phase OUT, player target, pet or direct route.
+            if (positiveF14CreatureQuery &&
+                F14EligibleUncontrolledCreatureBatchCandidate(target))
+                data.F14RecordPositiveQueryCreatureOut(target->GetGUID());
 #endif
             GetObjectVisibilityContainer().UnlinkWorldObjectVisibility(target);
         }
