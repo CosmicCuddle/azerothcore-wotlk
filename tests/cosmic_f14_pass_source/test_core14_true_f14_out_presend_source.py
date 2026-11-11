@@ -61,15 +61,9 @@ class PreSendSource(unittest.TestCase):
         for legacy_part in (out_legacy, create_legacy):
             self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)",
                           legacy_part.split("#endif",1)[0])
-        # N1 regression: deleting the direct-CREATE guard must make the
-        # SAME safety predicate false, not merely delete a string.
-        def guards_hidden_creature(source):
-            return ("!IsF14CreatureSuppressedFromClientView(this, target) &&"
-                    in source)
-        self.assertTrue(guards_hidden_creature(direct_create))
-        unsafely_recreates = direct_create.replace(
-            "!IsF14CreatureSuppressedFromClientView(this, target) &&", "")
-        self.assertFalse(guards_hidden_creature(unsafely_recreates))
+        # The source assertion above checks the *real* direct CREATE arm.
+        # Do not substitute a vacuous mutation of our own copied string:
+        # an independent source mutation re-check is requested in #11.
         tpl=PLAYER.split("template <class T>\nvoid Player::UpdateVisibilityOf(",1)[1].split(
             "void Player::GetInitialVisiblePackets",1)[0]
         create=tpl.split("else\n    {\n        if (CanSeeOrDetect(",1)[1]
@@ -106,11 +100,22 @@ class PreSendSource(unittest.TestCase):
         self.assertIn("CALL_ENABLED_HOOKS(",WORLD_CPP)
         self.assertIn("WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,",WORLD_CPP)
         self.assertIn("WorldObject const* /*creature*/) { return false; }",WORLD_H)
-        # GROK M1/L1: callback is too late to reserve a hide; no nested
-        # visibility, packets or database work is authorized inside it.
-        self.assertIn("MUST first atomically reserve exact", WORLD_H)
-        self.assertIn("TRUE only when that reservation succeeds", WORLD_H)
-        self.assertIn("MUST NOT call visibility updates, send packets", WORLD_H)
+        # GROK M1/P1/L1: source documentation only. The future policy
+        # must reserve *once* on an actual at-client batch OUT, and reuse
+        # outstanding debt read-only for hidden-pair direct/batch CREATE.
+        # These tests do NOT simulate a registered Core/IP listener.
+        for required in (
+            "viewer->HaveAtClient(creature) true",
+            "ONLY a verified initial batch OUT may atomically reserve ONE exact",
+            "never reserve on a read-only CREATE check",
+            "idempotent read of the",
+            "restore send attempted, delivery UNKNOWN",
+            "cannot be treated as a client render ACK",
+            "These are future-consumer contracts, NOT implemented runtime guards",
+            "Without R2/L1 and an authenticated listener, keep positive F14 OFF",
+            "MUST NOT call visibility updates, send packets",
+        ):
+            self.assertIn(required, WORLD_H)
 
     def test_moved_presend_dispatch_to_after_send_is_really_rejected(self):
         body=NOTIFIER.split("void VisibleNotifier::SendToSelf()",1)[1].split(
