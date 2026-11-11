@@ -104,9 +104,15 @@ public:
 
     // Diagnostic/compatibility API preparation: only the compile-time-OFF
     // Player::UpdateVisibilityOf experiment may consult this hook.
-    // No positive IP policy listener is installed by Core. Before allowing
-    // TRUE, require complete viewer rights, verified RNDBOT attacker identity
-    // and exact creature restore ledger; this hook must not be enabled alone.
+    // No positive IP policy listener is installed by Core. A future listener
+    // MUST return FALSE unless COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT
+    // is compiled >=1; with the creature-query macro alone, legacy direct OUT
+    // can hide a creature without a notifier token or debt reconciliation.
+    // Before answering TRUE, require complete human viewer rights, verified
+    // RNDBOT attacker identity and exact creature restore ledger. Follow the
+    // OUT-only initial reservation / read-only idempotent CREATE contract
+    // beside OnF14ViewerCreaturePositiveQueryOutPreSend below. R2/L1 remain
+    // blocking; the query hook must never be enabled as a positive policy alone.
     [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(
         Player const* /*viewer*/, WorldObject const* /*creature*/) { return false; }
 
@@ -161,6 +167,11 @@ public:
     // independently reviewed R2 reconciliation. That path emits no Core14
     // per-GUID CREATE event and cannot be treated as a client render ACK.
     // These are future-consumer contracts, NOT implemented runtime guards.
+    // The OUT-only reservation discriminator is valid ONLY with the above
+    // COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >=1: without it,
+    // legacy direct OUT still queries and can hide with no notifier evidence.
+    // No positive listener may answer TRUE with PRE_SEND disabled, even if
+    // COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT is enabled.
     // Without R2/L1 and an authenticated listener, keep positive F14 OFF.
     // Listener MUST NOT call visibility updates, send packets, access DB, or
     // re-enter VisibleNotifier from this pre-send callback. Only record
