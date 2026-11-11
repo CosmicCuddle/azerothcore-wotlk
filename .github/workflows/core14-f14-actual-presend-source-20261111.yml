@@ -40,7 +40,8 @@ jobs:
             'tests/cosmic_f14_player/test_f14_player_client_viewer_source.py' \
             'tests/cosmic_f14_unwired_hook/test_f14_unwired_hook_source.py' \
             'tests/cosmic_f14_pass_source/test_core14_true_f14_out_presend_source.py' \
-            'tests/cosmic_f14_pass_source/test_core_f14_creature_batch_guid_source.py' | sort >/tmp/expected
+            'tests/cosmic_f14_pass_source/test_core_f14_creature_batch_guid_source.py' \
+            'tests/cosmic_f14_pass_source/test_core_f14_notifier_pass_lifecycle_source.py' | sort >/tmp/expected
           diff -u /tmp/expected /tmp/actual
           test -z "$(git diff --name-only "$parent" HEAD -- conf sql data modules)"
           echo 'PASS exact Core-only default-off development review scope'
