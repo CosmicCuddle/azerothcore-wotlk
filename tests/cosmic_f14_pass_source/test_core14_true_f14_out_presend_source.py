@@ -61,12 +61,15 @@ class PreSendSource(unittest.TestCase):
         for legacy_part in (out_legacy, create_legacy):
             self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)",
                           legacy_part.split("#endif",1)[0])
-        # N1 regression: deleting the direct-CREATE query must fail this
-        # positive-branch contract, not merely pass a legacy-branch count.
+        # N1 regression: deleting the direct-CREATE guard must make the
+        # SAME safety predicate false, not merely delete a string.
+        def guards_hidden_creature(source):
+            return ("!IsF14CreatureSuppressedFromClientView(this, target) &&"
+                    in source)
+        self.assertTrue(guards_hidden_creature(direct_create))
         unsafely_recreates = direct_create.replace(
             "!IsF14CreatureSuppressedFromClientView(this, target) &&", "")
-        self.assertNotIn("!IsF14CreatureSuppressedFromClientView(this, target)",
-                         unsafely_recreates)
+        self.assertFalse(guards_hidden_creature(unsafely_recreates))
         tpl=PLAYER.split("template <class T>\nvoid Player::UpdateVisibilityOf(",1)[1].split(
             "void Player::GetInitialVisiblePackets",1)[0]
         create=tpl.split("else\n    {\n        if (CanSeeOrDetect(",1)[1]
