@@ -10,6 +10,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE8 = "2e2a21ae2224a9738cd92abf00bab957dbfb7604"
+CORE9 = "865724cee8d0fb94d7496854c0f426f60bac2232"
+PRE = "COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT"
 MACRO = "COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT"
 PARENT = "COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT"
 
@@ -20,6 +22,11 @@ def read(path):
 
 def old(path):
     return subprocess.check_output(["git", "show", CORE8 + ":" + path],
+                                   cwd=ROOT, text=True)
+
+
+def core9(path):
+    return subprocess.check_output(["git", "show", CORE9 + ":" + path],
                                    cwd=ROOT, text=True)
 
 
@@ -93,9 +100,22 @@ class Core9RealCreatureBatchEvidence(unittest.TestCase):
         self.assertEqual(direct, olddirect)
         self.assertNotIn(MACRO,direct)
 
-        # Reconstruct old Core8 PlayerUpdates.cpp EXACTLY by removing ONLY
-        # the 3 new, compile-disabled sections: helper + after OUT + CREATE.
+        # First reconstruct pinned reviewed Core9 EXACTLY, allowing only
+        # the separately guarded new positive-query OUT conditional and
+        # its same-UpdateData source-cause sidecar. Never weaken the old
+        # Core8 reconstruction, and never remove any ordinary visibility code.
         new=cpp
+        start=new.index("#if defined("+PRE+")",new.index("template <class T>\\n".replace("\\n", "\n")))
+        middle=new.index("#else\\n".replace("\\n", "\n"),start)
+        stop=new.index("#endif\\n".replace("\\n", "\n"),middle)+len("#endif\\n".replace("\\n", "\n"))
+        new=new[:start]+new[middle+len("#else\\n".replace("\\n", "\n")):stop-len("#endif\\n".replace("\\n", "\n"))]+new[stop:]
+        start=new.index("#if defined("+PRE+")",new.index("target->BuildOutOfRangeUpdateBlock(&data);"))
+        stop=new.index("#endif\\n".replace("\\n", "\n"),start)+len("#endif\\n".replace("\\n", "\n"))
+        new=new[:start]+new[stop:]
+        self.assertEqual(new,core9(path))
+        # Then preserve the original Core9 -> Core8 exact source proof.
+        # These original three Core9 sections must be the ONLY remaining delta.
+        new=core9(path)
         start=new.index("#if defined("+MACRO+")")
         stop=new.index("#endif\n\ntemplate <class T>",start)+len("#endif\n\n")
         new=new[:start]+new[stop:]
