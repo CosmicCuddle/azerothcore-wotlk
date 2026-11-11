@@ -75,10 +75,11 @@ class DefaultFalseScriptAPIGuard(unittest.TestCase):
         # client CREATE/OUT paths, but ONLY inside a compile-time-OFF block.
         # The old Core #2 "no caller exists" assertion is superseded.
         self.assertEqual(
-            self.updates.count("IsF14CreatureSuppressedFromClientView(this, target)"), 5
+            self.updates.count("IsF14CreatureSuppressedFromClientView(this, target)"), 6
         )
-        # Four original guarded caller positions remain, plus exactly one
-        # separate compile-off positive-query reason before a real batch OUT.
+        # One additional guarded direct CREATE query is retained under the
+        # new Core14 opt-in to prevent movement-driven recreation; direct
+        # OUT is still F14-vetoed, and default runtime remains OFF.
         self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', self.updates)
 
         self.assertIn(
