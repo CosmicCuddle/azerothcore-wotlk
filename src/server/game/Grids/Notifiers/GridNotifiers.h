@@ -50,6 +50,9 @@ namespace Acore
         // Stack notifier is the sole owner of the token. No cached Player
         // pointer, no client/creature GUID tag, and NO positive visibility.
         uint64 _f14PassToken = 0;
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        bool _f14PreSendDispatched = false; // set before callbacks to prevent reentry
+#endif
         void BeginF14NotifierPass();
         ~VisibleNotifier();
         // Never duplicate a pending end event via notifier copy/assignment.

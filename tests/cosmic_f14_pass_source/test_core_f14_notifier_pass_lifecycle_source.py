@@ -83,13 +83,22 @@ class Core8NotifierPassSource(unittest.TestCase):
         self.assertIn("target->SendUpdateToPlayer(this);", direct)
         self.assertNotIn("VisibleNotifier", direct)
         self.assertNotIn(MACRO, direct)
-        # Core9 adds ONLY compile-disabled exact batched creature metadata.
-        # Preserve the complete direct overload byte-for-byte, not merely
-        # a keyword absence, and keep the existing relocation source exact.
+        # The new Core14 macro MUST fail visible in the direct path.
+        # Recover the EXACT historical Core7/Core8/Core9 implementation by
+        # stripping ONLY two compile-disabled alternative arms; this keeps
+        # the original direct semantics byte-for-byte when the macro is OFF.
+        new="COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT"
+        self.assertEqual(direct.count("#if defined("+new+")"),2)
+        legacy=direct
+        for _ in range(2):
+            guard=legacy.index("#if defined("+new+")")
+            middle=legacy.index("#else\n",guard)
+            end=legacy.index("#endif\n",middle)
+            legacy=legacy[:guard]+legacy[middle+len("#else\n"):end]+legacy[end+len("#endif\n"):]
         original = old("src/server/game/Entities/Player/PlayerUpdates.cpp")
         olderStart = original.index("void Player::UpdateVisibilityOf(WorldObject* target)")
         olderEnd = original.index("void Player::UpdateTriggerVisibility()", olderStart)
-        self.assertEqual(direct, original[olderStart:olderEnd])
+        self.assertEqual(legacy, original[olderStart:olderEnd])
         self.assertIn("COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT", player)
         self.assertEqual(unit, old("src/server/game/Entities/Unit/Unit.cpp"))
 

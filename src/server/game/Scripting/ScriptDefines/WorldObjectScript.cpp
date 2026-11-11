@@ -131,6 +131,17 @@ void ScriptMgr::OnF14ViewerCreatureBatchGuidSendAttempt(
 }
 #endif
 
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+void ScriptMgr::OnF14ViewerCreaturePositiveQueryOutPreSend(
+    Player const* viewer, ObjectGuid const& creatureGuid, uint64 token)
+{
+    ASSERT(viewer && !creatureGuid.IsEmpty() && token);
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,
+        script->OnF14ViewerCreaturePositiveQueryOutPreSend(viewer, creatureGuid, token));
+}
+#endif
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {

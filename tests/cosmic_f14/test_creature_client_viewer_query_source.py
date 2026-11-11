@@ -30,13 +30,18 @@ class NativeSourceContract(unittest.TestCase):
     def test_both_actual_player_visibility_overloads_are_covered(self):
         src = PLAYER.read_text(encoding="utf-8")
         self.assertEqual(
-            src.count("IsF14CreatureSuppressedFromClientView(this, target)"), 4)
+            src.count("IsF14CreatureSuppressedFromClientView(this, target)"), 6)
+        # The guarded Core14 direct CREATE retains the creature query to
+        # avoid a previously hidden creature reappearing during movement.
+        # Direct OUT still forbids new concealment without batch evidence.
+        self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', src)
+
         self.assertEqual(
             src.count("!CanSeeOrDetect(target, false, true) ||\n"
                       "            IsF14CreatureSuppressedFromClientView(this, target)"), 2)
         self.assertEqual(
             src.count("CanSeeOrDetect(target, false, true) &&\n"
-                      "            !IsF14CreatureSuppressedFromClientView(this, target)"), 2)
+                      "            !IsF14CreatureSuppressedFromClientView(this, target)"), 3)
         self.assertIn(
             "void Player::UpdateVisibilityOf(T* target, UpdateData& data,", src)
         self.assertIn("void Player::UpdateVisibilityOf(WorldObject* target)", src)

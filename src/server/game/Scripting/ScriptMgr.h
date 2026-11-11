@@ -766,6 +766,11 @@ public: /* WorldObjectScript */
     void OnF14ViewerCreatureBatchGuidSendAttempt(
         Player const* viewer, ObjectGuid const& creatureGuid, bool isCreate, uint64 token);
 #endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // Synchronous Core-owned pre-send source only, NOT an IP E1 consumer.
+    void OnF14ViewerCreaturePositiveQueryOutPreSend(
+        Player const* viewer, ObjectGuid const& creatureGuid, uint64 token);
+#endif
 
 public: /* PetScript */
 
