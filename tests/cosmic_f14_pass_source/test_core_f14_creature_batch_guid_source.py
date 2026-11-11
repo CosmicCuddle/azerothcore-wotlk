@@ -97,14 +97,29 @@ class Core9RealCreatureBatchEvidence(unittest.TestCase):
                    cpp.index("void Player::UpdateTriggerVisibility()")]
         olddirect=orig[orig.index("void Player::UpdateVisibilityOf(WorldObject* target)"):
                        orig.index("void Player::UpdateTriggerVisibility()")]
-        self.assertEqual(direct, olddirect)
-        self.assertNotIn(MACRO,direct)
+        # Core14 deliberately VETOES any F14 creature-only hide on the
+        # direct path when opted in; when the NEW macro is undefined, its
+        # guarded #else arms must reconstruct the exact Core9 direct path.
+        self.assertNotIn(MACRO, direct)
+        self.assertEqual(direct.count("#if defined("+PRE+")"), 2)
+        def remove_direct_f14_guards(text):
+            start=text.index("void Player::UpdateVisibilityOf(WorldObject* target)")
+            stop=text.index("void Player::UpdateTriggerVisibility()",start)
+            segment=text[start:stop]
+            for _ in range(2):
+                mark=segment.index("#if defined("+PRE+")")
+                alt=segment.index("#else\n",mark)
+                end=segment.index("#endif\n",alt)
+                segment=segment[:mark]+segment[alt+len("#else\n"):end]+segment[end+len("#endif\n"):]
+            self.assertNotIn("#if defined("+PRE+")",segment)
+            self.assertEqual(segment, olddirect)
+            return text[:start]+segment+text[stop:]
 
         # First reconstruct pinned reviewed Core9 EXACTLY, allowing only
         # the separately guarded new positive-query OUT conditional and
         # its same-UpdateData source-cause sidecar. Never weaken the old
         # Core8 reconstruction, and never remove any ordinary visibility code.
-        new=cpp
+        new=remove_direct_f14_guards(cpp)
         start=new.index("#if defined("+PRE+")",new.index("template <class T>\\n".replace("\\n", "\n")))
         middle=new.index("#else\\n".replace("\\n", "\n"),start)
         stop=new.index("#endif\\n".replace("\\n", "\n"),middle)+len("#endif\\n".replace("\\n", "\n"))
