@@ -1891,10 +1891,13 @@ void Player::UpdateVisibilityOf(WorldObject* target)
     else
     {
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
-        // Paired with direct-path OUT veto: ordinary Core may recreate any
-        // creature previously affected by an experimental unresolved F14
-        // view. This call is NOT a client ACK or ledger-clear authority.
+        // GROK N1: direct CREATE must not undo an outstanding batch hide
+        // simply because this creature moved. Keep the original creature
+        // visibility query on CREATE; only direct OUT is prohibited from
+        // initiating F14 concealment without a notifier pass.
+        // This query is NOT a client CREATE ACK or restore-debt release.
         if (CanSeeOrDetect(target, false, true) &&
+            !IsF14CreatureSuppressedFromClientView(this, target) &&
             !IsF14PlayerSuppressedFromClientView(this, target))
 #else
         if (CanSeeOrDetect(target, false, true) &&
