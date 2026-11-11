@@ -39,9 +39,10 @@ class F14PlayerClientSource(unittest.TestCase):
     def test_both_client_visibility_overloads_all_four_create_out_transitions(self):
         self.assertIn("void Player::UpdateVisibilityOf(T* target, UpdateData& data,",UP)
         self.assertIn("void Player::UpdateVisibilityOf(WorldObject* target)",UP)
-        self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target)"),5)
-        # Four original guarded caller positions remain, plus exactly one
-        # separate compile-off positive-query reason before a real batch OUT.
+        self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target)"),6)
+        # Original guards remain, including the retained direct-CREATE query
+        # that prevents movement-induced reappearance of a still-hidden NPC.
+        # The new batch OUT positive-cause query remains separately guarded.
         self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', UP)
 
         self.assertEqual(UP.count("IsF14PlayerSuppressedFromClientView(this, target)"),7)
@@ -51,7 +52,7 @@ class F14PlayerClientSource(unittest.TestCase):
         # One extra script query spelling is gated inside the new OFF-only
         # Core14 batched path; four original conditional alternatives remain.
         self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target) ||\n            IsF14PlayerSuppressedFromClientView(this, target)"),2)
-        self.assertEqual(UP.count("!IsF14CreatureSuppressedFromClientView(this, target) &&\n            !IsF14PlayerSuppressedFromClientView(this, target)"),2)
+        self.assertEqual(UP.count("!IsF14CreatureSuppressedFromClientView(this, target) &&\n            !IsF14PlayerSuppressedFromClientView(this, target)"),3)
         for call in ("target->BuildOutOfRangeUpdateBlock(&data);","target->DestroyForPlayer(this);",
                      "target->BuildCreateUpdateBlockForPlayer(&data, this);",
                      "target->SendUpdateToPlayer(this);"):
