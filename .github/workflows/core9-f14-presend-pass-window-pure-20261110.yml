@@ -48,6 +48,70 @@ jobs:
             /tmp/f14-pass | tee /tmp/f14-result
             grep -q 'NO CLIENT ACK OR RUNTIME' /tmp/f14-result
           done
+      - name: Verify regression coverage with executable RED mutations (not compiler failures)
+        if: ${{ matrix.cxx == 'g++' && matrix.std == 'c++17' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          import subprocess
+
+          source = Path("tests/cosmic_f14_pass_source/f14_core_pass_window_pure_model.cpp").read_text()
+          mutations = [
+              (
+                  "forget-live-pass",
+                  "void forget(uint64_t v) { for(auto& p:active) if(p.viewer==v) p={}; }",
+                  "void forget(uint64_t) {}",
+              ),
+              (
+                  "un-nominated-send-laundering",
+                  "return p->nominated ? Status::SendCall : Status::NoCandidate;",
+                  "return Status::SendCall;",
+              ),
+              (
+                  "excluded-highwater-poison",
+                  "if(!v || !epoch || epoch!=verifiedEpoch || !eligible) return Status::Excluded;\n"
+                  "        if(!token || token==~uint64_t{0} || token<=highwater) return Status::Replayed;\n"
+                  "        highwater=token;",
+                  "if(!token || token<=highwater) return Status::Replayed;\n"
+                  "        highwater=token;\n"
+                  "        if(!v || !epoch || epoch!=verifiedEpoch || !eligible) return Status::Excluded;",
+              ),
+              (
+                  "repeated-send-as-evidence",
+                  "if(p->reported) return Status::RepeatedSend;",
+                  "if(p->reported) return Status::SendCall;",
+              ),
+              (
+                  "silent-incomplete-end",
+                  "bool const noObservedCall=p->nominated && !p->reported;\n"
+                  "        *p={}; return noObservedCall ? Status::EndedWithoutObservedSend : Status::Ended;",
+                  "*p={}; return Status::Ended;",
+              ),
+          ]
+          with TemporaryDirectory(prefix="f14-mutations-") as folder:
+              directory = Path(folder)
+              for i, (name, old, new) in enumerate(mutations):
+                  if source.count(old) != 1:
+                      raise SystemExit(f"BAD MUTATION ANCHOR {name}: {source.count(old)}")
+                  mutant = directory / f"mutant-{i}.cpp"
+                  binary = directory / f"mutant-{i}"
+                  mutant.write_text(source.replace(old, new, 1))
+                  compile_result = subprocess.run(
+                      ["g++", "-std=c++17", "-O2", "-Wall", "-Wextra",
+                       "-Werror", "-pedantic", str(mutant), "-o", str(binary)],
+                      capture_output=True, text=True,
+                  )
+                  if compile_result.returncode != 0:
+                      raise SystemExit(f"MUTANT COMPILER FAILURE IS NOT RED EVIDENCE: {name}")
+                  result = subprocess.run([str(binary)], capture_output=True, text=True)
+                  if result.returncode == 0 or "FAIL line" not in result.stdout:
+                      raise SystemExit(f"MUTATION SURVIVED OR FAILED FOR WRONG REASON: {name}")
+                  print(f"OLD-RED EXECUTABLE MUTATION REFUSED: {name}")
+          print("5/5 compiled behavioral mutations correctly RED; baseline GREEN checked separately")
+          PY
       - name: Safety disclaimer
         if: always()
         run: echo 'Pure test model only. No Core pass producer, IP listener, positive hide, DB/SQL, owner host or client test.'
