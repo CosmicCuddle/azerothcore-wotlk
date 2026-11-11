@@ -47,6 +47,16 @@ class PreSendSource(unittest.TestCase):
             "void Player::UpdateTriggerVisibility()",1)[0]
         self.assertNotIn("F14RecordPositiveQueryCreatureOut(", direct)
         self.assertNotIn("OnF14ViewerCreaturePositiveQueryOutPreSend(", direct)
+        # GROK M2: direct client OUT/CREATE must fail VISIBLE with the new
+        # Core14 macro ON, while preserving exact Core9 code with it OFF.
+        branches = direct.split("#if defined("+SOURCE_MACRO+")", 2)
+        self.assertEqual(len(branches), 3)
+        for branch in branches[1:]:
+            positive_part, legacy_part = branch.split("#else", 1)
+            self.assertNotIn("IsF14CreatureSuppressedFromClientView(this, target)",
+                             positive_part)
+            self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)",
+                          legacy_part.split("#endif",1)[0])
         tpl=PLAYER.split("template <class T>\nvoid Player::UpdateVisibilityOf(",1)[1].split(
             "void Player::GetInitialVisiblePackets",1)[0]
         create=tpl.split("else\n    {\n        if (CanSeeOrDetect(",1)[1]
@@ -83,14 +93,30 @@ class PreSendSource(unittest.TestCase):
         self.assertIn("CALL_ENABLED_HOOKS(",WORLD_CPP)
         self.assertIn("WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,",WORLD_CPP)
         self.assertIn("WorldObject const* /*creature*/) { return false; }",WORLD_H)
+        # GROK M1/L1: callback is too late to reserve a hide; no nested
+        # visibility, packets or database work is authorized inside it.
+        self.assertIn("MUST first atomically reserve exact", WORLD_H)
+        self.assertIn("TRUE only when that reservation succeeds", WORLD_H)
+        self.assertIn("MUST NOT call visibility updates, send packets", WORLD_H)
 
-    def test_mutation_send_after_old_core_callback_would_be_detected(self):
+    def test_moved_presend_dispatch_to_after_send_is_really_rejected(self):
         body=NOTIFIER.split("void VisibleNotifier::SendToSelf()",1)[1].split(
             "void VisibleChangesNotifier::Visit(",1)[0]
-        changed=body.replace("    i_player.SendDirectMessage(&packet);",
-             "    i_player.SendDirectMessage(&packet);\n    "+CALL+" &i_player, ObjectGuid{}, 1);",1)
-        self.assertNotEqual(changed,body)
-        self.assertFalse(changed.rfind(CALL) < changed.rfind("i_player.SendDirectMessage(&packet);"))
-        self.assertTrue(body.index(CALL) < body.index("i_player.SendDirectMessage(&packet);"))
+        def is_pre_send(part):
+            return part.count(CALL)==1 and part.count(
+                "i_player.SendDirectMessage(&packet);")==1 and (
+                part.index(CALL) < part.index("i_player.SendDirectMessage(&packet);"))
+        self.assertTrue(is_pre_send(body))
+        # An actual source-code mutation: MOVE the existing guarded producer
+        # to after SendDirectMessage. The same validator must now return
+        # FALSE; a self-referential assertion on the mutant would be vacuous.
+        start=body.index("#if defined("+SOURCE_MACRO+")")
+        end=body.index("#endif",start)+len("#endif")
+        block=body[start:end]
+        stripped=body[:start]+body[end:]
+        send="i_player.SendDirectMessage(&packet);"
+        self.assertEqual(stripped.count(send),1)
+        mutated=stripped.replace(send,send+"\n"+block,1)
+        self.assertFalse(is_pre_send(mutated))
 if __name__ == "__main__":
     unittest.main()
