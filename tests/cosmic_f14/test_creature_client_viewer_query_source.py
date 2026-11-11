@@ -30,7 +30,11 @@ class NativeSourceContract(unittest.TestCase):
     def test_both_actual_player_visibility_overloads_are_covered(self):
         src = PLAYER.read_text(encoding="utf-8")
         self.assertEqual(
-            src.count("IsF14CreatureSuppressedFromClientView(this, target)"), 4)
+            src.count("IsF14CreatureSuppressedFromClientView(this, target)"), 5)
+        # Four original guarded caller positions remain, plus exactly one
+        # separate compile-off positive-query reason before a real batch OUT.
+        self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', src)
+
         self.assertEqual(
             src.count("!CanSeeOrDetect(target, false, true) ||\n"
                       "            IsF14CreatureSuppressedFromClientView(this, target)"), 2)

@@ -39,7 +39,11 @@ class F14PlayerClientSource(unittest.TestCase):
     def test_both_client_visibility_overloads_all_four_create_out_transitions(self):
         self.assertIn("void Player::UpdateVisibilityOf(T* target, UpdateData& data,",UP)
         self.assertIn("void Player::UpdateVisibilityOf(WorldObject* target)",UP)
-        self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target)"),4)
+        self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target)"),5)
+        # Four original guarded caller positions remain, plus exactly one
+        # separate compile-off positive-query reason before a real batch OUT.
+        self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', UP)
+
         self.assertEqual(UP.count("IsF14PlayerSuppressedFromClientView(this, target)"),4)
         self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target) ||\n            IsF14PlayerSuppressedFromClientView(this, target)"),2)
         self.assertEqual(UP.count("!IsF14CreatureSuppressedFromClientView(this, target) &&\n            !IsF14PlayerSuppressedFromClientView(this, target)"),2)
