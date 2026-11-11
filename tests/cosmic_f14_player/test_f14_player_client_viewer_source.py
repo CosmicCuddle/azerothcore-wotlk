@@ -44,7 +44,10 @@ class F14PlayerClientSource(unittest.TestCase):
         # separate compile-off positive-query reason before a real batch OUT.
         self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', UP)
 
-        self.assertEqual(UP.count("IsF14PlayerSuppressedFromClientView(this, target)"),5)
+        self.assertEqual(UP.count("IsF14PlayerSuppressedFromClientView(this, target)"),7)
+        # Original four actor-query sites preserved, plus one Core14 batched
+        # TRUE-cause branch and two mutually exclusive direct fail-visible
+        # fallbacks when the new Core14 guarded source is enabled.
         # One extra script query spelling is gated inside the new OFF-only
         # Core14 batched path; four original conditional alternatives remain.
         self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target) ||\n            IsF14PlayerSuppressedFromClientView(this, target)"),2)
