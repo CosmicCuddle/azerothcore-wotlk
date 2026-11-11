@@ -47,16 +47,26 @@ class PreSendSource(unittest.TestCase):
             "void Player::UpdateTriggerVisibility()",1)[0]
         self.assertNotIn("F14RecordPositiveQueryCreatureOut(", direct)
         self.assertNotIn("OnF14ViewerCreaturePositiveQueryOutPreSend(", direct)
-        # GROK M2: direct client OUT/CREATE must fail VISIBLE with the new
-        # Core14 macro ON, while preserving exact Core9 code with it OFF.
+        # GROK M2/N1: only direct OUT must fail visible. Direct CREATE
+        # must honor the existing F14 creature query to avoid resurrecting
+        # a still-hidden batch creature on movement without debt evidence.
+        # With the macro OFF, both original Core9 routes remain unchanged.
         branches = direct.split("#if defined("+SOURCE_MACRO+")", 2)
         self.assertEqual(len(branches), 3)
-        for branch in branches[1:]:
-            positive_part, legacy_part = branch.split("#else", 1)
-            self.assertNotIn("IsF14CreatureSuppressedFromClientView(this, target)",
-                             positive_part)
+        direct_out, out_legacy = branches[1].split("#else", 1)
+        direct_create, create_legacy = branches[2].split("#else", 1)
+        self.assertNotIn("IsF14CreatureSuppressedFromClientView(", direct_out)
+        self.assertIn("!IsF14CreatureSuppressedFromClientView(this, target)",
+                      direct_create)
+        for legacy_part in (out_legacy, create_legacy):
             self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)",
                           legacy_part.split("#endif",1)[0])
+        # N1 regression: deleting the direct-CREATE query must fail this
+        # positive-branch contract, not merely pass a legacy-branch count.
+        unsafely_recreates = direct_create.replace(
+            "!IsF14CreatureSuppressedFromClientView(this, target) &&", "")
+        self.assertNotIn("!IsF14CreatureSuppressedFromClientView(this, target)",
+                         unsafely_recreates)
         tpl=PLAYER.split("template <class T>\nvoid Player::UpdateVisibilityOf(",1)[1].split(
             "void Player::GetInitialVisiblePackets",1)[0]
         create=tpl.split("else\n    {\n        if (CanSeeOrDetect(",1)[1]
