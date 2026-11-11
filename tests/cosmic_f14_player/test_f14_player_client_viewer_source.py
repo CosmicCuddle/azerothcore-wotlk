@@ -44,7 +44,9 @@ class F14PlayerClientSource(unittest.TestCase):
         # separate compile-off positive-query reason before a real batch OUT.
         self.assertIn('COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT', UP)
 
-        self.assertEqual(UP.count("IsF14PlayerSuppressedFromClientView(this, target)"),4)
+        self.assertEqual(UP.count("IsF14PlayerSuppressedFromClientView(this, target)"),5)
+        # One extra script query spelling is gated inside the new OFF-only
+        # Core14 batched path; four original conditional alternatives remain.
         self.assertEqual(UP.count("IsF14CreatureSuppressedFromClientView(this, target) ||\n            IsF14PlayerSuppressedFromClientView(this, target)"),2)
         self.assertEqual(UP.count("!IsF14CreatureSuppressedFromClientView(this, target) &&\n            !IsF14PlayerSuppressedFromClientView(this, target)"),2)
         for call in ("target->BuildOutOfRangeUpdateBlock(&data);","target->DestroyForPlayer(this);",
