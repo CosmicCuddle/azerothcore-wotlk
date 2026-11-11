@@ -1869,9 +1869,17 @@ void Player::UpdateVisibilityOf(WorldObject* target)
 {
     if (HaveAtClient(target))
     {
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        // Core14 only: the direct path has NO batch/OUT event or secure debt
+        // reservation. NEVER allow an F14 creature query to hide a creature
+        // through DestroyForPlayer. Normal Core and player policy remain.
+        if (!CanSeeOrDetect(target, false, true) ||
+            IsF14PlayerSuppressedFromClientView(this, target))
+#else
         if (!CanSeeOrDetect(target, false, true) ||
             IsF14CreatureSuppressedFromClientView(this, target) ||
             IsF14PlayerSuppressedFromClientView(this, target))
+#endif
         {
             if (target->IsCreature())
                 BeforeVisibilityDestroy<Creature>(target->ToCreature(), this);
@@ -1882,9 +1890,17 @@ void Player::UpdateVisibilityOf(WorldObject* target)
     }
     else
     {
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        // Paired with direct-path OUT veto: ordinary Core may recreate any
+        // creature previously affected by an experimental unresolved F14
+        // view. This call is NOT a client ACK or ledger-clear authority.
+        if (CanSeeOrDetect(target, false, true) &&
+            !IsF14PlayerSuppressedFromClientView(this, target))
+#else
         if (CanSeeOrDetect(target, false, true) &&
             !IsF14CreatureSuppressedFromClientView(this, target) &&
             !IsF14PlayerSuppressedFromClientView(this, target))
+#endif
         {
             target->SendUpdateToPlayer(this);
             GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
