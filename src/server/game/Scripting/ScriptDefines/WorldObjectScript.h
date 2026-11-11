@@ -141,9 +141,20 @@ public:
         bool /*isCreate*/, uint64 /*passToken*/) { }
 #endif
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
-    // A positively answered creature-view query produced a real batched OUT
-    // block before SendDirectMessage. This is NOT IP rights, true RNDBOT
-    // identity, human login epoch, incarnation, debt or client presentation.
+    // OBSERVER/RECORD-ONLY. This notification is AFTER the server has
+    // already unlinked the creature and built the OUT packet; it CANNOT veto
+    // a hide. A future positive ShouldF14SuppressCreatureForViewer listener
+    // MUST first atomically reserve exact (human viewer epoch, creature
+    // incarnation, owning map) restore debt under verified rights, and answer
+    // TRUE only when that reservation succeeds. Missing evidence => FALSE
+    // (VISIBLE). The post-send exact GUID/token signal must reconcile each
+    // reservation, including unsent/aborted passes; never silently drop debt.
+    // Listener MUST NOT call visibility updates, send packets, access DB, or
+    // re-enter VisibleNotifier from this pre-send callback. Only record
+    // value-only facts synchronously, then release locks before Core work.
+    // A positively answered query caused an actual batched creature OUT,
+    // but this event is NOT proof of IP rights, normal human login epoch,
+    // live creature incarnation, client receipt, ACK or restoration.
     virtual void OnF14ViewerCreaturePositiveQueryOutPreSend(
         Player const* /*viewer*/, ObjectGuid const& /*creatureGuid*/,
         uint64 /*passToken*/) { }
