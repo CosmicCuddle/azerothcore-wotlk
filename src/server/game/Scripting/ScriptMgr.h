@@ -342,6 +342,9 @@ public: /* PlayerScript */
 #if defined(COSMIC_F14_SESSION_REBIND_EXPERIMENT) && COSMIC_F14_SESSION_REBIND_EXPERIMENT >= 1
     void OnF14PlayerSessionRebound(Player* player);
 #endif
+#if defined(COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT) && COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT >= 1
+    void OnF14PlayerSessionDisconnected(Player* player);
+#endif
     bool OnPlayerCanMarkAccountOffline(ObjectGuid guid, uint32 accountId);
     void OnPlayerCreate(Player* player);
     void OnPlayerSave(Player* player);
