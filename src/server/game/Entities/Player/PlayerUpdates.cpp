@@ -1806,6 +1806,7 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
         // invisibility. Default builds keep the original path byte-identical.
         bool const ordinaryVisible = CanSeeOrDetect(target, false, true);
         bool const positiveF14CreatureQuery =
+            data.F14MayAskInitialOutQuery() &&
             ordinaryVisible && IsF14CreatureSuppressedFromClientView(this, target);
         if (!ordinaryVisible || positiveF14CreatureQuery ||
             IsF14PlayerSuppressedFromClientView(this, target))

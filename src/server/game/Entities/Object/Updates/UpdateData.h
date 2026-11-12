@@ -37,6 +37,8 @@ class WorldPacket;
 #if !defined(COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT) || COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT < 1
 #error "F14 pre-send OUT evidence needs the creature query"
 #endif
+#include "F14InitialOutPassAdmission.h"
+namespace Acore { struct VisibleNotifier; }
 #endif
 
 enum OBJECT_UPDATE_TYPE
@@ -97,6 +99,10 @@ public:
     F14CreatureBatchCandidates() const { return _f14CreatureCandidates.Entries(); }
 #endif
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // Only a genuine, still-open notifier may initiate a new creature OUT.
+    // This is a negative prerequisite, NOT actor/viewer/rights authorization.
+    bool F14MayAskInitialOutQuery() const { return _f14InitialOutAdmission.IsOpen(); }
+
     // Only the exact Core batched positive-query OUT branch can call this.
     // Never serialized to SMSG_UPDATE_OBJECT. Duplicate/overflow fail closed.
     void F14RecordPositiveQueryCreatureOut(ObjectGuid const& guid)
@@ -153,6 +159,12 @@ protected:
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
     std::vector<ObjectGuid> _f14PositiveQueryOutCandidates;
     bool _f14PositiveQueryOutPoisoned = false;
+
+private:
+    friend struct Acore::VisibleNotifier;
+    void F14OpenInitialOutQuery(uint64 token) { _f14InitialOutAdmission.Open(token); }
+    void F14CloseInitialOutQuery() { _f14InitialOutAdmission.Close(); }
+    CosmicF14::InitialOutPassAdmission _f14InitialOutAdmission;
 #endif
 };
 #endif

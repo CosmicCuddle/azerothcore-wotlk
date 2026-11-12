@@ -149,13 +149,20 @@ class PreSendSource(unittest.TestCase):
         # An actual source-code mutation: MOVE the existing guarded producer
         # to after SendDirectMessage. The same validator must now return
         # FALSE; a self-referential assertion on the mutant would be vacuous.
-        start=body.index("#if defined("+SOURCE_MACRO+")")
-        end=body.index("#endif",start)+len("#endif")
+        # Locate the actual producer, not the earlier admission-close guard.
+        call_pos=body.index(CALL)
+        start=body.rfind("#if defined("+SOURCE_MACRO+")",0,call_pos)
+        self.assertGreaterEqual(start,0)
+        end=body.index("#endif",call_pos)+len("#endif")
         block=body[start:end]
+        self.assertIn(CALL,block)
+        self.assertIn("_f14PreSendDispatched = true;",block)
         stripped=body[:start]+body[end:]
         send="i_player.SendDirectMessage(&packet);"
         self.assertEqual(stripped.count(send),1)
         mutated=stripped.replace(send,send+"\n"+block,1)
+        self.assertEqual(mutated.count(CALL),1)
+        self.assertGreater(mutated.index(CALL),mutated.index(send))
         self.assertFalse(is_pre_send(mutated))
 if __name__ == "__main__":
     unittest.main()

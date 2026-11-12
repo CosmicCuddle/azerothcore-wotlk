@@ -58,10 +58,17 @@ void VisibleNotifier::BeginF14NotifierPass()
 
     _f14PassToken = token;
     sScriptMgr->OnF14ViewerVisibilityPassBegin(&i_player, token);
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // The actual notifier owns this exact UpdateData. Only open after Begin.
+    i_data.F14OpenInitialOutQuery(token);
+#endif
 }
 
 VisibleNotifier::~VisibleNotifier()
 {
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    i_data.F14CloseInitialOutQuery();
+#endif
     // Stack scope ends even after SendToSelf's early !HasData() return,
     // skipped packet, empty batch or C++ stack unwinding. No raw pointers
     // may be retained by consumers after this synchronous callback.
@@ -124,6 +131,11 @@ void VisibleNotifier::SendToSelf()
         itr = i_player.GetObjectVisibilityContainer().UnlinkVisibilityFromPlayer(obj, itr);
     }
 
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // All target visits have ended. Seal BEFORE even an empty return, packet
+    // build, or script dispatch. No new hide in a late/repeated send pass.
+    i_data.F14CloseInitialOutQuery();
+#endif
     if (!i_data.HasData())
         return;
 
