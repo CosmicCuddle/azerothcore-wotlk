@@ -1,0 +1,66 @@
+name: Core14 initial OUT notifier admission negative guard (OFF)
+on:
+  push:
+    branches:
+      - fix/cs01-core14-f14-initial-out-pass-admission-20261112
+  pull_request:
+    branches:
+      - feature/cs01-core14-f14-actual-presend-cause-out-off-20261111
+permissions:
+  contents: read
+jobs:
+  source-and-native-helper:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact child scope and frozen parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=6dd1589b9067b02f88bb4e04de33818e36bc87c3
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core14-f14-initial-out-admission-20261112.yml' \
+            'src/server/game/Entities/Object/Updates/F14InitialOutPassAdmission.h' \
+            'src/server/game/Entities/Object/Updates/UpdateData.cpp' \
+            'src/server/game/Entities/Object/Updates/UpdateData.h' \
+            'src/server/game/Entities/Player/PlayerUpdates.cpp' \
+            'src/server/game/Grids/Notifiers/GridNotifiers.cpp' \
+            'tests/cosmic_f14_pass_source/f14_initial_out_pass_admission_native.cpp' \
+            'tests/cosmic_f14_pass_source/test_core14_initial_out_admission_source.py' | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- conf sql data modules)"
+      - name: Actual Core source guard plus inherited Core8/Core9/Core14 source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14 -p test_creature_client_viewer_query_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_player -p test_f14_player_client_viewer_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook -p test_f14_unwired_hook_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source -p 'test_core*source.py' -v
+      - name: Compile and execute the actual new Core admission header
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            for std in c++17 c++20; do
+              for mode in normal ndebug; do
+                flags=()
+                if [[ "$mode" == ndebug ]]; then flags=(-DNDEBUG); fi
+                "$cxx" -std="$std" -Wall -Wextra -Werror -pedantic -O2 "${flags[@]}" \
+                  -Isrc/server/game/Entities/Object/Updates \
+                  tests/cosmic_f14_pass_source/f14_initial_out_pass_admission_native.cpp -o /tmp/f14-admission
+                /tmp/f14-admission
+              done
+            done
+          done
+      - name: Explicit evidence boundary
+        if: always()
+        run: echo 'Source and native helper only. No Worldserver link, actual positive listener, R2/L1 resolution, gameplay or deployment.'
