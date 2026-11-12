@@ -120,3 +120,49 @@
 - **Mandatory post-restack assertions:** session rebind remains immediately after `p->SetSession(this)`; kept-in-world disconnect publication remains after socket detach and before `TradeCancel(false)`; notifier token/admission ownership remains tied to the exact `VisibleNotifier` instance; initial OUT/CREATE queries remain token-bound/default-FALSE/fail-visible; no positive listener appears accidentally.
 - **Do not use file replacement:** the zero-hunk-collision result strengthens the case for a normal three-way Git operation. It is **not** permission to copy local versions over upstream or skip the 24 Core updater SQL applicability review.
 - **Status:** read-only comparison only. No merge/rebase, runtime source rewrite, SQL/config/DB/host operation or deployment performed.
+
+
+### Upstream SQL applicability triage — Core25 restack (12 Nov 2026)
+
+Read-only comparison of protected Core23 `dbb1dd5150f330d88522a10b85e93546fff72bad` to Core25 restack `395b68ee4ce425826c2a79c0ddf3ade3c67c8160` identifies **25 SQL-path changes**: one removed base file, one characters updater and 23 world updater files. None has been executed.
+
+#### Higher-risk schema/data migrations
+
+1. **World `2026_10_28_00.sql` — drops `spell_proc_event`**
+   - statement: `DROP TABLE IF EXISTS spell_proc_event`;
+   - upstream also removes `data/sql/base/db_world/spell_proc_event.sql`;
+   - this is a real schema-removal migration, not content-only cleanup.
+   - Before application: inventory custom/module SQL and runtime code for `spell_proc_event`, export the existing table for rollback/evidence, verify the current Core replacement path, and confirm no local custom proc depends on rows that are not represented elsewhere.
+
+2. **World `2026_10_25_00.sql` + `2026_10_31_00.sql` — `acore_string` locale schema migration**
+   - creates `acore_string_locale(entry, locale, content)`;
+   - migrates eight legacy locale columns;
+   - then drops `locale_koKR/frFR/deDE/zhCN/zhTW/esES/esMX/ruRU` from `acore_string`.
+   - Before application: export `acore_string` + `acore_string_locale`, search all custom SQL/modules for legacy locale-column writes/reads, and verify locale round-trip on the disposable DB copy. Do not allow a custom localisation row to be discarded by a schema assumption.
+
+3. **Characters `2026_10_31_00.sql` — current-pet slot cleanup**
+   - for Hunter pets (`PetType=0`) with duplicate `slot=0`, moves every older saved duplicate to slot 100, keeping the newest by `savetime` then `id`.
+   - This changes character-owned data. Before application: count affected owners/rows on the disposable copy, export those exact rows, verify Playerbots/custom pet code does not rely on duplicate slot-0 state, and prepare inverse row restoration.
+
+#### Lower-risk/content updater group
+
+The remaining current upstream world updates are targeted content/script/POI/spell-data fixes (DELETE/INSERT/UPDATE operations) rather than broad schema replacement. They still require a custom-overlap query before application. In particular `2026_10_27_02.sql` replaces the Icecrown plague-cauldron SmartAI event with C++/summon-group data and must be regression-tested against any custom quest/event work touching those entries.
+
+#### Current custom-source dependency scan
+
+No normal-branch hits were found in CosmicCuddle's tracked Naxxramas Core, IP, Playerbots, Character Services, WPS or Server Patches for:
+- `spell_proc_event`;
+- the legacy `acore_string.locale_* ` column names;
+- direct custom assumptions about duplicate `character_pet slot=0`.
+
+This lowers risk but is **not owner-host proof**: dirty/untracked host SQL, MorphSummon custom source and other installed module revisions are still unverified.
+
+#### Application rule
+
+Do **not** run these migrations merely because Core25 compiles. Before any owner update:
+- snapshot relevant DBs/tables;
+- verify the exact current `updates` history so the updater applies the intended chain once;
+- execute first on the disposable/offline copy;
+- validate schema + representative gameplay/module startup;
+- keep an explicit rollback/export for the three higher-risk migrations above;
+- obtain CosmicCuddle approval before production database mutation.
