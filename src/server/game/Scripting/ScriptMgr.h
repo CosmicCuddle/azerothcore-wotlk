@@ -198,6 +198,9 @@ public: /* MapScript */
     void OnUnloadGridMap(Map* map, GridTerrainData* gmap, uint32 gx, uint32 gy);
     void OnPlayerEnterMap(Map* map, Player* player);
     void OnPlayerLeaveMap(Map* map, Player* player);
+#if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
+    void OnF14BeforePlayerMapRemoval(Map const* map, Player const* player, bool remove);
+#endif
     void OnMapUpdate(Map* map, uint32 diff);
 
 public: /* InstanceMapScript */
