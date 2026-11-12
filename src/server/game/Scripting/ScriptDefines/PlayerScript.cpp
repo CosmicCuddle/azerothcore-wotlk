@@ -247,6 +247,13 @@ void ScriptMgr::OnPlayerLogout(Player* player)
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_LOGOUT, script->OnPlayerLogout(player));
 }
 
+#if defined(COSMIC_F14_SESSION_REBIND_EXPERIMENT) && COSMIC_F14_SESSION_REBIND_EXPERIMENT >= 1
+void ScriptMgr::OnF14PlayerSessionRebound(Player* player)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_F14_SESSION_REBOUND, script->OnF14PlayerSessionRebound(player));
+}
+#endif
+
 void ScriptMgr::OnPlayerCreate(Player* player)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_CREATE, script->OnPlayerCreate(player));
