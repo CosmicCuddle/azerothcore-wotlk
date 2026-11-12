@@ -43,6 +43,7 @@ namespace CosmicF14
             _sealed = true;
         }
         bool IsOpen() const noexcept { return !_sealed && _token != 0; }
+        std::uint64_t Token() const noexcept { return IsOpen() ? _token : 0; }
     private:
         std::uint64_t _token = 0;
         bool _sealed = false;
