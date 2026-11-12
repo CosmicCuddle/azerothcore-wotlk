@@ -220,6 +220,16 @@ void ScriptMgr::OnPlayerEnterMap(Map* map, Player* player)
     });
 }
 
+#if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
+void ScriptMgr::OnF14BeforePlayerMapRemoval(Map const* map, Player const* player, bool remove)
+{
+    ASSERT(map);
+    ASSERT(player);
+    CALL_ENABLED_HOOKS(AllMapScript, ALLMAPHOOK_ON_F14_BEFORE_PLAYER_MAP_REMOVAL,
+                       script->OnF14BeforePlayerMapRemoval(map, player, remove));
+}
+#endif
+
 void ScriptMgr::OnPlayerLeaveMap(Map* map, Player* player)
 {
     ASSERT(map);
