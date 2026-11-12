@@ -1319,8 +1319,8 @@ namespace Acore
             if (!u->CanAssistTo(i_funit, i_enemy))
                 return false;
 
-            // too far
-            if (!i_funit->IsWithinDistInMap(u, i_range))
+            // too far, centre to centre: Classic testing shows no combat reach added
+            if (!i_funit->IsWithinDistInMap(u, i_range, true, false, false))
                 return false;
 
             // only if see assisted creature
