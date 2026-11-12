@@ -66,6 +66,17 @@ bool ScriptMgr::ShouldF14SuppressCreatureForViewer(
         script->OnF14ShouldSuppressCreatureForViewer(viewer, creature));
 }
 
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+bool ScriptMgr::ShouldF14SuppressCreatureInitialOutForViewer(
+    Player const* viewer, WorldObject const* creature, uint64 token)
+{
+    ASSERT(viewer && creature && token);
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_OUT_TOKEN_QUERY,
+        script->OnF14ShouldSuppressCreatureInitialOutForViewer(viewer, creature, token));
+}
+#endif
+
 bool ScriptMgr::ShouldF14ExcludeWhoEntryForViewer(
     Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace)
 {
