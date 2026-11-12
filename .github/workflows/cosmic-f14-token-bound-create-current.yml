@@ -1,0 +1,45 @@
+name: Cosmic F14 current token-bound initial CREATE query
+on:
+  push:
+    branches:
+      - feature/cs01-core23-f14-token-bound-create-on-core21-20261112
+  pull_request:
+    paths:
+      - 'src/server/game/Entities/Object/Updates/UpdateData.h'
+      - 'src/server/game/Entities/Player/PlayerUpdates.cpp'
+      - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp'
+      - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h'
+      - 'src/server/game/Scripting/ScriptMgr.h'
+      - 'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md'
+      - 'tests/cosmic_f14_token_bound_create_current/test_f14_token_bound_create_current_source.py'
+      - '.github/workflows/cosmic-f14-token-bound-create-current.yml'
+permissions:
+  contents: read
+jobs:
+  source-and-admission:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        standard: [c++17, c++20]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact current CREATE source boundary
+        run: python3 tests/cosmic_f14_token_bound_create_current/test_f14_token_bound_create_current_source.py
+      - name: Replay immutable Core21 malformed-OUT source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/core21 991f2c86c928222d501a559a61434cfd15055dc8
+          python3 /tmp/core21/tests/cosmic_f14_token_query_fail_visible/test_f14_token_query_fail_visible_source.py
+          git worktree remove --force /tmp/core21
+      - name: Re-run non-transferable notifier admission model
+        run: |
+          ${{ matrix.compiler }} -std=${{ matrix.standard }} -Wall -Wextra -Werror \
+            -Isrc/server/game/Entities/Object/Updates \
+            tests/cosmic_f14_token_bound_out/f14_initial_out_token_test.cpp \
+            -o /tmp/f14_visibility_pass_token_test
+          /tmp/f14_visibility_pass_token_test

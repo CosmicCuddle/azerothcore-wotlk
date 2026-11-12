@@ -1769,6 +1769,36 @@ static bool IsF14CreatureSuppressedFromClientViewForInitialOut(
 }
 #endif
 
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+// Nomination seam for withholding an INITIAL batched creature CREATE.
+// Missing/closed token => visible. Direct visibility paths never call this.
+static bool IsF14CreatureSuppressedFromClientViewForInitialCreate(
+    Player const* viewer, WorldObject const* target, uint64 passToken)
+{
+    if (!viewer || !target || !target->IsCreature() || !passToken)
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature)
+        return false;
+
+    using CosmicF14CreatureClientVisibilityQuery::Candidate;
+    using CosmicF14CreatureClientVisibilityQuery::MayAskScript;
+    Candidate const c {
+        true,
+        viewer->IsGameMaster(),
+        bool(creature->GetCharmerOrOwnerGUID()),
+        creature->IsPet(),
+        creature->IsSummon(),
+        creature->IsGuardian(),
+        creature->IsTotem()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressCreatureInitialCreateForViewer(
+            viewer, creature, passToken);
+}
+#endif
+
 // F14 player-character client CREATE/OUT query ONLY; not an interaction,
 // combat or global phase restriction. No positive listener is registered.
 // A race-10/11 headless Player can still be an Altbot; future IP policy must
@@ -1876,8 +1906,16 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
     }
     else
     {
+        bool const f14SuppressInitialCreate =
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+            data.F14MayAskInitialCreateQuery() &&
+            IsF14CreatureSuppressedFromClientViewForInitialCreate(
+                this, target, data.F14InitialCreateQueryToken());
+#else
+            IsF14CreatureSuppressedFromClientView(this, target);
+#endif
         if (CanSeeOrDetect(target, false, true) &&
-            !IsF14CreatureSuppressedFromClientView(this, target) &&
+            !f14SuppressInitialCreate &&
             !IsF14PlayerSuppressedFromClientView(this, target))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);

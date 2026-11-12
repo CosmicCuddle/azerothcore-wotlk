@@ -106,6 +106,12 @@ public:
     // Read-only token from this exact non-transferable notifier admission.
     uint64 F14InitialOutQueryToken() const { return _f14InitialOutAdmission.Token(); }
 #endif
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+    // Same live, non-transferable notifier admission exposed separately for
+    // initial batched CREATE nomination. This is provenance, not authority.
+    bool F14MayAskInitialCreateQuery() const { return _f14InitialOutAdmission.IsOpen(); }
+    uint64 F14InitialCreateQueryToken() const { return _f14InitialOutAdmission.Token(); }
+#endif
 
     // Only the exact Core batched positive-query OUT branch can call this.
     // Never serialized to SMSG_UPDATE_OBJECT. Duplicate/overflow fail closed.
