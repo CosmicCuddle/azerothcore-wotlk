@@ -70,7 +70,11 @@ bool ScriptMgr::ShouldF14SuppressCreatureForViewer(
 bool ScriptMgr::ShouldF14SuppressCreatureInitialOutForViewer(
     Player const* viewer, WorldObject const* creature, uint64 token)
 {
-    ASSERT(viewer && creature && token);
+    // This is a fail-visible policy seam. A malformed future caller must not
+    // turn missing nomination identity into a Worldserver assertion/crash.
+    if (!viewer || !creature || !token)
+        return false;
+
     CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
         WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_OUT_TOKEN_QUERY,
         script->OnF14ShouldSuppressCreatureInitialOutForViewer(viewer, creature, token));
