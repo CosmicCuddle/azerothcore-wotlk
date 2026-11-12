@@ -775,6 +775,12 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recvData)
             sess->SetPlayer(nullptr);
             SetPlayer(p);
             p->SetSession(this);
+#if defined(COSMIC_F14_SESSION_REBIND_EXPERIMENT) && COSMIC_F14_SESSION_REBIND_EXPERIMENT >= 1
+            // The reconnect path keeps the same Player object in world but
+            // attaches a new authenticated client session. Publish that
+            // boundary before rebuilding client-side visibility state.
+            sScriptMgr->OnF14PlayerSessionRebound(p);
+#endif
             delete p->PlayerTalkClass;
             p->PlayerTalkClass = new PlayerMenu(p->GetSession());
             HandlePlayerLoginToCharInWorld(p);

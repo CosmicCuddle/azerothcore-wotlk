@@ -1,0 +1,117 @@
+name: Core F14 genuine VisibleNotifier pass begin/send/end (COMPILE OFF)
+
+on:
+  push:
+    branches:
+      - feature/cs01-core7-f14-visible-notifier-pass-events-off-20261109
+  pull_request:
+    branches:
+      - test/cs01-f14-core6-pass-scope-provenance-model-20261109
+
+permissions:
+  contents: read
+
+jobs:
+  notifier-pass-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout parent Core7 scope and exact Core8 new real notifier source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact twelve paths and original Core7 player/units/packet paths unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=891e3a622901a525e325b597e52edf2271a98a41
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core-f14-notifier-pass-events-off-20261109.yml' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'docs/COSMIC_F14_CORE_NOTIFIER_PASS_EVENTS_20261109.md' \
+            'src/server/game/Grids/Notifiers/F14VisibilityPassTokenSource.h' \
+            'src/server/game/Grids/Notifiers/GridNotifiers.cpp' \
+            'src/server/game/Grids/Notifiers/GridNotifiers.h' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'tests/cosmic_f14_pass_source/f14_core_notifier_token_native.cpp' \
+            'tests/cosmic_f14_pass_source/test_core_f14_notifier_pass_lifecycle_source.py' \
+            'tests/cosmic_f14_pass_source/test_core_f14_pass_source.py' \
+            | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          for file in \
+            src/server/game/Entities/Player/PlayerUpdates.cpp \
+            src/server/game/Entities/Unit/Unit.cpp \
+            src/server/game/Handlers/MiscHandler.cpp \
+            src/server/game/Scripting/ScriptMgr.cpp \
+            tests/cosmic_f14_pass_source/F14CorePassScopeProvenanceModel.h \
+            tests/cosmic_f14_pass_source/f14_core_pass_scope_model.cpp; do
+            test "$(git rev-parse "HEAD:$file")" = "$(git rev-parse "$parent:$file")"
+          done
+          test -z "$(git diff --name-only "$parent" HEAD -- conf data sql modules)"
+          echo 'PASS original Core7 runtime player, WHO, immediate route, source test model and SQL intact'
+
+      - name: Actual guarded source begin/sent/end, no per GUID or immediate token claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_notifier_pass_lifecycle_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_pass_source.py -v
+
+      - name: Compile and execute actual new atomic Core token source GCC Clang 17 20 NDEBUG
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in g++ clang++; do
+            for std in c++17 c++20; do
+              for mode in normal ndebug; do
+                flags=()
+                if [[ "$mode" == ndebug ]]; then flags=(-DNDEBUG); fi
+                "$cc" -std="$std" -O2 -Wall -Wextra -Werror -pedantic -pthread \
+                  "${flags[@]}" tests/cosmic_f14_pass_source/f14_core_notifier_token_native.cpp \
+                  -o /tmp/f14-real-token-source
+                /tmp/f14-real-token-source
+              done
+            done
+          done
+
+      - name: Retained Core7 pure pass model and original Core6 negative F14 queries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in g++ clang++; do
+            for std in c++17 c++20; do
+              "$cc" -std="$std" -O2 -Wall -Wextra -Werror -pedantic \
+                tests/cosmic_f14_pass_source/f14_core_pass_scope_model.cpp \
+                -o /tmp/f14-original-pass-model
+              /tmp/f14-original-pass-model
+            done
+          done
+          python3 -B -m unittest discover -s tests/cosmic_f14_player \
+            -p test_f14_player_client_viewer_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_who \
+            -p test_f14_who_guid_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14 \
+            -p test_creature_client_viewer_query_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook \
+            -p test_f14_unwired_hook_source.py -v
+
+      - name: State confidence and owner host boundary
+        if: always()
+        shell: bash
+        run: |
+          echo 'Actual Core producer SOURCE edit is new but its compilation macro is ABSENT by default.'
+          echo 'Native token source was exercised independently; actual Worldserver macro ON not compiled by this run.'
+          echo 'Batch send-call does NOT identify a per-creature GUID, client CREATE/OUT, delivery or ACK.'
+          echo 'Immediate visibility route is separate, no safe Core refresh ABI or positive F14 viewer/creature hiding.'
+          echo 'No Claude E1, NPC restoration, quest/tap/loot/pet/DoT rights or stage8 birth.'
+          echo 'No owner host, module installation, SQL/DB/config/DBC/client, merge or production feature activation.'

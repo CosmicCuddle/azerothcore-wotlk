@@ -198,6 +198,9 @@ public: /* MapScript */
     void OnUnloadGridMap(Map* map, GridTerrainData* gmap, uint32 gx, uint32 gy);
     void OnPlayerEnterMap(Map* map, Player* player);
     void OnPlayerLeaveMap(Map* map, Player* player);
+#if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
+    void OnF14BeforePlayerMapRemoval(Map const* map, Player const* player, bool remove);
+#endif
     void OnMapUpdate(Map* map, uint32 diff);
 
 public: /* InstanceMapScript */
@@ -336,6 +339,12 @@ public: /* PlayerScript */
     void OnPlayerLoadFromDB(Player* player);
     void OnPlayerBeforeLogout(Player* player);
     void OnPlayerLogout(Player* player);
+#if defined(COSMIC_F14_SESSION_REBIND_EXPERIMENT) && COSMIC_F14_SESSION_REBIND_EXPERIMENT >= 1
+    void OnF14PlayerSessionRebound(Player* player);
+#endif
+#if defined(COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT) && COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT >= 1
+    void OnF14PlayerSessionDisconnected(Player* player);
+#endif
     bool OnPlayerCanMarkAccountOffline(ObjectGuid guid, uint32 accountId);
     void OnPlayerCreate(Player* player);
     void OnPlayerSave(Player* player);
@@ -738,6 +747,50 @@ public: /* WorldObjectScript */
     void OnWorldObjectSetMap(WorldObject* object, Map* map);
     void OnWorldObjectResetMap(WorldObject* object);
     void OnWorldObjectUpdate(WorldObject* object, uint32 diff);
+
+    // CosmicCuddle F14 API PREPARATION ONLY. PlayerUpdates.cpp now has an
+    // experimental, compile-time-disabled creature client-view query seam.
+    // No registered positive implementation is supplied here: normal builds
+    // cannot suppress a creature. Human rights, genuine RNDBOT identity and
+    // exact previously-hidden viewer/creature restoration remain prerequisites.
+    [[nodiscard]] bool ShouldF14SuppressCreatureForViewer(
+        Player const* viewer, WorldObject const* creature);
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+    // Initial batch OUT only; token is the genuine current notifier pass.
+    [[nodiscard]] bool ShouldF14SuppressCreatureInitialOutForViewer(
+        Player const* viewer, WorldObject const* creature, uint64 token);
+#endif
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+    // Initial batch CREATE only; token is the genuine current notifier pass.
+    [[nodiscard]] bool ShouldF14SuppressCreatureInitialCreateForViewer(
+        Player const* viewer, WorldObject const* creature, uint64 token);
+#endif
+
+    // Experimental /who GUID exclusion. The handler only calls this when
+    // COSMIC_F14_WHO_GUID_QUERY_EXPERIMENT is enabled. Defaults FALSE.
+    [[nodiscard]] bool ShouldF14ExcludeWhoEntryForViewer(
+        Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace);
+
+    // New player character client-viewer query, OFF absent compile macro.
+    [[nodiscard]] bool ShouldF14SuppressPlayerForViewer(
+        Player const* viewer, Player const* actor);
+
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+    // No client ACK and no per-creature/GUID signal; never use these as
+    // evidence that a previously-hidden world object was restored.
+    void OnF14ViewerVisibilityPassBegin(Player const* viewer, uint64 token);
+    void OnF14ViewerVisibilityPassBatchSendAttempt(Player const* viewer, uint64 token);
+    void OnF14ViewerVisibilityPassEnd(Player const* viewer, uint64 token);
+#endif
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    void OnF14ViewerCreatureBatchGuidSendAttempt(
+        Player const* viewer, ObjectGuid const& creatureGuid, bool isCreate, uint64 token);
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // Synchronous Core-owned pre-send source only, NOT an IP E1 consumer.
+    void OnF14ViewerCreaturePositiveQueryOutPreSend(
+        Player const* viewer, ObjectGuid const& creatureGuid, uint64 token);
+#endif
 
 public: /* PetScript */
 
