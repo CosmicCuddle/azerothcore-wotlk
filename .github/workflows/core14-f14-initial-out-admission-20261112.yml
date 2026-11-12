@@ -34,7 +34,8 @@ jobs:
             'src/server/game/Entities/Player/PlayerUpdates.cpp' \
             'src/server/game/Grids/Notifiers/GridNotifiers.cpp' \
             'tests/cosmic_f14_pass_source/f14_initial_out_pass_admission_native.cpp' \
-            'tests/cosmic_f14_pass_source/test_core14_initial_out_admission_source.py' | sort >/tmp/expected
+            'tests/cosmic_f14_pass_source/test_core14_initial_out_admission_source.py' \
+            'tests/cosmic_f14_pass_source/test_core14_true_f14_out_presend_source.py' | sort >/tmp/expected
           diff -u /tmp/expected /tmp/actual
           test -z "$(git diff --name-only "$parent" HEAD -- conf sql data modules)"
       - name: Actual Core source guard plus inherited Core8/Core9/Core14 source contracts
