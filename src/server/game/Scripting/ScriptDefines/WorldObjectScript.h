@@ -34,6 +34,12 @@
 #endif
 #endif
 
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) || COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT < 1
+#error "F14 token-bound initial OUT query requires the pre-send notifier admission seam"
+#endif
+#endif
+
 enum WorldObjectHook
 {
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_DESTROY,
@@ -42,6 +48,9 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_RESET_MAP,
     WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE,
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+    WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_OUT_TOKEN_QUERY,
+#endif
     WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
     WORLDOBJECTHOOK_ON_F14_VIEWER_PLAYER_SUPPRESSION_QUERY,
 #if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
@@ -115,6 +124,17 @@ public:
     // blocking; the query hook must never be enabled as a positive policy alone.
     [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(
         Player const* /*viewer*/, WorldObject const* /*creature*/) { return false; }
+
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+    // Initial batched OUT only: the token was issued by the live VisibleNotifier
+    // and remains bound to its non-transferable UpdateData admission. Core has
+    // no positive listener. A future module must independently authenticate
+    // viewer epoch/map generation, actor, creature incarnation, pair rights
+    // and restore-debt reservation before returning TRUE.
+    [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureInitialOutForViewer(
+        Player const* /*viewer*/, WorldObject const* /*creature*/,
+        uint64 /*passToken*/) { return false; }
+#endif
 
     // Cached /who GUID is NOT authentication. This intentionally returns FALSE
     // absent a future, separate, verified headless-RNDBOT-only IP listener.
