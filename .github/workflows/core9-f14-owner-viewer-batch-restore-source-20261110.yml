@@ -1,0 +1,62 @@
+name: Core9 F14 owner-viewer-only batch restore source contract (DRAFT/OFF)
+
+on:
+  push:
+    branches:
+      - test/cs01-core11-owner-viewer-batch-restore-source-20261110
+  pull_request:
+    branches:
+      - design/cs01-f14-core9-ip-event-contract-20261110
+
+permissions:
+  contents: read
+
+jobs:
+  scoped-viewer-route-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact proposed head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable reviewed design parent and exact two new paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=0a5bd109756f22169b82010742b40f1940fba145
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core9-f14-owner-viewer-batch-restore-source-20261110.yml' \
+            'tests/cosmic_f14_pass_source/test_core9_owner_viewer_batch_restore_source.py' \
+            | sort > /tmp/allowed
+          diff -u /tmp/allowed /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- src conf sql data modules docs)"
+          test "$(git rev-parse 'HEAD:src/server/game/Entities/Player/PlayerUpdates.cpp')" = \
+               "$(git rev-parse "$parent:src/server/game/Entities/Player/PlayerUpdates.cpp")"
+          test "$(git rev-parse 'HEAD:src/server/game/Entities/Unit/Unit.cpp')" = \
+               "$(git rev-parse "$parent:src/server/game/Entities/Unit/Unit.cpp")"
+          test "$(git rev-parse 'HEAD:src/server/game/Grids/Notifiers/GridNotifiers.cpp')" = \
+               "$(git rev-parse "$parent:src/server/game/Grids/Notifiers/GridNotifiers.cpp")"
+          test "$(git rev-parse 'HEAD:docs/f14/F14_CORE9_IP_E1_EVENT_CONTRACT_REVIEW_2026-11-10.md')" = \
+               "$(git rev-parse "$parent:docs/f14/F14_CORE9_IP_E1_EVENT_CONTRACT_REVIEW_2026-11-10.md")"
+
+      - name: Run exact Core9 viewer-only restore route and negative mutation contracts
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover \
+            -s tests/cosmic_f14_pass_source \
+            -p 'test_core9_owner_viewer_batch_restore_source.py' -v
+
+      - name: Scope and release warning
+        if: always()
+        run: |
+          echo "SOURCE ONLY: does not schedule any viewer restore or send a packet."
+          echo "No positive F14 listener or E1 consumer. All F14/paid flags remain OFF."
+          echo "No Core/IP/PB/Naxx/Services runtime code, host, SQL, database, client, Worldserver or game test."
+          echo "Original Core9 and design parent branches unchanged; no merge or deployment."
