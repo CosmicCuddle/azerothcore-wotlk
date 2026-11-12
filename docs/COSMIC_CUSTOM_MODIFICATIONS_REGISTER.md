@@ -120,3 +120,18 @@
 - **Direct-path boundary:** `Player::UpdateVisibilityOf(WorldObject*)` does not call the token-bound CREATE helper and cannot borrow a pass token. Macro-OFF batched behavior preserves the existing tokenless default-FALSE query. The CREATE macro hard-requires the Core18 token-bound OUT/notifier seam.
 - **No positive authority:** Core registers no positive CREATE listener. This child adds no Store Open/Reserve/Commit, prior-hidden debt, packet ACK, restoration completion, fence reset, actor/rights proof, SQL, config, DB, client or deployment behavior. A future module still must prove exact viewer identity, RandomBot actor, creature incarnation, complete pair rights, transactional restore reservation and R2 before returning TRUE.
 - **Tests/status:** exact-scope source contract and inherited non-transferable admission model are required first; full macro-ON Worldserver compilation is a separate Services descendant. No gameplay acceptance or production deployment. **Rollback:** abandon/revert Core23; no migration/live-state rollback is required.
+
+
+## Upstream restack candidate — Core DRAFT #26 (12 Nov 2026)
+
+- **Review branch:** `sync/cs01-core23-grim-afd7036b-20261112`
+- **Merge head:** `0f91f21e84ea4e3bf010fb30b28ba43747d42180`
+- **Parents:** local Core23 `dbb1dd5150f330d88522a10b85e93546fff72bad` + Grimfeather upstream `afd7036bab385e96a2c540272680cc0ec2f7dd4d`.
+- **Method:** real two-parent Git commit built from the current Grim tree plus every Core23-local changed path. The four overlapping F14 paths were three-way merged from disjoint insertion hunks; no whole-file replacement and no production/default ref movement.
+- **Overlap paths:** `GridNotifiers.h`, `CharacterHandler.cpp`, `ScriptMgr.h`, `WorldSession.cpp`.
+- **Post-merge source checks:** notifier token/lifetime fields, session-rebind publication, kept-in-world disconnect publication and pre-map-removal/session ScriptMgr hooks are present. Relative to Grim upstream the merge preserves all 77 current local changed paths; relative to Core23 it carries the full current 93-commit upstream ancestry.
+- **SQL boundary:** the source restack includes 25 Core SQL-path changes relative to Core23 (24 updater files plus the removed base `spell_proc_event.sql` path in the current upstream delta). **No SQL has been executed.** Every updater remains subject to installed-schema/applicability review, backup and rollback planning before any owner-host update.
+- **Pre-restack native checkpoint:** Services70 run `43242473075` is terminal GREEN for Core23 + PB15 + IP168 + Naxx292 + merged WPS + pinned public AutoBalance, with actual Worldserver compile/link and no server start.
+- **Restack validation:** Services DRAFT #74 is the dedicated combined native gate for this Core26 merge. Until that gate is terminal GREEN, this restack is source-preservation evidence only.
+- **Gameplay / deployment:** not run; not approved. F14/Paid remain intended OFF and positive concealment remains blocked on R2 #42.
+- **Rollback:** abandon/close Core #26 and return to immutable Core23 `dbb1dd515...`. No DB rollback is needed because this review branch performs no SQL or host operation.
