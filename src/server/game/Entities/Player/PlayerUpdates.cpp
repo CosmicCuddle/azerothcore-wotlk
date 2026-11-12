@@ -1739,6 +1739,36 @@ static bool IsF14CreatureSuppressedFromClientView(
 #endif
 }
 
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+// New concealment nomination seam for a genuine INITIAL batched creature OUT.
+// Direct visibility paths and already-hidden CREATE checks never call this.
+static bool IsF14CreatureSuppressedFromClientViewForInitialOut(
+    Player const* viewer, WorldObject const* target, uint64 passToken)
+{
+    if (!viewer || !target || !target->IsCreature() || !passToken)
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature)
+        return false;
+
+    using CosmicF14CreatureClientVisibilityQuery::Candidate;
+    using CosmicF14CreatureClientVisibilityQuery::MayAskScript;
+    Candidate const c {
+        true,
+        viewer->IsGameMaster(),
+        bool(creature->GetCharmerOrOwnerGUID()),
+        creature->IsPet(),
+        creature->IsSummon(),
+        creature->IsGuardian(),
+        creature->IsTotem()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressCreatureInitialOutForViewer(
+            viewer, creature, passToken);
+}
+#endif
+
 // F14 player-character client CREATE/OUT query ONLY; not an interaction,
 // combat or global phase restriction. No positive listener is registered.
 // A race-10/11 headless Player can still be an Altbot; future IP policy must
@@ -1806,8 +1836,15 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
         // invisibility. Default builds keep the original path byte-identical.
         bool const ordinaryVisible = CanSeeOrDetect(target, false, true);
         bool const positiveF14CreatureQuery =
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+            data.F14MayAskInitialOutQuery() &&
+            ordinaryVisible &&
+            IsF14CreatureSuppressedFromClientViewForInitialOut(
+                this, target, data.F14InitialOutQueryToken());
+#else
             data.F14MayAskInitialOutQuery() &&
             ordinaryVisible && IsF14CreatureSuppressedFromClientView(this, target);
+#endif
         if (!ordinaryVisible || positiveF14CreatureQuery ||
             IsF14PlayerSuppressedFromClientView(this, target))
 #else
