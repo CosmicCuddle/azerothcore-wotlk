@@ -756,6 +756,11 @@ public: /* WorldObjectScript */
     [[nodiscard]] bool ShouldF14SuppressCreatureInitialOutForViewer(
         Player const* viewer, WorldObject const* creature, uint64 token);
 #endif
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+    // Initial batch CREATE withholding only; token is the genuine notifier pass.
+    [[nodiscard]] bool ShouldF14SuppressCreatureInitialCreateForViewer(
+        Player const* viewer, WorldObject const* creature, uint64 token);
+#endif
 
     // Experimental /who GUID exclusion. The handler only calls this when
     // COSMIC_F14_WHO_GUID_QUERY_EXPERIMENT is enabled. Defaults FALSE.
