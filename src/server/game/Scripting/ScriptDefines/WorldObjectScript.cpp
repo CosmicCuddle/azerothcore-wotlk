@@ -81,6 +81,21 @@ bool ScriptMgr::ShouldF14SuppressCreatureInitialOutForViewer(
 }
 #endif
 
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+bool ScriptMgr::ShouldF14SuppressCreatureInitialCreateForViewer(
+    Player const* viewer, WorldObject const* creature, uint64 token)
+{
+    // Keep CREATE conservative like OUT: malformed provenance fails visible
+    // rather than asserting or reaching a policy listener.
+    if (!viewer || !creature || !token)
+        return false;
+
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_CREATE_TOKEN_QUERY,
+        script->OnF14ShouldSuppressCreatureInitialCreateForViewer(viewer, creature, token));
+}
+#endif
+
 bool ScriptMgr::ShouldF14ExcludeWhoEntryForViewer(
     Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace)
 {
