@@ -122,6 +122,25 @@
 - **Status:** read-only comparison only. No merge/rebase, runtime source rewrite, SQL/config/DB/host operation or deployment performed.
 
 
+### Owner archived updater-position refinement — 12 Nov 2026
+
+Read-only parsing of CosmicCuddle's archived 31 October world snapshot establishes the effective Core world-updater position more precisely:
+
+- the latest recorded Core `RELEASED` migration is **`2026_10_14_04.sql`**;
+- later IP/module SQL entries exist in the same snapshot, so the archive date must **not** be mistaken for Core updater freshness;
+- Core25 contains **52 sequential world migrations after that recorded point**, through `2026_10_31_01.sql`;
+- **29** of those 52 were already present in protected Core23 and therefore were already pending before the new upstream restack;
+- **23** additional world migrations arrive with the Core25 upstream restack.
+
+This means update preparation must review the full 52-file pending chain, not only the 23 files newly introduced by the restack.
+
+Additional earlier-chain risk notes:
+- `2026_10_15_02.sql` changes `module_string_locale.locale` to `varchar(4) NOT NULL`; verify custom/module locale values and schema compatibility on the disposable copy before application.
+- `2026_10_21_01.sql` creates centralized creature-immunity definition `-432` and assigns it to WotLK entries 33985/33986. Preserve it as upstream WotLK data; do not conflate it with the separate Vanilla/Naxx40 immunity-restoration research.
+- the remaining pre-`2026_10_23_00` files are predominantly targeted content DELETE/INSERT/UPDATE replacements, but still require overlap checks against owner custom entries before the updater is allowed to mutate the disposable database.
+
+**Safety consequence:** a successful Core25 compile does not mean the owner DB can jump directly to the newest schema. The exact sequential updater history must be tested from the archived/owner baseline on a disposable database copy with table-level backups and rollback evidence before production approval.
+
 ### Upstream SQL applicability triage — Core25 restack (12 Nov 2026)
 
 Read-only comparison of protected Core23 `dbb1dd5150f330d88522a10b85e93546fff72bad` to Core25 restack `395b68ee4ce425826c2a79c0ddf3ade3c67c8160` identifies **25 SQL-path changes**: one removed base file, one characters updater and 23 world updater files. None has been executed.
