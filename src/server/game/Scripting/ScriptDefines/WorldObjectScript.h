@@ -39,6 +39,11 @@
 #error "F14 token-bound initial OUT query requires the pre-send notifier admission seam"
 #endif
 #endif
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) || COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT < 1
+#error "F14 token-bound initial CREATE query requires the Core18 token-bound notifier admission seam"
+#endif
+#endif
 
 enum WorldObjectHook
 {
@@ -50,6 +55,9 @@ enum WorldObjectHook
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
 #if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
     WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_OUT_TOKEN_QUERY,
+#endif
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+    WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_CREATE_TOKEN_QUERY,
 #endif
     WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
     WORLDOBJECTHOOK_ON_F14_VIEWER_PLAYER_SUPPRESSION_QUERY,
@@ -132,6 +140,15 @@ public:
     // viewer epoch/map generation, actor, creature incarnation, pair rights
     // and restore-debt reservation before returning TRUE.
     [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureInitialOutForViewer(
+        Player const* /*viewer*/, WorldObject const* /*creature*/,
+        uint64 /*passToken*/) { return false; }
+#endif
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+    // Initial batched CREATE withholding only. Same genuine notifier token,
+    // but a distinct default-FALSE policy surface: no positive listener is
+    // registered by Core. A future module must reserve restoration evidence
+    // before returning TRUE; direct visibility paths never call this hook.
+    [[nodiscard]] virtual bool OnF14ShouldSuppressCreatureInitialCreateForViewer(
         Player const* /*viewer*/, WorldObject const* /*creature*/,
         uint64 /*passToken*/) { return false; }
 #endif
