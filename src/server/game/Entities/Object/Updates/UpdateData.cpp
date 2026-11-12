@@ -52,6 +52,7 @@ void UpdateData::AddUpdateBlock(UpdateData const& block)
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
     _f14PositiveQueryOutPoisoned = true;
     _f14PositiveQueryOutCandidates.clear();
+    F14CloseInitialOutQuery(); // merged data is not a new authorized notifier
 #endif
 }
 
@@ -89,5 +90,6 @@ void UpdateData::Clear()
 #if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
     _f14PositiveQueryOutCandidates.clear();
     _f14PositiveQueryOutPoisoned = false;
+    F14CloseInitialOutQuery(); // clearing cannot reopen a closed pass
 #endif
 }
