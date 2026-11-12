@@ -102,6 +102,10 @@ public:
     // Only a genuine, still-open notifier may initiate a new creature OUT.
     // This is a negative prerequisite, NOT actor/viewer/rights authorization.
     bool F14MayAskInitialOutQuery() const { return _f14InitialOutAdmission.IsOpen(); }
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+    // Read-only token from this exact non-transferable notifier admission.
+    uint64 F14InitialOutQueryToken() const { return _f14InitialOutAdmission.Token(); }
+#endif
 
     // Only the exact Core batched positive-query OUT branch can call this.
     // Never serialized to SMSG_UPDATE_OBJECT. Duplicate/overflow fail closed.
