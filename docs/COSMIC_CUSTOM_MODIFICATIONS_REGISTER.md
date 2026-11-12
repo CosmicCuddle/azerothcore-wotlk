@@ -70,3 +70,118 @@
 - **Independent generic OUT ambiguity:** The existing `Object::BuildOutOfRangeUpdateBlock` and the independent `VisibleNotifier::SendToSelf` far/visibility sweep may append the same GUID to the actual packet `m_outOfRangeGUIDs`. Before dispatch, require an OUT candidate to appear **exactly once** in the real packet OUT list, and a CREATE candidate **zero** times. Same packet CREATE+OUT or duplicated OUT GUID -> **no F14 GUID evidence for ANY candidate in this packet**. No normal packet or visibility rights changed.
 - **Dependencies and tests:** exact 14-path diff vs Core8, source old-absence/new-ON guarded events, after real original batch CREATE/OUT only, original Core8 real notifier pass and Core7 pure/provenance regressions intact; GCC+Clang C++17/20 normal/NDEBUG exercise actual pure GUID ledger with capacity, poison, direction/ambiguity/merge/reset AND actual-out-vector disagreement/duplicate/nominated-CREATE contradiction. Require focused CI terminal then separately actual 5-owner Worldserver link with the **new macro** for opt-in ABI, runtime flags OFF. Neither test proves client ACK, live packet, true Core direct immediate refresh, NPC combat/corpse/loot restoration or original gameplay. No merge/production approval.
 - **Known risks/rollback:** Original Core candidate nomination is observer-neutral and can include unowned creatures unrelated to F14; no IP E1 code or observer epoch grants it authority. Current true Player/GUID incarnation and human/Altbot/GM rights still need separate review, and no Core refresh version exists. S5 owner extras/dirty modified/untracked/ignored SQL/DB/DBC/client and tested backup/restore, S6 real two-human 3.3.5a gameplay blocked. Keep F14 flags OFF and **never spoof** missing Core refresh hook macro. Rollback discards this isolated source DRAFT and preserves all owner custom changes/data.
+
+
+## F14 Core14/Core15 genuine pre-send cause + one-shot notifier admission — 11–12 Nov 2026 (DRAFT/OFF)
+
+- **Owner/source:** CosmicCuddle. Core14 exact head `6dd1589b9067b02f88bb4e04de33818e36bc87c3`, descended from the reviewed Core9 batch-GUID/notifier lineage. Core15 exact head `ee13e1edfdbccd56895f3adefc2b32df94ef19e9`, strict child of Core14.
+- **Intent:** Core14 distinguishes a genuinely positive F14 creature-query OUT from ordinary Core invisibility, records only the actual batched OUT candidate, and emits one pre-send callback before `SendDirectMessage` on the genuine notifier pass. Direct OUT is prohibited from initiating F14 creature concealment under the new opt-in path; direct CREATE remains read-only/idempotent and is not client ACK evidence. Core15 adds a non-transferable one-shot `F14InitialOutPassAdmission` owned by the exact `VisibleNotifier`/UpdateData instance, opened only after a valid pass begin and sealed before packet build/send/end, merge or clear.
+- **Affected runtime:** `UpdateData.{h,cpp}`, `PlayerUpdates.cpp`, `GridNotifiers.{h,cpp}`, `WorldObjectScript.{h,cpp}`, `ScriptMgr.h`, plus the admission helper header. No SQL/config/DB/DBC/client changes.
+- **Safety:** compile-time `COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT` remains undefined by default. No Core listener grants concealment. Pre-send/server-send evidence is not client presentation/ACK and cannot retire restoration debt.
+- **Tests/status:** source contracts and native helper models exist. These ancestors are exercised by later Services native gates. No live gameplay or deployment. Rollback: abandon/revert the guarded children.
+
+## F14 Core16–Core18 current map/session-token lineage — 12 Nov 2026 (DRAFT/OFF)
+
+- **Core16** `9e30516cccfe095f95948ceb0ac1d6ca265c54e4`: guarded `COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT` calls a const observer at the first line of `Map::RemovePlayerFromMap`, before threat/world/grid removal effects. It cannot veto teardown or send visibility.
+- **Core17** `34ad407467fcf6ea02fcce1595f7c0288966042f`: guarded reconnect-session callback immediately after `p->SetSession(this)` on the keep-existing-Player login-after-disconnect path and before client UI/visibility rebuild. This publishes an authenticated client-session replacement boundary.
+- **Core18** `4eea6bb6edc634ef4b4eefab71a27adba29e28db`: exposes the genuine still-open notifier token to a distinct default-FALSE initial batched creature OUT query. Direct visibility paths cannot call this token-bound OUT seam. The underlying token is non-transferable and valid only during the exact original notifier admission.
+- **Dependencies/risks:** IP current viewer/session/pass identity and restoration accounting must consume these hooks conservatively. None proves actor rights, client receipt or R2 restoration success. Macro definitions must be uniform across Core/modules in any test build.
+- **Evidence:** source contracts are replayed immutably by current Services gates. Services64/Core20+IP165 and Services65/Core20+IP166 later compiled/linked successfully with these ancestors present. No gameplay/deployment claim.
+
+## F14 Core19 token-bound initial CREATE — PARALLEL DRAFT, NOT IN CURRENT CORE21
+
+- **Source:** Core PR #19 branch `feature/cs01-core19-f14-token-bound-create-query-20261112`, a direct child of Core18 `4eea6bb6...`.
+- **Intent:** experiment with a separate default-FALSE, genuine-pass-token-bound initial batched CREATE query using the same non-transferable notifier admission. Direct visibility does not gain this token-bound CREATE authority.
+- **Critical lineage distinction:** Core20 also branched directly from Core18. Therefore the current Core20/Core21 candidate **does not inherit Core19**. Do not silently merge Core19 into the current candidate during upstream restack; it needs a separate design/review decision, especially because positive concealment and R2 are still blocked.
+- **Live/safety:** DRAFT/OFF, no positive listener, no deployment.
+
+## F14 Core20/Core21 kept-in-world disconnect + malformed-query fail-visible — current candidate (12 Nov 2026)
+
+- **Core20** `be46b96a0d2ab73ee22a946305b1308a02751ae9`: under `COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT`, publishes a PlayerScript callback only in `WorldSession::HandleSocketClosed()` after the client socket is detached and before `TradeCancel(false)`, while the existing keep-Player-in-world guard remains true. Kick/logout/taxi/shutdown paths do not take this callback. **Same-account replacement is timing-dependent:** `WorldSessionMgr::AddSession_` kicks the prior session and then probes `HandleSocketClosed()`; if the socket is already observed closed the disconnect callback performs negative revocation, otherwise the old session is deleted and ordinary `LogoutPlayer` performs the negative lifecycle. Do not document replacement as guaranteed to use the disconnect callback.
+- **Core21** `991f2c86c928222d501a559a61434cfd15055dc8`: replaces the token-bound initial-OUT query's malformed-input `ASSERT(viewer && creature && token)` with a conservative `return false`. Valid listener dispatch remains unchanged and defaults FALSE.
+- **Purpose:** Core20 lets IP invalidate human viewer/session identity when the authenticated client disappears without a normal Player logout. Core21 ensures a malformed future caller cannot turn missing F14 identity into a Worldserver crash.
+- **Tests/status:** Core20 has full native evidence through Services64 and Services65 (actual Worldserver compile/link + binary verification). Core21 source/current-regression contracts have passed the pre-build stages of Services67/68; terminal full-native result must be checked separately. No server start or gameplay acceptance.
+- **Safety/live:** no positive concealment authority; F14/Paid runtime settings remain OFF. Rollback is source-branch reversion; no migration.
+
+## Current upstream-restack preservation checkpoint — 12 Nov 2026
+
+- **Pins:** protected current Core21 `991f2c86c928222d501a559a61434cfd15055dc8`; current Grimfeather upstream `afd7036bab385e96a2c540272680cc0ec2f7dd4d`; shared merge base `0d754d1921261dfd939f91060ebc022eae280f71`.
+- **Conflict surface:** only four source paths are changed on both sides from the shared base: `GridNotifiers.h`, `CharacterHandler.cpp`, `ScriptMgr.h`, and `WorldSession.cpp`. The reconnect `p->SetSession(this)` boundary, kept-in-world `HandleSocketClosed` boundary and `VisibleNotifier` structural anchors still exist upstream, so current evidence supports a controlled manual restack rather than architecture replacement.
+- **SQL preservation:** upstream-only existing-server chain contains 23 world updater files plus 1 characters updater file. Separately, the base `spell_proc_event.sql` file is removed. High-impact updater items include creation/migration of `acore_string_locale`, dropping legacy `acore_string.locale_*` columns, dropping obsolete `spell_proc_event`, and a character-pet current-slot cleanup. Current protected and upstream SpellMgr source both load `spell_proc`, not `spell_proc_event`, but installed custom SQL/schema dependencies remain unverified.
+- **Required sync method:** real Git three-way merge/rebase on a development branch; manually preserve every register entry and resolve only the four overlapping Core files with source-contract replay. Do not emulate a 92-commit upstream integration by file replacement. Retain all applicable updater SQL until installed DB updater history proves already applied/inapplicable.
+- **Release gate:** after sync, rerun exact source contracts, full Core/IP/PB/Naxx/Services native link and controlled gameplay acceptance. Installed source/config/DB/custom SQL/backups and explicit CosmicCuddle approval remain mandatory before production.
+
+
+### Core23 hunk-level upstream-restack refinement — 12 Nov 2026
+
+- **Current local tip checked:** Core23 `dbb1dd5150f330d88522a10b85e93546fff72bad`, which reconciles the token-bound initial CREATE seam onto current Core21 and keeps malformed/unknown input fail-visible. Compared from shared base `0d754d1921261dfd939f91060ebc022eae280f71` against Grimfeather upstream `afd7036bab385e96a2c540272680cc0ec2f7dd4d`.
+- **Path overlap remains four files, but direct line conflict is currently zero:** hunk-level base-range comparison found **no same-base-hunk overlap** in `GridNotifiers.h`, `CharacterHandler.cpp`, `ScriptMgr.h` or `WorldSession.cpp`. Local F14 changes and Grimfeather's current changes occupy disjoint base hunks in all four files.
+- **Interpretation:** these are still semantic preservation paths because both histories touch each file, but current evidence does not show a textual conflict requiring architecture-level resolution. A real Git three-way restack may therefore merge these paths cleanly; clean merge output must still be reviewed, because “Git did not conflict” does not prove the lifecycle hook stayed at the intended boundary.
+- **Mandatory post-restack assertions:** session rebind remains immediately after `p->SetSession(this)`; kept-in-world disconnect publication remains after socket detach and before `TradeCancel(false)`; notifier token/admission ownership remains tied to the exact `VisibleNotifier` instance; initial OUT/CREATE queries remain token-bound/default-FALSE/fail-visible; no positive listener appears accidentally.
+- **Do not use file replacement:** the zero-hunk-collision result strengthens the case for a normal three-way Git operation. It is **not** permission to copy local versions over upstream or skip the 24 Core updater SQL applicability review.
+- **Status:** read-only comparison only. No merge/rebase, runtime source rewrite, SQL/config/DB/host operation or deployment performed.
+
+
+### Owner archived updater-position refinement — 12 Nov 2026
+
+Read-only parsing of CosmicCuddle's archived 31 October world snapshot establishes the effective Core world-updater position more precisely:
+
+- the latest recorded Core `RELEASED` migration is **`2026_10_14_04.sql`**;
+- later IP/module SQL entries exist in the same snapshot, so the archive date must **not** be mistaken for Core updater freshness;
+- Core25 contains **52 sequential world migrations after that recorded point**, through `2026_10_31_01.sql`;
+- **29** of those 52 were already present in protected Core23 and therefore were already pending before the new upstream restack;
+- **23** additional world migrations arrive with the Core25 upstream restack.
+
+This means update preparation must review the full 52-file pending chain, not only the 23 files newly introduced by the restack.
+
+Additional earlier-chain risk notes:
+- `2026_10_15_02.sql` changes `module_string_locale.locale` to `varchar(4) NOT NULL`; verify custom/module locale values and schema compatibility on the disposable copy before application.
+- `2026_10_21_01.sql` creates centralized creature-immunity definition `-432` and assigns it to WotLK entries 33985/33986. Preserve it as upstream WotLK data; do not conflate it with the separate Vanilla/Naxx40 immunity-restoration research.
+- the remaining pre-`2026_10_23_00` files are predominantly targeted content DELETE/INSERT/UPDATE replacements, but still require overlap checks against owner custom entries before the updater is allowed to mutate the disposable database.
+
+**Safety consequence:** a successful Core25 compile does not mean the owner DB can jump directly to the newest schema. The exact sequential updater history must be tested from the archived/owner baseline on a disposable database copy with table-level backups and rollback evidence before production approval.
+
+### Upstream SQL applicability triage — Core25 restack (12 Nov 2026)
+
+Read-only comparison of protected Core23 `dbb1dd5150f330d88522a10b85e93546fff72bad` to Core25 restack `395b68ee4ce425826c2a79c0ddf3ade3c67c8160` identifies **25 SQL-path changes**: one removed base file, one characters updater and 23 world updater files. None has been executed.
+
+#### Higher-risk schema/data migrations
+
+1. **World `2026_10_28_00.sql` — drops `spell_proc_event`**
+   - statement: `DROP TABLE IF EXISTS spell_proc_event`;
+   - upstream also removes `data/sql/base/db_world/spell_proc_event.sql`;
+   - this is a real schema-removal migration, not content-only cleanup.
+   - Before application: inventory custom/module SQL and runtime code for `spell_proc_event`, export the existing table for rollback/evidence, verify the current Core replacement path, and confirm no local custom proc depends on rows that are not represented elsewhere.
+
+2. **World `2026_10_25_00.sql` + `2026_10_31_00.sql` — `acore_string` locale schema migration**
+   - creates `acore_string_locale(entry, locale, content)`;
+   - migrates eight legacy locale columns;
+   - then drops `locale_koKR/frFR/deDE/zhCN/zhTW/esES/esMX/ruRU` from `acore_string`.
+   - Before application: export `acore_string` + `acore_string_locale`, search all custom SQL/modules for legacy locale-column writes/reads, and verify locale round-trip on the disposable DB copy. Do not allow a custom localisation row to be discarded by a schema assumption.
+
+3. **Characters `2026_10_31_00.sql` — current-pet slot cleanup**
+   - for Hunter pets (`PetType=0`) with duplicate `slot=0`, moves every older saved duplicate to slot 100, keeping the newest by `savetime` then `id`.
+   - This changes character-owned data. Before application: count affected owners/rows on the disposable copy, export those exact rows, verify Playerbots/custom pet code does not rely on duplicate slot-0 state, and prepare inverse row restoration.
+
+#### Lower-risk/content updater group
+
+The remaining current upstream world updates are targeted content/script/POI/spell-data fixes (DELETE/INSERT/UPDATE operations) rather than broad schema replacement. They still require a custom-overlap query before application. In particular `2026_10_27_02.sql` replaces the Icecrown plague-cauldron SmartAI event with C++/summon-group data and must be regression-tested against any custom quest/event work touching those entries.
+
+#### Current custom-source dependency scan
+
+No normal-branch hits were found in CosmicCuddle's tracked Naxxramas Core, IP, Playerbots, Character Services, WPS or Server Patches for:
+- `spell_proc_event`;
+- the legacy `acore_string.locale_* ` column names;
+- direct custom assumptions about duplicate `character_pet slot=0`.
+
+This lowers risk but is **not owner-host proof**: dirty/untracked host SQL, MorphSummon custom source and other installed module revisions are still unverified.
+
+#### Application rule
+
+Do **not** run these migrations merely because Core25 compiles. Before any owner update:
+- snapshot relevant DBs/tables;
+- verify the exact current `updates` history so the updater applies the intended chain once;
+- execute first on the disposable/offline copy;
+- validate schema + representative gameplay/module startup;
+- keep an explicit rollback/export for the three higher-risk migrations above;
+- obtain CosmicCuddle approval before production database mutation.
