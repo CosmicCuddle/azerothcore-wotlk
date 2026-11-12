@@ -46,11 +46,27 @@ namespace Acore
         std::vector<Unit*>& i_visibleNow;
         bool i_gobjOnly;
         UpdateData i_data;
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+        // Stack notifier is the sole owner of the token. No cached Player
+        // pointer, no client/creature GUID tag, and NO positive visibility.
+        uint64 _f14PassToken = 0;
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        bool _f14PreSendDispatched = false; // set before callbacks to prevent reentry
+#endif
+        void BeginF14NotifierPass();
+        ~VisibleNotifier();
+        // Never duplicate a pending end event via notifier copy/assignment.
+        VisibleNotifier(VisibleNotifier const&) = delete;
+        VisibleNotifier& operator=(VisibleNotifier const&) = delete;
+#endif
 
         VisibleNotifier(Player& player, bool gobjOnly) :
             i_player(player), i_visibleNow(player.m_newVisible), i_gobjOnly(gobjOnly)
         {
             i_visibleNow.clear();
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+            BeginF14NotifierPass(); // before any near/far and zone-wide scan.
+#endif
         }
 
         void Visit(GameObjectMapType&);
@@ -1303,8 +1319,8 @@ namespace Acore
             if (!u->CanAssistTo(i_funit, i_enemy))
                 return false;
 
-            // too far
-            if (!i_funit->IsWithinDistInMap(u, i_range))
+            // too far, centre to centre: Classic testing shows no combat reach added
+            if (!i_funit->IsWithinDistInMap(u, i_range, true, false, false))
                 return false;
 
             // only if see assisted creature

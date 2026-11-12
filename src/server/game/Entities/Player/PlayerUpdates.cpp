@@ -21,6 +21,8 @@
 #include "Channel.h"
 #include "ChannelMgr.h"
 #include "Formulas.h"
+#include "F14CreatureClientVisibilityQuery.h"
+#include "F14PlayerClientVisibilityQuery.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
 #include "Group.h"
@@ -1698,6 +1700,159 @@ inline void BeforeVisibilityDestroy<Creature>(Creature* t, Player* p)
         ((Pet*) t)->Remove(PET_SAVE_NOT_IN_SLOT, true);
 }
 
+// F14 CLIENT-VISIBILITY SEAM ONLY; compiled inert on every normal build.
+// This is *not* a general CanSeeOrDetect/combat filter. A future caller may
+// only request creature suppression after positive PB actor proof and IP's
+// full independent human tap/quest/loot/assist/pet rights + restore ledger.
+// Do not enable the experimental macro on a live or test server from this
+// PR. Even with the macro explicitly set, Core's script query returns FALSE
+// unless an independently reviewed, registered implementation says TRUE.
+static bool IsF14CreatureSuppressedFromClientView(
+    Player const* viewer, WorldObject const* target)
+{
+#if defined(COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT) && COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT >= 1
+    if (!viewer || !target || !target->IsCreature())
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature)
+        return false;
+
+    using CosmicF14CreatureClientVisibilityQuery::Candidate;
+    using CosmicF14CreatureClientVisibilityQuery::MayAskScript;
+
+    Candidate const c {
+        true,
+        viewer->IsGameMaster(),
+        bool(creature->GetCharmerOrOwnerGUID()),
+        creature->IsPet(),
+        creature->IsSummon(),
+        creature->IsGuardian(),
+        creature->IsTotem()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressCreatureForViewer(viewer, creature);
+#else
+    (void)viewer;
+    (void)target;
+    return false;
+#endif
+}
+
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+// New concealment nomination seam for a genuine INITIAL batched creature OUT.
+// Direct visibility paths and already-hidden CREATE checks never call this.
+static bool IsF14CreatureSuppressedFromClientViewForInitialOut(
+    Player const* viewer, WorldObject const* target, uint64 passToken)
+{
+    if (!viewer || !target || !target->IsCreature() || !passToken)
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature)
+        return false;
+
+    using CosmicF14CreatureClientVisibilityQuery::Candidate;
+    using CosmicF14CreatureClientVisibilityQuery::MayAskScript;
+    Candidate const c {
+        true,
+        viewer->IsGameMaster(),
+        bool(creature->GetCharmerOrOwnerGUID()),
+        creature->IsPet(),
+        creature->IsSummon(),
+        creature->IsGuardian(),
+        creature->IsTotem()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressCreatureInitialOutForViewer(
+            viewer, creature, passToken);
+}
+#endif
+
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+// Nomination seam for withholding an INITIAL batched creature CREATE.
+// Missing/closed token => visible. Direct visibility paths never call this.
+static bool IsF14CreatureSuppressedFromClientViewForInitialCreate(
+    Player const* viewer, WorldObject const* target, uint64 passToken)
+{
+    if (!viewer || !target || !target->IsCreature() || !passToken)
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    if (!creature)
+        return false;
+
+    using CosmicF14CreatureClientVisibilityQuery::Candidate;
+    using CosmicF14CreatureClientVisibilityQuery::MayAskScript;
+    Candidate const c {
+        true,
+        viewer->IsGameMaster(),
+        bool(creature->GetCharmerOrOwnerGUID()),
+        creature->IsPet(),
+        creature->IsSummon(),
+        creature->IsGuardian(),
+        creature->IsTotem()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressCreatureInitialCreateForViewer(
+            viewer, creature, passToken);
+}
+#endif
+
+// F14 player-character client CREATE/OUT query ONLY; not an interaction,
+// combat or global phase restriction. No positive listener is registered.
+// A race-10/11 headless Player can still be an Altbot; future IP policy must
+// independently prove actual RNDBOT identity and observer's Vanilla stage.
+static bool IsF14PlayerSuppressedFromClientView(
+    Player const* viewer, WorldObject const* target)
+{
+#if defined(COSMIC_F14_PLAYER_CLIENT_VIEWER_QUERY_EXPERIMENT) && COSMIC_F14_PLAYER_CLIENT_VIEWER_QUERY_EXPERIMENT >= 1
+    if (!viewer || !target || !target->IsPlayer())
+        return false;
+
+    Player const* actor = target->ToPlayer();
+    if (!actor || !viewer->GetSession() || !actor->GetSession())
+        return false;
+
+    using CosmicF14PlayerClientVisibilityQuery::Candidate;
+    using CosmicF14PlayerClientVisibilityQuery::MayAskScript;
+    Candidate const c {
+        true,
+        actor == viewer,
+        viewer->IsGameMaster(),
+        viewer->GetSession()->IsHeadless(),
+        actor->GetSession()->IsHeadless(),
+        actor->getRace() == RACE_BLOODELF || actor->getRace() == RACE_DRAENEI,
+        actor->IsGameMaster()
+    };
+    return MayAskScript(c) &&
+        sScriptMgr->ShouldF14SuppressPlayerForViewer(viewer, actor);
+#else
+    (void)viewer;
+    (void)target;
+    return false;
+#endif
+}
+
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) || COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT < 1
+#error "F14 per-creature batch evidence needs a genuine Core notifier pass token"
+#endif
+// Metadata candidate, NOT concealment authority. Never nominate controlled
+// creatures (pets, guardians, totems, summons, charmed/owned entities) or a
+// non-creature WorldObject. No global unit, combat or quest state is changed.
+static bool F14EligibleUncontrolledCreatureBatchCandidate(WorldObject const* target)
+{
+    if (!target || !target->IsCreature())
+        return false;
+
+    Creature const* creature = target->ToCreature();
+    return creature && !creature->GetCharmerOrOwnerGUID() &&
+        !creature->IsPet() && !creature->IsGuardian() &&
+        !creature->IsSummon() && !creature->IsTotem();
+}
+#endif
+
 template <class T>
 void Player::UpdateVisibilityOf(T* target, UpdateData& data,
                                 std::vector<Unit*>& visibleNow)
@@ -1706,19 +1861,70 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
 
     if (HaveAtClient(target))
     {
-        if (!CanSeeOrDetect(target, false, true))
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        // Separate genuinely positive F14 creature query from ordinary Core
+        // invisibility. Default builds keep the original path byte-identical.
+        bool const ordinaryVisible = CanSeeOrDetect(target, false, true);
+        bool const positiveF14CreatureQuery =
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+            data.F14MayAskInitialOutQuery() &&
+            ordinaryVisible &&
+            IsF14CreatureSuppressedFromClientViewForInitialOut(
+                this, target, data.F14InitialOutQueryToken());
+#else
+            data.F14MayAskInitialOutQuery() &&
+            ordinaryVisible && IsF14CreatureSuppressedFromClientView(this, target);
+#endif
+        if (!ordinaryVisible || positiveF14CreatureQuery ||
+            IsF14PlayerSuppressedFromClientView(this, target))
+#else
+        if (!CanSeeOrDetect(target, false, true) ||
+            IsF14CreatureSuppressedFromClientView(this, target) ||
+            IsF14PlayerSuppressedFromClientView(this, target))
+#endif
         {
             BeforeVisibilityDestroy<T>(target, this);
 
             target->BuildOutOfRangeUpdateBlock(&data);
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+            // Real batch OUT block appended. A later send-call can only
+            // report its candidate GUID; no client delivery/ACK is proven.
+            if (F14EligibleUncontrolledCreatureBatchCandidate(target))
+                data.F14RecordCreatureBatchCandidate(
+                    target->GetGUID(), CosmicF14::CreatureBatchDirection::OutOfRange);
+#endif
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+            // Only a true F14 query during the ACTUAL batched creature OUT
+            // build may enter the new pre-send positive sidecar. No CREATE,
+            // normal range/phase OUT, player target, pet or direct route.
+            if (positiveF14CreatureQuery &&
+                F14EligibleUncontrolledCreatureBatchCandidate(target))
+                data.F14RecordPositiveQueryCreatureOut(target->GetGUID());
+#endif
             GetObjectVisibilityContainer().UnlinkWorldObjectVisibility(target);
         }
     }
     else
     {
-        if (CanSeeOrDetect(target, false, true))
+        bool const f14SuppressInitialCreate =
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+            data.F14MayAskInitialCreateQuery() &&
+            IsF14CreatureSuppressedFromClientViewForInitialCreate(
+                this, target, data.F14InitialCreateQueryToken());
+#else
+            IsF14CreatureSuppressedFromClientView(this, target);
+#endif
+        if (CanSeeOrDetect(target, false, true) &&
+            !f14SuppressInitialCreate &&
+            !IsF14PlayerSuppressedFromClientView(this, target))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+            // Real batch CREATE block appended, not yet a client receipt.
+            if (F14EligibleUncontrolledCreatureBatchCandidate(target))
+                data.F14RecordCreatureBatchCandidate(
+                    target->GetGUID(), CosmicF14::CreatureBatchDirection::Create);
+#endif
             UpdateVisibilityOf_helper(this, target, visibleNow);
         }
     }
@@ -1739,7 +1945,17 @@ void Player::UpdateVisibilityOf(WorldObject* target)
 {
     if (HaveAtClient(target))
     {
-        if (!CanSeeOrDetect(target, false, true))
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        // Core14 only: the direct path has NO batch/OUT event or secure debt
+        // reservation. NEVER allow an F14 creature query to hide a creature
+        // through DestroyForPlayer. Normal Core and player policy remain.
+        if (!CanSeeOrDetect(target, false, true) ||
+            IsF14PlayerSuppressedFromClientView(this, target))
+#else
+        if (!CanSeeOrDetect(target, false, true) ||
+            IsF14CreatureSuppressedFromClientView(this, target) ||
+            IsF14PlayerSuppressedFromClientView(this, target))
+#endif
         {
             if (target->IsCreature())
                 BeforeVisibilityDestroy<Creature>(target->ToCreature(), this);
@@ -1750,7 +1966,20 @@ void Player::UpdateVisibilityOf(WorldObject* target)
     }
     else
     {
-        if (CanSeeOrDetect(target, false, true))
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+        // GROK N1: direct CREATE must not undo an outstanding batch hide
+        // simply because this creature moved. Keep the original creature
+        // visibility query on CREATE; only direct OUT is prohibited from
+        // initiating F14 concealment without a notifier pass.
+        // This query is NOT a client CREATE ACK or restore-debt release.
+        if (CanSeeOrDetect(target, false, true) &&
+            !IsF14CreatureSuppressedFromClientView(this, target) &&
+            !IsF14PlayerSuppressedFromClientView(this, target))
+#else
+        if (CanSeeOrDetect(target, false, true) &&
+            !IsF14CreatureSuppressedFromClientView(this, target) &&
+            !IsF14PlayerSuppressedFromClientView(this, target))
+#endif
         {
             target->SendUpdateToPlayer(this);
             GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);

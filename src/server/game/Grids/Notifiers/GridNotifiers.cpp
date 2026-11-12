@@ -22,7 +22,60 @@
 #include "UpdateData.h"
 #include "WorldPacket.h"
 
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+#if !defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) || COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT < 1
+#error "F14 per-creature batch candidate send proof requires actual notifier pass producer"
+#endif
+#endif
+
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+#include "F14VisibilityPassTokenSource.h"
+#include "ScriptMgr.h"
+#endif
+
 using namespace Acore;
+
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+namespace
+{
+    // One globally unique per-Core-process sequence across synchronous map
+    // notifier lifetimes. It does NOT encode human login epoch, creature GUID
+    // or client ACK; consumers need independent verified identity and ledger.
+    CosmicF14::VisibilityPassTokenSource f14PassTokenSource;
+}
+
+void VisibleNotifier::BeginF14NotifierPass()
+{
+    // Only a genuine non-headless Player WorldSession. GM may receive a
+    // no-op pass notification but can never be hidden by this producer.
+    if (!i_player.IsInWorld() || !i_player.GetSession() ||
+        i_player.GetSession()->IsHeadless())
+        return;
+
+    uint64 const token = f14PassTokenSource.Issue();
+    if (!token)
+        return;
+
+    _f14PassToken = token;
+    sScriptMgr->OnF14ViewerVisibilityPassBegin(&i_player, token);
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // The actual notifier owns this exact UpdateData. Only open after Begin.
+    i_data.F14OpenInitialOutQuery(token);
+#endif
+}
+
+VisibleNotifier::~VisibleNotifier()
+{
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    i_data.F14CloseInitialOutQuery();
+#endif
+    // Stack scope ends even after SendToSelf's early !HasData() return,
+    // skipped packet, empty batch or C++ stack unwinding. No raw pointers
+    // may be retained by consumers after this synchronous callback.
+    if (_f14PassToken)
+        sScriptMgr->OnF14ViewerVisibilityPassEnd(&i_player, _f14PassToken);
+}
+#endif
 
 void VisibleNotifier::Visit(GameObjectMapType& m)
 {
@@ -78,12 +131,47 @@ void VisibleNotifier::SendToSelf()
         itr = i_player.GetObjectVisibilityContainer().UnlinkVisibilityFromPlayer(obj, itr);
     }
 
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // All target visits have ended. Seal BEFORE even an empty return, packet
+    // build, or script dispatch. No new hide in a late/repeated send pass.
+    i_data.F14CloseInitialOutQuery();
+#endif
     if (!i_data.HasData())
         return;
 
     WorldPacket packet;
     i_data.BuildPacket(packet);
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+    // Real SendToSelf packet bound to this stack notifier's genuine token.
+    // No direct WorldObject visibility path reaches this dispatch.
+    if (_f14PassToken && !_f14PreSendDispatched)
+    {
+        _f14PreSendDispatched = true;
+        if (!i_data.F14PositiveQueryOutCandidatesPoisoned())
+            for (ObjectGuid const& guid : i_data.F14PositiveQueryOutCandidates())
+                sScriptMgr->OnF14ViewerCreaturePositiveQueryOutPreSend(
+                    &i_player, guid, _f14PassToken);
+    }
+#endif
     i_player.SendDirectMessage(&packet);
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+    // Exactly one batch send-call attempt, not a per-creature CREATE/OUT
+    // tag, network delivery, or proof of actual client restoration.
+    if (_f14PassToken)
+        sScriptMgr->OnF14ViewerVisibilityPassBatchSendAttempt(&i_player, _f14PassToken);
+#endif
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+    // All records came from genuine uncontrolled creature CREATE/OUT block
+    // builders attached to THIS UpdateData. A merge, duplicate or overflow
+    // poisons the ENTIRE list; never emit a partial misleading evidence set.
+    // No per-GUID dispatch if there was no authenticated notifier pass.
+    if (_f14PassToken && !i_data.F14CreatureCandidatesPoisoned())
+        for (auto const& candidate : i_data.F14CreatureBatchCandidates())
+            sScriptMgr->OnF14ViewerCreatureBatchGuidSendAttempt(
+                &i_player, candidate.guid,
+                candidate.direction == CosmicF14::CreatureBatchDirection::Create,
+                _f14PassToken);
+#endif
 
     for (std::vector<Unit*>::const_iterator it = i_visibleNow.begin(); it != i_visibleNow.end(); ++it)
         i_player.GetInitialVisiblePackets(*it);

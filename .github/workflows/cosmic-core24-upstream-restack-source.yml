@@ -1,0 +1,67 @@
+name: Core24 Grim-upstream restack current source gate
+
+on:
+  push:
+    branches:
+      - dev/cs01-core24-upstream-restack-candidate-20261112
+  pull_request:
+    paths:
+      - 'src/server/game/Handlers/CharacterHandler.cpp'
+      - 'src/server/game/Server/WorldSession.cpp'
+      - 'src/server/game/Scripting/ScriptMgr.h'
+      - 'src/server/game/Grids/Notifiers/GridNotifiers.h'
+      - 'src/server/game/Entities/Object/Updates/**'
+      - 'src/server/game/Entities/Player/PlayerUpdates.cpp'
+      - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.*'
+      - 'src/server/game/Maps/Map.cpp'
+      - 'tests/cosmic_f14_restack/**'
+      - 'tests/cosmic_f14_token_bound_out/f14_initial_out_token_test.cpp'
+      - 'tests/cosmic_f14_pass_source/f14_initial_out_pass_admission_native.cpp'
+      - '.github/workflows/cosmic-core24-upstream-restack-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-model:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        standard: [c++17, c++20]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify current merged upstream/F14 semantic seams
+        run: python3 -B tests/cosmic_f14_restack/test_core24_upstream_restack_source.py
+
+      - name: Compile and run non-transferable token/admission helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in normal ndebug; do
+            flags=()
+            if [[ "$mode" == ndebug ]]; then
+              flags=(-DNDEBUG)
+            fi
+
+            ${{ matrix.compiler }} -std=${{ matrix.standard }} -Wall -Wextra -Werror -pedantic -O2 "${flags[@]}" \
+              -Isrc/server/game/Entities/Object/Updates \
+              tests/cosmic_f14_token_bound_out/f14_initial_out_token_test.cpp \
+              -o /tmp/f14-token
+            /tmp/f14-token
+
+            ${{ matrix.compiler }} -std=${{ matrix.standard }} -Wall -Wextra -Werror -pedantic -O2 "${flags[@]}" \
+              -Isrc/server/game/Entities/Object/Updates \
+              tests/cosmic_f14_pass_source/f14_initial_out_pass_admission_native.cpp \
+              -o /tmp/f14-admission
+            /tmp/f14-admission
+          done
+
+      - name: Evidence boundary
+        if: always()
+        run: echo 'Current restack source/model gate only. No Worldserver start, SQL, DB, gameplay, merge, deployment or positive concealment authority.'

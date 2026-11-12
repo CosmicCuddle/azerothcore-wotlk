@@ -28,6 +28,7 @@
 #include "Common.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
+#include "GossipDef.h"
 #include "Group.h"
 #include "Guild.h"
 #include "GuildMgr.h"
@@ -629,6 +630,11 @@ bool WorldSession::HandleSocketClosed()
     if (m_Socket && !m_Socket->IsOpen() && !IsKicked() && GetPlayer() && !PlayerLogout() && GetPlayer()->m_taxi.empty() && GetPlayer()->IsInWorld() && !World::IsStopped())
     {
         m_Socket = nullptr;
+#if defined(COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT) && COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT >= 1
+        // The authenticated client is now gone while the Player remains in world.
+        // Publish that boundary before the session is handed to the offline pool.
+        sScriptMgr->OnF14PlayerSessionDisconnected(GetPlayer());
+#endif
         GetPlayer()->TradeCancel(false);
         return true;
     }
@@ -918,6 +924,15 @@ bool WorldSession::DisallowHyperlinksAndMaybeKick(std::string_view str)
         KickPlayer("WorldSession::DisallowHyperlinksAndMaybeKick Illegal chat link");
 
     return false;
+}
+
+void WorldSession::SetSessionDbLocaleIndex(LocaleConstant locale)
+{
+    m_sessionDbLocaleIndex = IsLocaleRegistered(locale) ? locale : DEFAULT_LOCALE;
+
+    // the gossip menu of the player keeps its own copy of the locale
+    if (_player && _player->PlayerTalkClass)
+        _player->PlayerTalkClass->GetGossipMenu().SetLocale(m_sessionDbLocaleIndex);
 }
 
 std::string WorldSession::GetAcoreString(uint32 entry) const
