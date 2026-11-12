@@ -751,6 +751,11 @@ public: /* WorldObjectScript */
     // exact previously-hidden viewer/creature restoration remain prerequisites.
     [[nodiscard]] bool ShouldF14SuppressCreatureForViewer(
         Player const* viewer, WorldObject const* creature);
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+    // Initial batch OUT only; token is the genuine current notifier pass.
+    [[nodiscard]] bool ShouldF14SuppressCreatureInitialOutForViewer(
+        Player const* viewer, WorldObject const* creature, uint64 token);
+#endif
 
     // Experimental /who GUID exclusion. The handler only calls this when
     // COSMIC_F14_WHO_GUID_QUERY_EXPERIMENT is enabled. Defaults FALSE.
