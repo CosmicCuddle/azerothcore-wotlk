@@ -126,3 +126,31 @@ These are **conceptual records**, not API symbols implemented in source. Use exa
 5. **Rollback for this draft:** close/discard this documentation-only branch; there is no installed runtime, configuration, database or client state to revert.
 
 **Request for reviewer:** identify the smallest safe Core event/ownership ABI that satisfies rows A–H without manufacturing F14 suppression or client ACK, decide whether to reuse the exact IP105 human epoch implementation after independent branch comparison, and enumerate any Core direct-route and map-thread corner case that would force a fail-visible response.
+
+
+## Proposed L1 handoff ownership contract — 12 November 2026 (design only)
+
+**Status:** review proposal, not a Core API, gameplay implementation, client ACK policy or permission to hide. Builds on the existing Core9 event contract and the actual Core14 pre-send guarded producer at `6dd1589b`; the latter does not implement this ownership transfer. Preserve #94/#85 and IP145 E1 model. The exact IP145 model (`65d0110e`) has no runtime consumer, and its `ObserveMapUnloaded` removes correlation candidates, not debt. Protocol `ObserveMapUnloaded` only revokes ledger pairs; it does not export/import or complete them. A map-owned protocol object must therefore never be destroyed solely because its map unloaded while records remain.
+
+### Preferred conservative design for review: retain debt ownership, transfer only authorization to observe
+
+- Use a process-lifetime, bounded, value-only retention owner for frozen/retiring shard records (or retain the original immutable shard allocation under an explicit lifetime owner). No raw Player/Creature/Map pointers cross map workers. Original viewer GUID + login epoch, creature map/instance + GUID + incarnation, reason and evidence remain exact. An old-map record is not rewritten into the new map's identity. **Do not implement this by copying only CopyExactPendingRestores:** that method intentionally omits active non-pending records and may report unattributed risk. First revoke/freeze at the source, then preserve the complete original shard, including poison/unattributed risk and any provisional reservations. The destination is fail-visible while retention ownership is unproven.
+- Introduce a non-reused handoff generation distinct from login epoch and notifier pass token. At source transfer/unload: close positive admission, invalidate queued callbacks/pass tokens, revoke relevant records, seal the source shard only after the owning worker has stopped mutating it, publish a retention receipt under a single explicit owner. A receipt means **server memory ownership only**, not client restoration. Never block an owning map worker waiting for another worker or hold a lock across ScriptMgr, visibility, player/session, map removal or packet calls. No observer-side CREATE is issued to an old map from a new worker.
+- Destination may perform ordinary Core visibility and independent current rights checks; it must not consume, clear or reinterpret old debt. Until R2 is decided and implemented, any unresolved retained debt disables positive F14 admission for the affected scope; if exact scope or retention fails, conservatively disable positive F14 globally. No stage grant, quest/loot rights alteration, or non-F14 visibility suppression. A new login epoch is not proof of client restoration of the old epoch.
+- Map unload, logout, transfer cancellation, duplicate/out-of-order handoff, generation wrap, retention full, unknown incarnation or process shutdown: stop positive admission before losing information. Keep source allocation/records retained until ownership is established; failure to retain is a release blocker, not an eviction policy. No claim that a process restart or a new instance automatically resolves prior client presentation. Specify actual process-lifetime retention and shutdown limits before enabling anything.
+- A map worker can resume positive admission only under a separately approved R2 policy with a proven bounded recovery path, authenticated E1/rights inputs, and reconciled retention ownership. This design deliberately does **not** solve R2 or permit the first hide. Source and destination may continue normal Core gameplay during F14 fail-visible mode; never force a player teleport/relog or kick to manufacture evidence.
+
+### Review and acceptance criteria (not yet implemented)
+
+| Case | Required outcome |
+| --- | --- |
+| Active hidden pair at transfer | Freeze/revoke before handoff; exact old-map debt retained, new map ordinary visibility only |
+| No hidden debt / no outstanding reservation | No fabricated debt; no new positive eligibility unless all other gates approved |
+| Old worker callback arrives after seal | Refuse by generation/ownership; no mutation or false receipt |
+| Transfer cancelled or duplicate receipt | At most one retention owner; preserve debt; no double release or reopened old pass |
+| Map unload with poisoned/incomplete records | Preserve original shard plus unknown-risk state; no partial snapshot treated as complete |
+| New login epoch or recycled creature GUID | Do not remap old debt or clear it; ordinary visibility for new identity |
+| Full retention capacity / unavailable owner | Disable new positive hides; do not evict outstanding records; no blocking wait on map worker |
+| R2 still unresolved | Positive F14 remains OFF even if handoff is correct; no packet-as-ACK or restart-as-proof |
+
+**Open source questions for independent review:** identify real Core14 map-transfer/logout/unload ordering and actual worker ownership (including cancelled transfers and session teardown); determine the smallest existing lifecycle seam to seal admission before source destruction and where a nonblocking retained-shard owner can live without cross-thread pointers. Check whether process-lifetime retention is feasible under current Core map lifetime and whether one global fail-visible gate is required to avoid unknown-scope debt. Return precise file/function/line and explicit hazards, not another speculative implementation. R2 remains the owner-policy request in coordination #42. No production code, SQL, config, client or host changed by this amendment.
