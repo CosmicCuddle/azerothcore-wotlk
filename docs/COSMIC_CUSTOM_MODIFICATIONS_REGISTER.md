@@ -132,3 +132,18 @@
 - **Tests:** source-contract test only at creation; no native Worldserver compile/link or gameplay claim yet.
 - **Live status:** DRAFT / unmerged / not deployed.
 - **Rollback:** abandon/revert this child; with no consuming hook or no registered script, stock behaviour is unchanged.
+
+
+## CORE-MAIL-DRAFT-HAS-ITEMS-20261114 — attachment-presence accessor for item-only mail delay (DRAFT)
+
+- **Owner:** CosmicCuddle. **Component:** AzerothCore mail API; companion behavior lives in Mod-Naxxramas-Core MAIL-01.
+- **Parent/source ref:** synced Core master `21ff1973bc75216f8a0d0f3d7731eb3e8894ff97`; DRAFT #34 head before this register append `f97fef89ff07f29ecea563edbc729706badcf6ff`.
+- **Intended behaviour:** expose a read-only `MailDraft::HasItems() const` query so modules can distinguish item-attachment mail from gold/text-only mail without accessing private `m_items`. Core mail delivery behavior is unchanged by this accessor alone.
+- **Affected path:** `src/server/game/Mails/Mail.h` plus this register.
+- **Dependencies:** companion Mod-Naxxramas-Core DRAFT #337 uses the accessor to preserve same-account delivery delay only when one or more item attachments are present.
+- **Config/SQL/DBC/client dependencies:** none added. Existing `MailDeliveryDelay` remains authoritative.
+- **Known risks:** companion module and Core must be composed together; deploying #337 without this accessor will fail to compile. In-game mail behavior still requires regression testing.
+- **Tests/status:** accessor is trivially read-only; companion source contract is 6/6 PASS. A pinned combined Worldserver link against Core #34 + Naxx #337 is a release gate and may still be running. No server start/gameplay claim.
+- **Live status:** DRAFT, unmerged, not deployed.
+- **Owner decision:** gold-only, note-only and note+gold same-account mail must remain instant; item-bearing mail keeps the established delay.
+- **Rollback:** revert companion Naxx mail change and this accessor together. No data/schema rollback is required.
