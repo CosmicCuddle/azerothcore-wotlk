@@ -508,6 +508,8 @@ public: /* AccountScript */
 
 public: /* GuildScript */
     void OnGuildAddMember(Guild* guild, Player* player, uint8& plRank);
+    bool CanGuildAddMember(Guild const* guild, uint32 guildId, ObjectGuid guid);
+    bool CanGuildSendChatToMember(Guild const* guild, Player* sender, Player* receiver, bool officerOnly, uint32 language, std::string_view msg);
     void OnGuildRemoveMember(Guild* guild, Player* player, bool isDisbanding, bool isKicked);
     void OnGuildMOTDChanged(Guild* guild, std::string const& newMotd);
     void OnGuildInfoChanged(Guild* guild, std::string const& newInfo);
@@ -549,6 +551,7 @@ public: /* GlobalScript */
     void OnLoadSpellCustomAttr(SpellInfo* spell);
     bool OnAllowedForPlayerLootCheck(Player const* player, ObjectGuid source);
     bool OnAllowedToLootContainerCheck(Player const* player, ObjectGuid source);
+    bool CanLootOtherFactionItem(Player const* player, ItemTemplate const* proto, ObjectGuid source);
     void OnInstanceIdRemoved(uint32 instanceId);
     void OnBeforeSetBossState(uint32 id, EncounterState newState, EncounterState oldState, Map* instance);
     void AfterInstanceGameObjectCreate(Map* instance, GameObject* go);
@@ -894,6 +897,20 @@ public:
                 sScriptMgr->IncreaseScriptCount();
             }
         }
+    }
+
+    // Deletes every script. Hooks still fire after this (the static destructors of
+    // GroupMgr and AuctionHouseMgr run after ScriptMgr::Unload()), so each hook list
+    // is emptied but kept: CALL_ENABLED_HOOKS indexes EnabledHooks by hook type.
+    static void Unload()
+    {
+        for (auto const& [scriptID, script] : ScriptPointerList)
+            delete script;
+
+        ScriptPointerList.clear();
+
+        for (auto& hookScripts : EnabledHooks)
+            hookScripts.clear();
     }
 
     // Gets a script by its ID (assigned by ObjectMgr).
