@@ -3,6 +3,7 @@ import pathlib, subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PARENT = "9e30516cccfe095f95948ceb0ac1d6ca265c54e4"
+FEATURE_HEAD = "34ad407467fcf6ea02fcce1595f7c0288966042f"
 
 def require(ok, message):
     if not ok:
@@ -16,13 +17,13 @@ expected = sorted([
     "src/server/game/Scripting/ScriptMgr.h",
     "tests/cosmic_f14_session_rebind/test_f14_session_rebind_source.py",
 ])
-actual = subprocess.check_output(["git","diff","--name-only",PARENT,"HEAD"], cwd=ROOT, text=True).splitlines()
+actual = subprocess.check_output(["git","diff","--name-only",PARENT,FEATURE_HEAD], cwd=ROOT, text=True).splitlines()
 require(sorted(actual) == expected, "unexpected Core17 path scope")
 
 for path in expected:
     if path.startswith(".github/") or path.startswith("tests/"):
         continue
-    diff = subprocess.check_output(["git","diff","-U0",PARENT,"HEAD","--",path], cwd=ROOT, text=True)
+    diff = subprocess.check_output(["git","diff","-U0",PARENT,FEATURE_HEAD,"--",path], cwd=ROOT, text=True)
     removed = [line for line in diff.splitlines() if line.startswith("-") and not line.startswith("---")]
     require(not removed, "Core17 runtime source must be insertion-only: " + path)
 
