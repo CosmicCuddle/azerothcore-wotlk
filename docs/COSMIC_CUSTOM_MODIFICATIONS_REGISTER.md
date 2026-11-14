@@ -120,3 +120,15 @@
 - **Direct-path boundary:** `Player::UpdateVisibilityOf(WorldObject*)` does not call the token-bound CREATE helper and cannot borrow a pass token. Macro-OFF batched behavior preserves the existing tokenless default-FALSE query. The CREATE macro hard-requires the Core18 token-bound OUT/notifier seam.
 - **No positive authority:** Core registers no positive CREATE listener. This child adds no Store Open/Reserve/Commit, prior-hidden debt, packet ACK, restoration completion, fence reset, actor/rights proof, SQL, config, DB, client or deployment behavior. A future module still must prove exact viewer identity, RandomBot actor, creature incarnation, complete pair rights, transactional restore reservation and R2 before returning TRUE.
 - **Tests/status:** exact-scope source contract and inherited non-transferable admission model are required first; full macro-ON Worldserver compilation is a separate Services descendant. No gameplay acceptance or production deployment. **Rollback:** abandon/revert Core23; no migration/live-state rollback is required.
+
+## CORE-F14-GUILD-POLICY-SEAMS-20261114 — neutral guild admission/chat hooks (DRAFT)
+
+- **Owner:** CosmicCuddle. **Component:** AzerothCore fork / F14 social-isolation support.
+- **Parent:** Core DRAFT #25 head `240f625033e6388ad73ba61282b3f62340301a02`.
+- **Intended behaviour:** add two neutral, default-allow script seams only: (1) a pre-mutation guild-member admission veto receiving the immutable guild ID value plus exact member GUID, including offline/off-world adds, while retaining the Guild pointer for world-thread consumers; (2) a per-online-recipient guild/officer-chat delivery veto. Core contains no RNDBOT/race/progression policy.
+- **Affected paths:** `Guild.cpp`, `ScriptMgr.h`, `GuildScript.{h,cpp}`, source contract test, this register.
+- **Dependencies:** IP may consume the hooks only under its separately reviewed/default-OFF F14 policy. Existing GuildScript APIs remain intact.
+- **Risks:** module hook code must be thread-safe for any off-world-thread AddMember caller. Hook version 2 supplies the guild ID as a value so off-world consumers need not dereference Guild merely to queue identity; the Guild pointer must still be treated as world-thread-only for mutable/member reads. Recipient hook is on the normal guild broadcast path and must remain cheap. Addon/Warden guild traffic must remain allowed unless an owning module explicitly and safely decides otherwise.
+- **Tests:** source-contract test only at creation; no native Worldserver compile/link or gameplay claim yet.
+- **Live status:** DRAFT / unmerged / not deployed.
+- **Rollback:** abandon/revert this child; with no consuming hook or no registered script, stock behaviour is unchanged.
