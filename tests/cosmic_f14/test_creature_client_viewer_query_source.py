@@ -41,7 +41,9 @@ class NativeSourceContract(unittest.TestCase):
                       "            IsF14CreatureSuppressedFromClientView(this, target)"), 2)
         self.assertEqual(
             src.count("CanSeeOrDetect(target, false, true) &&\n"
-                      "            !IsF14CreatureSuppressedFromClientView(this, target)"), 3)
+                      "            !IsF14CreatureSuppressedFromClientView(this, target)"), 2)
+        self.assertIn("bool const f14SuppressInitialCreate =", src)
+        self.assertIn("!f14SuppressInitialCreate &&\n            !IsF14PlayerSuppressedFromClientView(this, target)", src)
         self.assertIn(
             "void Player::UpdateVisibilityOf(T* target, UpdateData& data,", src)
         self.assertIn("void Player::UpdateVisibilityOf(WorldObject* target)", src)
