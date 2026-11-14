@@ -24,9 +24,9 @@ void ScriptMgr::OnGuildAddMember(Guild* guild, Player* player, uint8& plRank)
     CALL_ENABLED_HOOKS(GuildScript, GUILDHOOK_ON_ADD_MEMBER, script->OnAddMember(guild, player, plRank));
 }
 
-bool ScriptMgr::CanGuildAddMember(Guild const* guild, ObjectGuid guid)
+bool ScriptMgr::CanGuildAddMember(Guild const* guild, uint32 guildId, ObjectGuid guid)
 {
-    CALL_ENABLED_BOOLEAN_HOOKS(GuildScript, GUILDHOOK_CAN_ADD_MEMBER, !script->CanAddMember(guild, guid));
+    CALL_ENABLED_BOOLEAN_HOOKS(GuildScript, GUILDHOOK_CAN_ADD_MEMBER, !script->CanAddMember(guild, guildId, guid));
 }
 
 bool ScriptMgr::CanGuildSendChatToMember(Guild const* guild, Player* sender, Player* receiver, bool officerOnly, uint32 language, std::string_view msg)

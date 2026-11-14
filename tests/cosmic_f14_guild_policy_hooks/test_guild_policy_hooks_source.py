@@ -7,18 +7,19 @@ hdr = (ROOT / "src/server/game/Scripting/ScriptDefines/GuildScript.h").read_text
 impl = (ROOT / "src/server/game/Scripting/ScriptDefines/GuildScript.cpp").read_text()
 mgr = (ROOT / "src/server/game/Scripting/ScriptMgr.h").read_text()
 
-assert "#define COSMIC_F14_GUILD_POLICY_HOOK_VERSION 1" in hdr
+assert "#define COSMIC_F14_GUILD_POLICY_HOOK_VERSION 2" in hdr
 assert "GUILDHOOK_CAN_ADD_MEMBER" in hdr
 assert "GUILDHOOK_CAN_SEND_CHAT_TO_MEMBER" in hdr
-assert "virtual bool CanAddMember" in hdr
+assert "virtual bool CanAddMember(Guild const* /*guild*/, uint32 /*guildId*/, ObjectGuid /*guid*/)" in hdr
 assert "virtual bool CanSendChatToMember" in hdr
-assert "ScriptMgr::CanGuildAddMember" in impl
+assert "ScriptMgr::CanGuildAddMember(Guild const* guild, uint32 guildId, ObjectGuid guid)" in impl
+assert "script->CanAddMember(guild, guildId, guid)" in impl
 assert "ScriptMgr::CanGuildSendChatToMember" in impl
-assert "bool CanGuildAddMember" in mgr
+assert "bool CanGuildAddMember(Guild const* guild, uint32 guildId, ObjectGuid guid)" in mgr
 assert "bool CanGuildSendChatToMember" in mgr
 
 add = guild.index("bool Guild::AddMember")
-veto = guild.index("sScriptMgr->CanGuildAddMember(this, guid)", add)
+veto = guild.index("sScriptMgr->CanGuildAddMember(this, m_id, guid)", add)
 petition = guild.index("Player::RemovePetitionsAndSigns", add)
 emplace = guild.index("m_members.try_emplace", add)
 save = guild.index("member.SaveToDB", add)

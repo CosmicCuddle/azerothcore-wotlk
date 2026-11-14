@@ -23,7 +23,7 @@
 #include <string_view>
 #include <vector>
 
-#define COSMIC_F14_GUILD_POLICY_HOOK_VERSION 1
+#define COSMIC_F14_GUILD_POLICY_HOOK_VERSION 2
 
 enum GuildHook
 {
@@ -56,7 +56,7 @@ public:
     virtual void OnAddMember(Guild* /*guild*/, Player* /*player*/, uint8& /*plRank*/) { }
 
     // Called before guild membership is mutated or persisted. Return false to refuse the add.
-    [[nodiscard]] virtual bool CanAddMember(Guild const* /*guild*/, ObjectGuid /*guid*/) { return true; }
+    [[nodiscard]] virtual bool CanAddMember(Guild const* /*guild*/, uint32 /*guildId*/, ObjectGuid /*guid*/) { return true; }
 
     // Called for each online guild/officer-chat recipient. Return false to suppress only that delivery.
     [[nodiscard]] virtual bool CanSendChatToMember(Guild const* /*guild*/, Player* /*sender*/, Player* /*receiver*/, bool /*officerOnly*/, uint32 /*language*/, std::string_view /*msg*/) { return true; }

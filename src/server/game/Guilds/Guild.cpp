@@ -2268,7 +2268,7 @@ bool Guild::AddMember(ObjectGuid guid, uint8 rankId)
         return false;
 
     // Neutral, default-allow policy seam before any petition, membership, DB or broadcast mutation.
-    if (!sScriptMgr->CanGuildAddMember(this, guid))
+    if (!sScriptMgr->CanGuildAddMember(this, m_id, guid))
         return false;
 
     // Remove all player signs from another petitions

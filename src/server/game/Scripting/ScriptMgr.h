@@ -517,7 +517,7 @@ public: /* AccountScript */
 
 public: /* GuildScript */
     void OnGuildAddMember(Guild* guild, Player* player, uint8& plRank);
-    bool CanGuildAddMember(Guild const* guild, ObjectGuid guid);
+    bool CanGuildAddMember(Guild const* guild, uint32 guildId, ObjectGuid guid);
     bool CanGuildSendChatToMember(Guild const* guild, Player* sender, Player* receiver, bool officerOnly, uint32 language, std::string_view msg);
     void OnGuildRemoveMember(Guild* guild, Player* player, bool isDisbanding, bool isKicked);
     void OnGuildMOTDChanged(Guild* guild, std::string const& newMotd);

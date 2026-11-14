@@ -125,10 +125,10 @@
 
 - **Owner:** CosmicCuddle. **Component:** AzerothCore fork / F14 social-isolation support.
 - **Parent:** Core DRAFT #25 head `240f625033e6388ad73ba61282b3f62340301a02`.
-- **Intended behaviour:** add two neutral, default-allow script seams only: (1) a pre-mutation guild-member admission veto receiving the exact member GUID, including offline adds; (2) a per-online-recipient guild/officer-chat delivery veto. Core contains no RNDBOT/race/progression policy.
+- **Intended behaviour:** add two neutral, default-allow script seams only: (1) a pre-mutation guild-member admission veto receiving the immutable guild ID value plus exact member GUID, including offline/off-world adds, while retaining the Guild pointer for world-thread consumers; (2) a per-online-recipient guild/officer-chat delivery veto. Core contains no RNDBOT/race/progression policy.
 - **Affected paths:** `Guild.cpp`, `ScriptMgr.h`, `GuildScript.{h,cpp}`, source contract test, this register.
 - **Dependencies:** IP may consume the hooks only under its separately reviewed/default-OFF F14 policy. Existing GuildScript APIs remain intact.
-- **Risks:** module hook code must be thread-safe for any off-world-thread AddMember caller; recipient hook is on the normal guild broadcast path and must remain cheap. Addon/Warden guild traffic must remain allowed unless an owning module explicitly and safely decides otherwise.
+- **Risks:** module hook code must be thread-safe for any off-world-thread AddMember caller. Hook version 2 supplies the guild ID as a value so off-world consumers need not dereference Guild merely to queue identity; the Guild pointer must still be treated as world-thread-only for mutable/member reads. Recipient hook is on the normal guild broadcast path and must remain cheap. Addon/Warden guild traffic must remain allowed unless an owning module explicitly and safely decides otherwise.
 - **Tests:** source-contract test only at creation; no native Worldserver compile/link or gameplay claim yet.
 - **Live status:** DRAFT / unmerged / not deployed.
 - **Rollback:** abandon/revert this child; with no consuming hook or no registered script, stock behaviour is unchanged.
