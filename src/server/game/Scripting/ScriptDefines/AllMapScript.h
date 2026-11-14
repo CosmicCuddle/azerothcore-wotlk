@@ -31,6 +31,9 @@ enum AllMapHook
     ALLMAPHOOK_ON_DESTROY_MAP,
     ALLMAPHOOK_ON_MAP_UPDATE,
     ALLMAPHOOK_CAN_SEND_OBJECT_UPDATES_TO_PLAYER,
+#if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
+    ALLMAPHOOK_ON_F14_BEFORE_PLAYER_MAP_REMOVAL,
+#endif
     ALLMAPHOOK_END
 };
 
@@ -105,6 +108,13 @@ public:
      * @return True to send the updates, false to discard them for this player
      */
     [[nodiscard]] virtual bool CanSendObjectUpdatesToPlayer(Map* /*map*/, Player* /*player*/) { return true; }
+
+#if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
+    // F14 observation only: synchronous pre-removal source boundary, not a
+    // permanent worker-thread proof. Do not retain pointers, veto removal,
+    // dispatch visibility, or mutate gameplay from this callback.
+    virtual void OnF14BeforePlayerMapRemoval(Map const* /*map*/, Player const* /*player*/, bool /*remove*/) { }
+#endif
 };
 
 #endif

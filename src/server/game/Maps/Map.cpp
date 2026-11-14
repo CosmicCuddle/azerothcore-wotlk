@@ -718,6 +718,11 @@ struct ResetNotifier
 
 void Map::RemovePlayerFromMap(Player* player, bool remove)
 {
+#if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
+    // Observe the old map/player identity before any removal-side effects.
+    // This is not permission to block teardown or send a visibility update.
+    sScriptMgr->OnF14BeforePlayerMapRemoval(this, player, remove);
+#endif
     UpdatePlayerZoneStats(player->GetZoneId(), MAP_INVALID_ZONE);
 
     player->GetThreatMgr().RemoveMeFromThreatLists(); // pussywizard: multithreading crashfix

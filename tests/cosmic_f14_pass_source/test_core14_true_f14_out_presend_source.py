@@ -1,0 +1,168 @@
+"""Core14 actual Core-only pre-send source seam, NO IP consumer or client ACK."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+NOTIFIER = (ROOT / "src/server/game/Grids/Notifiers/GridNotifiers.cpp").read_text()
+NOTIFIER_H = (ROOT / "src/server/game/Grids/Notifiers/GridNotifiers.h").read_text()
+PLAYER = (ROOT / "src/server/game/Entities/Player/PlayerUpdates.cpp").read_text()
+DATA = (ROOT / "src/server/game/Entities/Object/Updates/UpdateData.h").read_text()
+DATA_CPP = (ROOT / "src/server/game/Entities/Object/Updates/UpdateData.cpp").read_text()
+WORLD_H = (ROOT / "src/server/game/Scripting/ScriptDefines/WorldObjectScript.h").read_text()
+WORLD_CPP = (ROOT / "src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp").read_text()
+MANAGER_H = (ROOT / "src/server/game/Scripting/ScriptMgr.h").read_text()
+
+CALL = "sScriptMgr->OnF14ViewerCreaturePositiveQueryOutPreSend("
+SOURCE_MACRO = "COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT"
+class PreSendSource(unittest.TestCase):
+    def test_real_send_site_not_fake_postsend_simulation(self):
+        self.assertEqual(NOTIFIER.count(CALL), 1)
+        body = NOTIFIER.split("void VisibleNotifier::SendToSelf()", 1)[1].split(
+            "void VisibleChangesNotifier::Visit(", 1)[0]
+        a, b, c = [body.index(key) for key in (
+            "i_data.BuildPacket(packet);", CALL, "i_player.SendDirectMessage(&packet);")]
+        self.assertLess(a, b)
+        self.assertLess(b, c)
+        self.assertLess(c, body.index("OnF14ViewerCreatureBatchGuidSendAttempt("))
+        self.assertLess(body.index("_f14PreSendDispatched = true;"), b)
+        self.assertIn("if (_f14PassToken && !_f14PreSendDispatched)", body)
+        self.assertIn("!i_data.F14PositiveQueryOutCandidatesPoisoned()", body)
+
+    def test_source_cause_requires_ordinary_visibility_and_actual_out(self):
+        tpl = PLAYER.split("template <class T>\nvoid Player::UpdateVisibilityOf(", 1)[1].split(
+            "void Player::GetInitialVisiblePackets", 1)[0]
+        self.assertIn("ordinaryVisible && IsF14CreatureSuppressedFromClientView(this, target)",tpl)
+        self.assertIn("if (!ordinaryVisible || positiveF14CreatureQuery ||",tpl)
+        self.assertIn("F14EligibleUncontrolledCreatureBatchCandidate(target)",tpl)
+        block = tpl.index("target->BuildOutOfRangeUpdateBlock(&data);")
+        nomination = tpl.index("data.F14RecordPositiveQueryCreatureOut(target->GetGUID());")
+        self.assertLess(block, nomination)
+        self.assertLess(nomination, tpl.index("GetObjectVisibilityContainer().UnlinkWorldObjectVisibility(target);"))
+        # Existing original paths still available when new macro is undefined.
+        self.assertIn("#else\n        if (!CanSeeOrDetect(target, false, true) ||",tpl)
+        self.assertIn("!IsF14CreatureSuppressedFromClientView(this, target)",tpl)
+
+    def test_no_direct_or_restore_create_evidence(self):
+        direct = PLAYER.split("void Player::UpdateVisibilityOf(WorldObject* target)",1)[1].split(
+            "void Player::UpdateTriggerVisibility()",1)[0]
+        self.assertNotIn("F14RecordPositiveQueryCreatureOut(", direct)
+        self.assertNotIn("OnF14ViewerCreaturePositiveQueryOutPreSend(", direct)
+        # GROK M2/N1: only direct OUT must fail visible. Direct CREATE
+        # must honor the existing F14 creature query to avoid resurrecting
+        # a still-hidden batch creature on movement without debt evidence.
+        # With the macro OFF, both original Core9 routes remain unchanged.
+        branches = direct.split("#if defined("+SOURCE_MACRO+")", 2)
+        self.assertEqual(len(branches), 3)
+        direct_out, out_legacy = branches[1].split("#else", 1)
+        direct_create, create_legacy = branches[2].split("#else", 1)
+        self.assertNotIn("IsF14CreatureSuppressedFromClientView(", direct_out)
+        self.assertIn("!IsF14CreatureSuppressedFromClientView(this, target)",
+                      direct_create)
+        for legacy_part in (out_legacy, create_legacy):
+            self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)",
+                          legacy_part.split("#endif",1)[0])
+        # The source assertion above checks the *real* direct CREATE arm.
+        # Do not substitute a vacuous mutation of our own copied string:
+        # an independent source mutation re-check is requested in #11.
+        tpl=PLAYER.split("template <class T>\nvoid Player::UpdateVisibilityOf(",1)[1].split(
+            "void Player::GetInitialVisiblePackets",1)[0]
+        create=tpl.split("else\n    {\n        if (CanSeeOrDetect(",1)[1]
+        self.assertNotIn("F14RecordPositiveQueryCreatureOut(", create)
+
+    def test_opted_only_with_three_explicit_parent_macros(self):
+        for text in (WORLD_H, DATA):
+            self.assertIn("defined("+SOURCE_MACRO+")",text)
+            for flag in ("COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT",
+                         "COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT",
+                         "COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT"):
+                self.assertIn("!defined("+flag+")",text)
+            self.assertIn("#error",text)
+            self.assertNotIn("#define "+SOURCE_MACRO,text)
+        self.assertIn("bool _f14PreSendDispatched = false;",NOTIFIER_H)
+
+    def test_no_partial_packet_evidence_and_no_serialization(self):
+        for needle in ("_f14PositiveQueryOutCandidates.size() >= 256",
+                       "_f14PositiveQueryOutPoisoned = true;",
+                       "F14CreatureCandidatesPoisoned()",
+                       "c.direction == CosmicF14::CreatureBatchDirection::OutOfRange",
+                       "if (!actualOutBlock)"):
+            self.assertIn(needle, DATA)
+        self.assertIn("_f14PositiveQueryOutPoisoned = true;", DATA_CPP)
+        self.assertIn("_f14PositiveQueryOutPoisoned = false;", DATA_CPP)
+        self.assertIn("_f14PositiveQueryOutCandidates.clear();",DATA_CPP)
+        self.assertNotIn("F14PositiveQueryOutCandidates()",DATA_CPP.split(
+            "bool UpdateData::BuildPacket(",1)[1].split("void UpdateData::Clear()",1)[0])
+
+    def test_script_callback_is_event_not_positive_policy(self):
+        self.assertIn("virtual void OnF14ViewerCreaturePositiveQueryOutPreSend(",WORLD_H)
+        self.assertIn("void OnF14ViewerCreaturePositiveQueryOutPreSend(",MANAGER_H)
+        self.assertIn("void ScriptMgr::OnF14ViewerCreaturePositiveQueryOutPreSend(",WORLD_CPP)
+        self.assertIn("CALL_ENABLED_HOOKS(",WORLD_CPP)
+        self.assertIn("WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,",WORLD_CPP)
+        self.assertIn("WorldObject const* /*creature*/) { return false; }",WORLD_H)
+        # GROK M1/P1/L1/Q1/Q2: source documentation only. The future
+        # positive policy requires the actual PRE_SEND producer, not the
+        # older query-only build where direct OUT lacks a tagged batch.
+        # These tests do NOT simulate a registered Core/IP listener.
+        hook = WORLD_H.split("// Diagnostic/compatibility API preparation:", 1)[1].split(
+            "[[nodiscard]] virtual bool OnF14ShouldSuppressCreatureForViewer(", 1)[0]
+        for required in (
+            "MUST return FALSE unless COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT",
+            "legacy direct OUT",
+            "OUT-only initial reservation / read-only idempotent CREATE contract",
+            "R2/L1 remain",
+        ):
+            self.assertIn(required, hook)
+        for required in (
+            "The OUT-only reservation discriminator is valid ONLY",
+            "No positive listener may answer TRUE with PRE_SEND disabled",
+            "COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT",
+        ):
+            self.assertIn(required, WORLD_H)
+        # With PRE_SEND OFF, the original direct OUT query remains in #else:
+        # Q1 requires the future listener to veto TRUE on that configuration.
+        direct = PLAYER.split("void Player::UpdateVisibilityOf(WorldObject* target)", 1)[1].split(
+            "void Player::UpdateTriggerVisibility()", 1)[0]
+        direct_out = direct.split("#if defined("+SOURCE_MACRO+")", 1)[1].split("#else", 1)[1].split("#endif", 1)[0]
+        self.assertIn("IsF14CreatureSuppressedFromClientView(this, target)", direct_out)
+        for required in (
+            "viewer->HaveAtClient(creature) true",
+            "ONLY a verified initial batch OUT may atomically reserve ONE exact",
+            "never reserve on a read-only CREATE check",
+            "idempotent read of the",
+            "restore send attempted, delivery UNKNOWN",
+            "cannot be treated as a client render ACK",
+            "These are future-consumer contracts, NOT implemented runtime guards",
+            "Without R2/L1 and an authenticated listener, keep positive F14 OFF",
+            "MUST NOT call visibility updates, send packets",
+        ):
+            self.assertIn(required, WORLD_H)
+
+    def test_moved_presend_dispatch_to_after_send_is_really_rejected(self):
+        body=NOTIFIER.split("void VisibleNotifier::SendToSelf()",1)[1].split(
+            "void VisibleChangesNotifier::Visit(",1)[0]
+        def is_pre_send(part):
+            return part.count(CALL)==1 and part.count(
+                "i_player.SendDirectMessage(&packet);")==1 and (
+                part.index(CALL) < part.index("i_player.SendDirectMessage(&packet);"))
+        self.assertTrue(is_pre_send(body))
+        # An actual source-code mutation: MOVE the existing guarded producer
+        # to after SendDirectMessage. The same validator must now return
+        # FALSE; a self-referential assertion on the mutant would be vacuous.
+        # Locate the actual producer, not the earlier admission-close guard.
+        call_pos=body.index(CALL)
+        start=body.rfind("#if defined("+SOURCE_MACRO+")",0,call_pos)
+        self.assertGreaterEqual(start,0)
+        end=body.index("#endif",call_pos)+len("#endif")
+        block=body[start:end]
+        self.assertIn(CALL,block)
+        self.assertIn("_f14PreSendDispatched = true;",block)
+        stripped=body[:start]+body[end:]
+        send="i_player.SendDirectMessage(&packet);"
+        self.assertEqual(stripped.count(send),1)
+        mutated=stripped.replace(send,send+"\n"+block,1)
+        self.assertEqual(mutated.count(CALL),1)
+        self.assertGreater(mutated.index(CALL),mutated.index(send))
+        self.assertFalse(is_pre_send(mutated))
+if __name__ == "__main__":
+    unittest.main()

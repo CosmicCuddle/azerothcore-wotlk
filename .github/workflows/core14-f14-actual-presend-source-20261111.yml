@@ -1,0 +1,70 @@
+name: Core14 genuine F14 OUT pre-send source and inherited Core8/Core9 contracts (OFF)
+on:
+  push:
+    branches:
+      - feature/cs01-core14-f14-actual-presend-cause-out-off-20261111
+  pull_request:
+    branches:
+      - feature/cs01-core8-f14-creature-batch-guid-send-attempt-off-20261109
+permissions:
+  contents: read
+jobs:
+  exact-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert exact isolated Core14 source and tests; no config/DB/SQL/other module
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=865724cee8d0fb94d7496854c0f426f60bac2232
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core14-f14-actual-presend-source-20261111.yml' \
+            'src/server/game/Entities/Object/Updates/UpdateData.cpp' \
+            'src/server/game/Entities/Object/Updates/UpdateData.h' \
+            'src/server/game/Entities/Player/PlayerUpdates.cpp' \
+            'src/server/game/Grids/Notifiers/GridNotifiers.cpp' \
+            'src/server/game/Grids/Notifiers/GridNotifiers.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'tests/cosmic_f14/test_creature_client_viewer_query_source.py' \
+            'tests/cosmic_f14_player/test_f14_player_client_viewer_source.py' \
+            'tests/cosmic_f14_unwired_hook/test_f14_unwired_hook_source.py' \
+            'tests/cosmic_f14_pass_source/test_core14_true_f14_out_presend_source.py' \
+            'tests/cosmic_f14_pass_source/test_core_f14_creature_batch_guid_source.py' \
+            'tests/cosmic_f14_pass_source/test_core_f14_notifier_pass_lifecycle_source.py' | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- conf sql data modules)"
+          echo 'PASS exact Core-only default-off development review scope'
+      - name: New real pre-send source semantics and original creature/player/script safeguards
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14 -p test_creature_client_viewer_query_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_player -p test_f14_player_client_viewer_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook -p test_f14_unwired_hook_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source -p test_core_f14_creature_batch_guid_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source -p test_core14_true_f14_out_presend_source.py -v
+      - name: Preserve notifier and token source contracts
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source -p test_core_f14_notifier_pass_lifecycle_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source -p test_core_f14_pass_source.py -v
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -O2 -pthread \
+            tests/cosmic_f14_pass_source/f14_core_creature_batch_guid_ledger_native.cpp \
+            -o /tmp/f14-batch
+          /tmp/f14-batch
+      - name: Explicit unimplemented and rollback boundary
+        if: always()
+        run: |
+          echo 'No IP E1 listener, human-epoch proof, prior-hidden debt, cross-map handoff or client ACK.'
+          echo 'No real player visibility tests, no owner host or SQL/DB/client deployment.'
+          echo 'Core14 macro is compile OFF unless explicitly supplied during an isolated build.'

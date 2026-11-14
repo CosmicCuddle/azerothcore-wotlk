@@ -1,0 +1,117 @@
+name: Core F14 actual creature GUID batch send-call evidence (OFF)
+
+on:
+  push:
+    branches:
+      - feature/cs01-core8-f14-creature-batch-guid-send-attempt-off-20261109
+  pull_request:
+    branches:
+      - feature/cs01-core7-f14-visible-notifier-pass-events-off-20261109
+
+permissions:
+  contents: read
+
+jobs:
+  core9-batch-guid-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact Core8 parent and Core9 child
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Exact fourteen-path diff; default-OFF and preserve all rights, packet, SQL and clients
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=2e2a21ae2224a9738cd92abf00bab957dbfb7604
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core-f14-creature-batch-guid-off-20261109.yml' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'docs/COSMIC_F14_CORE_CREATURE_BATCH_GUID_SEND_ATTEMPT_20261109.md' \
+            'src/server/game/Entities/Object/Updates/F14CreatureBatchGuidCandidateLedger.h' \
+            'src/server/game/Entities/Object/Updates/UpdateData.cpp' \
+            'src/server/game/Entities/Object/Updates/UpdateData.h' \
+            'src/server/game/Entities/Player/PlayerUpdates.cpp' \
+            'src/server/game/Grids/Notifiers/GridNotifiers.cpp' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'tests/cosmic_f14_pass_source/f14_core_creature_batch_guid_ledger_native.cpp' \
+            'tests/cosmic_f14_pass_source/test_core_f14_creature_batch_guid_source.py' \
+            'tests/cosmic_f14_pass_source/test_core_f14_notifier_pass_lifecycle_source.py' \
+            | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          for file in \
+            src/server/game/Entities/Unit/Unit.cpp \
+            src/server/game/Handlers/MiscHandler.cpp \
+            src/server/game/Scripting/ScriptMgr.cpp \
+            src/server/game/Grids/Notifiers/GridNotifiers.h \
+            src/server/game/Entities/Object/Updates/UpdateFields.h \
+            tests/cosmic_f14_pass_source/F14CorePassScopeProvenanceModel.h \
+            tests/cosmic_f14_pass_source/f14_core_pass_scope_model.cpp; do
+            test "$(git rev-parse "HEAD:$file")" = "$(git rev-parse "$parent:$file")"
+          done
+          test -z "$(git diff --name-only "$parent" HEAD -- conf data sql modules)"
+          echo 'PASS original batch + direct routing, Unit, WHO, update serializer, SQL/config intact'
+
+      - name: Old Core8 has no exact GUID sidecar; new Core9 guarded by TWO compile macros
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_creature_batch_guid_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_notifier_pass_lifecycle_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_pass_source.py -v
+
+      - name: Compile and RUN actual new GUID ledger GCC Clang C++17 C++20 normal NDEBUG
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in g++ clang++; do
+            for std in c++17 c++20; do
+              for mode in normal ndebug; do
+                flags=()
+                if [[ "$mode" == ndebug ]]; then flags=(-DNDEBUG); fi
+                "$cc" -std="$std" -O2 -Wall -Wextra -Werror -pedantic -pthread \
+                  "${flags[@]}" tests/cosmic_f14_pass_source/f14_core_creature_batch_guid_ledger_native.cpp \
+                  -o /tmp/f14-real-guid-sidecar
+                /tmp/f14-real-guid-sidecar
+              done
+            done
+          done
+
+      - name: Preserve original Core8 atomic pass producer and negative-only Core7 queries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in g++ clang++; do
+            for std in c++17 c++20; do
+              "$cc" -std="$std" -O2 -Wall -Wextra -Werror -pedantic -pthread \
+                tests/cosmic_f14_pass_source/f14_core_notifier_token_native.cpp \
+                -o /tmp/f14-original-token
+              /tmp/f14-original-token
+            done
+          done
+          for suite in cosmic_f14_player cosmic_f14_who cosmic_f14 cosmic_f14_unwired_hook; do
+            python3 -B -m unittest discover -s "tests/$suite" -p 'test_*source.py' -v
+          done
+
+      - name: Explicit evidence limits
+        if: always()
+        shell: bash
+        run: |
+          echo 'Source-only Core9 code is OFF absent TWO extra compile flags; no normal Core runtime/packet/rights changed.'
+          echo 'Real source candidate GUID + direction + notifier pass after batch SendDirectMessage is NOT client ACK.'
+          echo 'Batch sidecar duplicates, null, overflow and merged updates poison all F14 candidates.'
+          echo 'No positive script listener, no known creature incarnation/login epoch and no direct immediate send tag.'
+          echo 'No real full Worldserver compilation with Core9 macro here; separate five-owner native test required.'
+          echo 'No hidden/restored NPC, player, loot, quest, paid, stage8, SQL/DB/DBC/client, owner-host or merge.'

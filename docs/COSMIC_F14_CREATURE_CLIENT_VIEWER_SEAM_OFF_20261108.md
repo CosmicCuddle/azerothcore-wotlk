@@ -1,0 +1,32 @@
+# CosmicCuddle F14 — guarded client creature visibility query seam (8 November 2026)
+
+**Owner:** CosmicCuddle. **Component:** owner AzerothCore fork. **Branch:** `feature/cs01-f14-creature-client-viewer-seam-off-20261108`, child of owner F14 Core #2 `d2066943e19cd959de2a0e9897135573e4124219`. **Status:** DEVELOPMENT DRAFT ONLY, **OFF in ordinary builds**; no merge, deployment, production host, character or SQL/client operation. **Decision:** owner prioritises full F14 *before* resuming previous backlog, but does NOT waive human rights or SQL backup gates. This is **not positive F14 hiding**.
+
+## Custom Modifications Register entry — CORE-F14-VIEWER-001
+
+| Field | Record |
+| --- | --- |
+| Feature / intended behaviour | A strictly per-player **client CREATE/OUT** query seam for ordinary **hostile NPC creatures** only, called only if an independently reviewed script positively decides concealment; no global phase, combat or detection change |
+| Existing behaviour to preserve | `Player::UpdateVisibilityOf(Creature*, UpdateData&, ...)` and `Player::UpdateVisibilityOf(WorldObject*)` both use unmodified `CanSeeOrDetect`, original visibility containers, initial packets, pet destruction safety and client CREATE/OUT logic; all noncreature objects including real-player Blood Elves/Draenei remain on stock paths |
+| Owning repository/parent | `CosmicCuddle/azerothcore-wotlk`, owner Core2 `d2066943e19cd959de2a0e9897135573e4124219`; no direct upstream master overwrite |
+| Runtime affected | `src/server/game/Entities/Player/PlayerUpdates.cpp`, `src/server/game/Entities/Player/F14CreatureClientVisibilityQuery.h`; existing `src/server/game/Scripting/ScriptMgr.h` and `ScriptDefines/WorldObjectScript.{h,cpp}` **comments only** |
+| API used | Existing (default-FALSE) `ScriptMgr::ShouldF14SuppressCreatureForViewer` and `WorldObjectScript::OnF14ShouldSuppressCreatureForViewer` from owner Core2; no new script listener or default-TRUE implementation |
+| Build-time dependency / switch | New macro `COSMIC_F14_CREATURE_CLIENT_VIEWER_QUERY_EXPERIMENT` **UNDEFINED by default**. When undefined or 0, the query always returns FALSE, so stock CREATE/OUT results are unchanged. **Do not enable it just because the code compiles**. Defined to >=1 **only on experimental non-running CI** pending reviewed PB actor proof, IP policy and map-thread restoration |
+| Config, SQL, DBC and client changes | **NONE**. Does not change installed config or read/write data. No client patch or MPQ deployment |
+| Immediate safety preconditions | Only `target->IsCreature()` may reach callback. GM-mode viewer, owned/charmed creature, pet, guardian, summon or totem all return FALSE **before** any script. These guard only eligibility to ASK the script, not enough to justify an actual hide |
+| Verified positive hide or refresh | **NONE**. Script remains default FALSE. This seam does not schedule a client visibility refresh, track previously hidden (viewer, creature, incarnation) pairs, process death/corpse/respawn, check a human's quest/tap/loot/pet/DoT/assist rights, verify a genuine headless RandomBot, or exclude every GM-level account |
+| Required producer before any activation | Owner Playerbots first-born positive saved-GUID identity and durable DB proof; IP observer era/rights and exact prior-hidden ledger; Core safe visibility refresh/map ownership and `/who` source; tested 3.3.5a viewer CREATE/OUT transitions including human and Altbot negative checks |
+| Tests | 5 Python source/negative tests, one C++ header test enumerating **128 distinct target/GM/ownership type combinations**, GCC/Clang C++17/20 with NDEBUG; then separate exact-five-owner full Worldserver build on this HEAD. Those are **not gameplay acceptance** |
+| Known risks | Enabling true script before full human rights & restoration can hide still-relevant NPCs, orphan pets, break visibility of combat, corpse/quest loot, produce client state desynchronisation; macro TRUE with no listener is still no-op but is not permission to leave enabled. GM account security beyond GM-mode must be enforced by final policy |
+| Live status | **NOT MERGED, NOT COMPILED ON OWNER PC, NOT INSTALLED, NOT ENABLED, NOT LIVE-TESTED** |
+| Rollback | Delete/discard review-only child branch or revert exact reviewed commit(s). No DB/SQL/config/DBC/client rollback for this source-only review; for any future deployment restore **whole compatible source/compiled-binary/config/database tuple** from a separately owner-tested recoverable backup before test installation |
+
+## Source safety and test boundary
+
+Core2's earlier default-FALSE hook was **unconsumed**. This draft adds **four call sites**, one CREATE and one OUT branch in each of the two actual `Player::UpdateVisibilityOf` overloads. The new helper is a read-only query; it is intentionally **not** added to `WorldObject::CanSeeOrDetect`, which also controls world detection, targeting, combat and pet state. There is no WHO, bot birth, IP-stage write, NPC death/respawn or realm-wide visibility logic in this PR.
+
+The macro-disabled expression is equivalent to the original stock `CanSeeOrDetect` result in both overloads. If a later IP script is enabled, **both** the script and the first-born/era/rights/ledger policy must have independently proven positive identity and rights before any TRUE. The prior-hidden pair must be restored and the client explicitly refreshed on every lifecycle exit. No IP consumer is installed in this draft, and no registered script currently returns TRUE.
+
+**Next engineering work (F14 remains P0):** isolate true owner PB committed-birth provenance and IP stage floor, Core observer WHO and actor CREATE/OUT, separate safe map-thread NPC attack/corpse/respawn notifications and forced prior-hidden restore, then full five-owner native S4 and F01–F20 owner-approved isolated 3.3.5a gameplay. The separate offline SQL cleanup/migration/ignored-file preservation and backup-restore work is mandatory **before** host updates or tests and is **not** accomplished here.
+
+**Coordination:** [existing F14 Issue #9](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/issues/9), [combined Issue #4](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/issues/4), [S5 offline/SQl preservation handoff](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/blob/planning/cs01-five-repo-ownership-routing-20261107/release-gates/2026-11-08-S5-offline-candidate-readiness-handoff.md). Protect all older owner fork scripts and custom modifications.

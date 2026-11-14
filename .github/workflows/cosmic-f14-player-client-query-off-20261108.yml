@@ -1,0 +1,73 @@
+name: CosmicCuddle F14 real player client CREATE OUT seam OFF
+on:
+  push:
+    branches:
+      - feature/cs01-f14-player-client-viewer-query-off-20261108
+  pull_request:
+    branches:
+      - feature/cs01-f14-who-guid-query-off-20261108
+permissions:
+  contents: read
+jobs:
+  f14-player-negative-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - name: Checkout exact F14 owner Core child
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify Core5 immutable parent and only 10 reviewed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=5dca9d74bb1b676dedeffaa5aa92c128c9a31778
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          git diff --name-only "$base" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/cosmic-f14-player-client-query-off-20261108.yml' \
+            'src/server/game/Entities/Player/PlayerUpdates.cpp' \
+            'src/server/game/Entities/Player/F14PlayerClientVisibilityQuery.h' \
+            'src/server/game/Scripting/ScriptMgr.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.h' \
+            'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'docs/COSMIC_F14_PLAYER_CLIENT_VIEWER_SEAM_OFF_20261108.md' \
+            'tests/cosmic_f14_player/test_f14_player_client_viewer_source.py' \
+            'tests/cosmic_f14_player/f14_player_client_viewer_model.cpp' | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$base" HEAD -- data/ sql/ conf/)"
+      - name: Player actor and all preserved Core2 Core4 Core5 source regressions
+        run: |
+          python3 -B -m unittest discover -s tests/cosmic_f14_player -p test_f14_player_client_viewer_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook -p test_f14_unwired_hook_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14 -p test_creature_client_viewer_query_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_who -p test_f14_who_guid_source.py -v
+      - name: Compile actual pure C++ header in GCC and Clang 17 20 NDEBUG
+        shell: bash
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          for std in c++17 c++20; do
+            for mode in normal ndebug; do
+              flags=()
+              if [[ "$mode" == ndebug ]]; then flags=(-DNDEBUG); fi
+              "$CXX" "-std=$std" -O1 -Wall -Wextra -Werror -pedantic "${flags[@]}" \
+                -Isrc/server/game/Entities/Player tests/cosmic_f14_player/f14_player_client_viewer_model.cpp -o /tmp/f14-player
+              /tmp/f14-player
+            done
+          done
+      - name: Honest confidence boundary
+        if: always()
+        run: |
+          echo 'Source and pure header tests only; no full Worldserver link in THIS workflow.'
+          echo 'No positive actor identity, IP stage8, WHO/creature/NPC hide, client ACK or previously hidden restoration proof.'
+          echo 'No SQL, database, client, host, merge, config enablement or deployment permission.'

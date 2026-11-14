@@ -1,0 +1,21 @@
+name: Cosmic F14 kept-in-world disconnect source guard
+on:
+  push:
+    branches:
+      - feature/cs01-core20-f14-session-disconnect-20261112
+  pull_request:
+    paths:
+      - src/server/game/Server/WorldSession.cpp
+      - src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+      - src/server/game/Scripting/ScriptDefines/PlayerScript.h
+      - src/server/game/Scripting/ScriptMgr.h
+      - tests/cosmic_f14_session_disconnect/test_f14_session_disconnect_source.py
+      - .github/workflows/cosmic-f14-session-disconnect-source.yml
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 tests/cosmic_f14_session_disconnect/test_f14_session_disconnect_source.py

@@ -1,0 +1,25 @@
+name: F14 token-query malformed-input fail-visible source gate
+on:
+  push:
+    branches:
+      - feature/cs01-core21-f14-token-query-fail-visible-20261112
+  pull_request:
+    paths:
+      - 'src/server/game/Scripting/ScriptDefines/WorldObjectScript.cpp'
+      - 'tests/cosmic_f14_token_query_fail_visible/test_f14_token_query_fail_visible_source.py'
+      - '.github/workflows/cosmic-f14-token-query-fail-visible-source.yml'
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact Core21 fail-visible boundary
+        run: python3 tests/cosmic_f14_token_query_fail_visible/test_f14_token_query_fail_visible_source.py
+      - name: Re-run inherited Core18 admission token model
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror             -Isrc/server/game/Entities/Object/Updates             tests/cosmic_f14_token_bound_out/f14_initial_out_token_test.cpp             -o /tmp/f14_initial_out_token_test
+          /tmp/f14_initial_out_token_test

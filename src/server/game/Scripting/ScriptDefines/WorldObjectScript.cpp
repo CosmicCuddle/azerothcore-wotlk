@@ -54,6 +54,124 @@ void ScriptMgr::OnWorldObjectUpdate(WorldObject* object, uint32 diff)
     CALL_ENABLED_HOOKS(WorldObjectScript, WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE, script->OnWorldObjectUpdate(object, diff));
 }
 
+bool ScriptMgr::ShouldF14SuppressCreatureForViewer(
+    Player const* viewer, WorldObject const* creature)
+{
+    ASSERT(viewer && creature);
+    // No registered positive script: this API returns FALSE. The optional
+    // PlayerUpdates.cpp query call sites are compile-time OFF by default;
+    // Core alone supplies no creature-hiding policy or restoration events.
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_SUPPRESSION_QUERY,
+        script->OnF14ShouldSuppressCreatureForViewer(viewer, creature));
+}
+
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_OUT_QUERY_EXPERIMENT >= 1
+bool ScriptMgr::ShouldF14SuppressCreatureInitialOutForViewer(
+    Player const* viewer, WorldObject const* creature, uint64 token)
+{
+    // This is a fail-visible policy seam. A malformed future caller must not
+    // turn missing nomination identity into a Worldserver assertion/crash.
+    if (!viewer || !creature || !token)
+        return false;
+
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_OUT_TOKEN_QUERY,
+        script->OnF14ShouldSuppressCreatureInitialOutForViewer(viewer, creature, token));
+}
+#endif
+
+#if defined(COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT) && COSMIC_F14_TOKEN_BOUND_CREATURE_CREATE_QUERY_EXPERIMENT >= 1
+bool ScriptMgr::ShouldF14SuppressCreatureInitialCreateForViewer(
+    Player const* viewer, WorldObject const* creature, uint64 token)
+{
+    // Keep CREATE conservative like OUT: malformed provenance fails visible
+    // rather than asserting or reaching a policy listener.
+    if (!viewer || !creature || !token)
+        return false;
+
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_INITIAL_CREATE_TOKEN_QUERY,
+        script->OnF14ShouldSuppressCreatureInitialCreateForViewer(viewer, creature, token));
+}
+#endif
+
+bool ScriptMgr::ShouldF14ExcludeWhoEntryForViewer(
+    Player const* viewer, ObjectGuid const& targetGuid, uint32 cachedRace)
+{
+    ASSERT(viewer);
+    if (targetGuid.IsEmpty())
+        return false;
+
+    // Never trust a race-10/11 WHO cache entry as proof of RNDBOT origin.
+    // There is no positive listener; normal compilation never calls this.
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_WHO_GUID_EXCLUSION_QUERY,
+        script->OnF14ShouldExcludeWhoEntryForViewer(viewer, targetGuid, cachedRace));
+}
+
+bool ScriptMgr::ShouldF14SuppressPlayerForViewer(
+    Player const* viewer, Player const* actor)
+{
+    ASSERT(viewer && actor);
+    // No positive IP/RandomBot policy is registered in this Core draft.
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_PLAYER_SUPPRESSION_QUERY,
+        script->OnF14ShouldSuppressPlayerForViewer(viewer, actor));
+}
+
+#if defined(COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT) && COSMIC_F14_NOTIFIER_PASS_LIFECYCLE_EXPERIMENT >= 1
+void ScriptMgr::OnF14ViewerVisibilityPassBegin(Player const* viewer, uint64 token)
+{
+    ASSERT(viewer && token);
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BEGIN,
+        script->OnF14ViewerVisibilityPassBegin(viewer, token));
+}
+
+void ScriptMgr::OnF14ViewerVisibilityPassBatchSendAttempt(Player const* viewer, uint64 token)
+{
+    ASSERT(viewer && token);
+    // A send-call has happened for UpdateData. This does NOT identify which
+    // GUIDs were in the packet, that they were delivered, or client ACK.
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_BATCH_SEND_ATTEMPT,
+        script->OnF14ViewerVisibilityPassBatchSendAttempt(viewer, token));
+}
+
+void ScriptMgr::OnF14ViewerVisibilityPassEnd(Player const* viewer, uint64 token)
+{
+    ASSERT(viewer && token);
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_VISIBILITY_PASS_END,
+        script->OnF14ViewerVisibilityPassEnd(viewer, token));
+}
+#endif
+
+#if defined(COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT) && COSMIC_F14_CREATURE_BATCH_GUID_EVIDENCE_EXPERIMENT >= 1
+void ScriptMgr::OnF14ViewerCreatureBatchGuidSendAttempt(
+    Player const* viewer, ObjectGuid const& creatureGuid, bool isCreate, uint64 token)
+{
+    ASSERT(viewer && !creatureGuid.IsEmpty() && token);
+    // This is after ONE batch SendDirectMessage CALL. The nominated GUID was
+    // in the serialized UpdateData, but no client has ACKed or restored it.
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_BATCH_GUID_SEND_ATTEMPT,
+        script->OnF14ViewerCreatureBatchGuidSendAttempt(viewer, creatureGuid, isCreate, token));
+}
+#endif
+
+#if defined(COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT) && COSMIC_F14_PRE_SEND_CREATURE_OUT_EVIDENCE_EXPERIMENT >= 1
+void ScriptMgr::OnF14ViewerCreaturePositiveQueryOutPreSend(
+    Player const* viewer, ObjectGuid const& creatureGuid, uint64 token)
+{
+    ASSERT(viewer && !creatureGuid.IsEmpty() && token);
+    CALL_ENABLED_HOOKS(
+        WorldObjectScript, WORLDOBJECTHOOK_ON_F14_VIEWER_CREATURE_POSITIVE_QUERY_OUT_PRESEND,
+        script->OnF14ViewerCreaturePositiveQueryOutPreSend(viewer, creatureGuid, token));
+}
+#endif
+
 WorldObjectScript::WorldObjectScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, WORLDOBJECTHOOK_END)
 {

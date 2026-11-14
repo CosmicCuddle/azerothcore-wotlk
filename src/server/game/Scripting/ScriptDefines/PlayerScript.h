@@ -78,6 +78,12 @@ enum PlayerHook
     PLAYERHOOK_ON_LOGIN,
     PLAYERHOOK_ON_BEFORE_LOGOUT,
     PLAYERHOOK_ON_LOGOUT,
+#if defined(COSMIC_F14_SESSION_REBIND_EXPERIMENT) && COSMIC_F14_SESSION_REBIND_EXPERIMENT >= 1
+    PLAYERHOOK_ON_F14_SESSION_REBOUND,
+#endif
+#if defined(COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT) && COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT >= 1
+    PLAYERHOOK_ON_F14_SESSION_DISCONNECTED,
+#endif
     PLAYERHOOK_CAN_MARK_ACCOUNT_OFFLINE,
     PLAYERHOOK_ON_CREATE,
     PLAYERHOOK_ON_DELETE,
@@ -359,6 +365,17 @@ public:
 
     // Called when a player logs out.
     virtual void OnPlayerLogout(Player* /*player*/) { }
+
+#if defined(COSMIC_F14_SESSION_REBIND_EXPERIMENT) && COSMIC_F14_SESSION_REBIND_EXPERIMENT >= 1
+    // Called after a reconnect has attached a new WorldSession to an existing
+    // in-world Player, before the new client visibility state is rebuilt.
+    virtual void OnF14PlayerSessionRebound(Player* /*player*/) { }
+#endif
+#if defined(COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT) && COSMIC_F14_SESSION_DISCONNECT_EXPERIMENT >= 1
+    // Called after an unexpected socket close has detached the authenticated
+    // client while the Player is deliberately kept in world for reconnect.
+    virtual void OnF14PlayerSessionDisconnected(Player* /*player*/) { }
+#endif
 
     // Called before every character of the account is marked offline on logout.
     // Return false to keep the core from doing so, e.g. when a script holds several characters of one account online.

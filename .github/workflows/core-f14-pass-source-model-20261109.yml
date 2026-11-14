@@ -1,0 +1,97 @@
+name: Core F14 batched pass lifetime source+pure model (NO producer, OFF)
+
+on:
+  push:
+    branches:
+      - test/cs01-f14-core6-pass-scope-provenance-model-20261109
+  pull_request:
+    branches:
+      - feature/cs01-f14-player-client-viewer-query-off-20261108
+
+permissions:
+  contents: read
+
+jobs:
+  core-pass-scope-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout pinned test-only Core child
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact six-path scope and frozen Core6 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=6a0c1dba53617c77353718eb4338fda634fca5eb
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          git diff --name-only "$base" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            '.github/workflows/core-f14-pass-source-model-20261109.yml' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' \
+            'docs/COSMIC_F14_PASS_SOURCE_MODEL_20261109.md' \
+            'tests/cosmic_f14_pass_source/F14CorePassScopeProvenanceModel.h' \
+            'tests/cosmic_f14_pass_source/f14_core_pass_scope_model.cpp' \
+            'tests/cosmic_f14_pass_source/test_core_f14_pass_source.py' \
+            | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$base" HEAD -- src conf data sql modules)"
+          test "$(git rev-parse HEAD:src/server/game/Grids/Notifiers/GridNotifiers.h)" = \
+               "$(git rev-parse "$base":src/server/game/Grids/Notifiers/GridNotifiers.h)"
+          test "$(git rev-parse HEAD:src/server/game/Grids/Notifiers/GridNotifiers.cpp)" = \
+               "$(git rev-parse "$base":src/server/game/Grids/Notifiers/GridNotifiers.cpp)"
+          test "$(git rev-parse HEAD:src/server/game/Entities/Player/PlayerUpdates.cpp)" = \
+               "$(git rev-parse "$base":src/server/game/Entities/Player/PlayerUpdates.cpp)"
+          test "$(git rev-parse HEAD:src/server/game/Entities/Unit/Unit.cpp)" = \
+               "$(git rev-parse "$base":src/server/game/Entities/Unit/Unit.cpp)"
+          echo 'PASS: NO Core runtime/config/SQL/visibility source changed'
+
+      - name: Exact owner Core6 three real batched entrances and unbatched path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_pass_source \
+            -p test_core_f14_pass_source.py -v
+
+      - name: Native actual pure pass-scope contract GCC Clang C++17/20 (no server)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            for std in c++17 c++20; do
+              for mode in normal ndebug; do
+                flags=()
+                if [[ "$mode" == ndebug ]]; then flags=(-DNDEBUG); fi
+                "$compiler" -std="$std" -O2 -Wall -Wextra -Werror -pedantic \
+                  "${flags[@]}" tests/cosmic_f14_pass_source/f14_core_pass_scope_model.cpp \
+                  -o /tmp/f14-core-pass-scope
+                /tmp/f14-core-pass-scope
+              done
+            done
+          done
+
+      - name: Preserve existing Core6 F14 false-only query source regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/cosmic_f14_player \
+            -p test_f14_player_client_viewer_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_who \
+            -p test_f14_who_guid_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14 \
+            -p test_creature_client_viewer_query_source.py -v
+          python3 -B -m unittest discover -s tests/cosmic_f14_unwired_hook \
+            -p test_f14_unwired_hook_source.py -v
+
+      - name: Evidence limit
+        if: always()
+        run: |
+          echo 'This is a TEST-ONLY independent Core6 source audit + synthetic pure C++ model.'
+          echo 'NO actual Core producer, callback, packet, client ACK or real Worldserver compiled.'
+          echo 'NO Creature/Player/WHO concealment, first birth, stage8/paid, DB/SQL or owner host.'
+          echo 'Future Core implementation requires a separate owner decision and native/in-game tests.'

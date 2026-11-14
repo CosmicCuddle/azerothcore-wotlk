@@ -1,0 +1,65 @@
+name: Paid receipt malformed-raw preservation Core native source harness (NO SERVER)
+on:
+  push:
+    branches:
+      - feature/cs01-paid-receipt-row-preservation-20261107
+  pull_request:
+    branches:
+      - development/first-test-pinned-20261107
+permissions:
+  contents: read
+jobs:
+  paid-row-actual-core-harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact new Core fork source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify historical baseline, ten-scoped paths, no SQL, no feature activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=0d754d1921261dfd939f91060ebc022eae280f71
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent"
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            'src/server/game/Entities/Player/PlayerSettings.cpp' \
+            'src/server/game/Entities/Player/Player.h' \
+            'tests/cosmic_paid_receipt_guard/core_settings_harness.cpp' \
+            'tests/cosmic_paid_receipt_guard/stubs/Player.h' \
+            'tests/cosmic_paid_receipt_guard/stubs/CharacterDatabase.h' \
+            'tests/cosmic_paid_receipt_guard/stubs/StringConvert.h' \
+            'tests/cosmic_paid_receipt_guard/stubs/Tokenize.h' \
+            'tests/cosmic_paid_receipt_guard/test_paid_receipt_guard_source.py' \
+            '.github/workflows/cosmic-paid-receipt-guard-20261107.yml' \
+            'docs/COSMIC_CUSTOM_MODIFICATIONS_REGISTER.md' | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- data/sql conf src/server/scripts src/server/game/Entities/Creature)"
+          echo 'PASS: exact Core two-file raw receipt preservation plus tests/docs only'
+      - name: Source invariants and deliberate hostile mutations
+        run: python3 -B -m unittest discover -s tests/cosmic_paid_receipt_guard -p 'test_paid_receipt_guard_source.py' -v
+      - name: Compile actual Core PlayerSettings.cpp in isolated mock database (eight strict variants)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cosmic-paid-core
+          cp src/server/game/Entities/Player/PlayerSettings.cpp /tmp/cosmic-paid-core/PlayerSettings.cpp
+          for compiler in g++ clang++; do
+            for std in c++17 c++20; do
+              for flag in normal ndebug; do
+                extra=()
+                if [[ "$flag" == ndebug ]]; then extra=(-DNDEBUG); fi
+                "$compiler" "-std=$std" -Wall -Wextra -Werror -pedantic -O2 "${extra[@]}" \
+                  -Itests/cosmic_paid_receipt_guard/stubs \
+                  tests/cosmic_paid_receipt_guard/core_settings_harness.cpp \
+                  /tmp/cosmic-paid-core/PlayerSettings.cpp -o /tmp/cosmic-paid-core/harness
+                /tmp/cosmic-paid-core/harness
+              done
+            done
+          done
+          echo 'PASS: actual Core C++ under fake DB only; NO MySQL/Worldserver/gameplay tests'

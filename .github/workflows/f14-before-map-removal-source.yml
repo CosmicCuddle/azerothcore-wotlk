@@ -1,0 +1,22 @@
+name: F14 pre-map-removal source guard
+on:
+  push:
+    branches:
+      - feature/cs01-core15-f14-before-map-removal-off-20261112
+  pull_request:
+    paths:
+      - src/server/game/Maps/Map.cpp
+      - src/server/game/Scripting/ScriptDefines/AllMapScript.h
+      - src/server/game/Scripting/ScriptDefines/AllMapScript.cpp
+      - src/server/game/Scripting/ScriptMgr.h
+      - tests/cosmic_f14_pass_source/test_f14_before_map_removal_source.py
+      - .github/workflows/f14-before-map-removal-source.yml
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact default-OFF source and pre-removal dispatch
+        run: python3 tests/cosmic_f14_pass_source/test_f14_before_map_removal_source.py
