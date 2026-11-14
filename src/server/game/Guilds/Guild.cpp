@@ -2180,7 +2180,8 @@ void Guild::BroadcastToGuild(WorldSession* session, bool officerOnly, std::strin
         ChatHandler::BuildChatPacket(data, officerOnly ? CHAT_MSG_OFFICER : CHAT_MSG_GUILD, Language(language), session->GetPlayer(), nullptr, msg);
         for (auto const& [guid, member] : m_members)
             if (Player* player = member.FindPlayer())
-                if (_HasRankRight(player, officerOnly ? GR_RIGHT_OFFCHATLISTEN : GR_RIGHT_GCHATLISTEN) && !player->GetSocial()->HasIgnore(session->GetPlayer()->GetGUID()))
+                if (_HasRankRight(player, officerOnly ? GR_RIGHT_OFFCHATLISTEN : GR_RIGHT_GCHATLISTEN) && !player->GetSocial()->HasIgnore(session->GetPlayer()->GetGUID())
+                    && sScriptMgr->CanGuildSendChatToMember(this, session->GetPlayer(), player, officerOnly, language, msg))
                     player->SendDirectMessage(&data);
     }
 }
@@ -2243,6 +2244,10 @@ bool Guild::AddMember(ObjectGuid guid, uint8 rankId)
             return false;
     }
     else if (sCharacterCache->GetCharacterGuildIdByGuid(guid) != 0)
+        return false;
+
+    // Neutral, default-allow policy seam before any petition, membership, DB or broadcast mutation.
+    if (!sScriptMgr->CanGuildAddMember(this, m_id, guid))
         return false;
 
     // Remove all player signs from another petitions

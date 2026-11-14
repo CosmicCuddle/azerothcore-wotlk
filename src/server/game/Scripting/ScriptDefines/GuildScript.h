@@ -20,7 +20,10 @@
 
 #include "ObjectGuid.h"
 #include "ScriptObject.h"
+#include <string_view>
 #include <vector>
+
+#define COSMIC_F14_GUILD_POLICY_HOOK_VERSION 2
 
 enum GuildHook
 {
@@ -36,6 +39,8 @@ enum GuildHook
     GUILDHOOK_ON_EVENT,
     GUILDHOOK_ON_BANK_EVENT,
     GUILDHOOK_CAN_GUILD_SEND_BANK_LIST,
+    GUILDHOOK_CAN_ADD_MEMBER,
+    GUILDHOOK_CAN_SEND_CHAT_TO_MEMBER,
     GUILDHOOK_END
 };
 
@@ -49,6 +54,12 @@ public:
 
     // Called when a member is added to the guild.
     virtual void OnAddMember(Guild* /*guild*/, Player* /*player*/, uint8& /*plRank*/) { }
+
+    // Called before guild membership is mutated or persisted. Return false to refuse the add.
+    [[nodiscard]] virtual bool CanAddMember(Guild const* /*guild*/, uint32 /*guildId*/, ObjectGuid /*guid*/) { return true; }
+
+    // Called for each online guild/officer-chat recipient. Return false to suppress only that delivery.
+    [[nodiscard]] virtual bool CanSendChatToMember(Guild const* /*guild*/, Player* /*sender*/, Player* /*receiver*/, bool /*officerOnly*/, uint32 /*language*/, std::string_view /*msg*/) { return true; }
 
     // Called when a member is removed from the guild.
     virtual void OnRemoveMember(Guild* /*guild*/, Player* /*player*/, bool /*isDisbanding*/, bool /*isKicked*/) { }
