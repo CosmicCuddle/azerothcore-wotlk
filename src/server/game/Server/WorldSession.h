@@ -697,6 +697,8 @@ public:                                                 // opcodes handlers
     void HandleCharEnumOpcode(WorldPacket& recvPacket);
     void HandleCharDeleteOpcode(WorldPacket& recvPacket);
     void HandleCharCreateOpcode(WorldPacket& recvPacket);
+    // Owner-context preflight for PB secure-login side effects. This is not a login grant.
+    [[nodiscard]] bool CanPB59RetireBotForClientLogin(ObjectGuid guid);
     void HandlePlayerLoginOpcode(WorldPacket& recvPacket);
     void HandleCharEnum(PreparedQueryResult result);
     void HandlePlayerLoginFromDB(LoginQueryHolder const& holder);

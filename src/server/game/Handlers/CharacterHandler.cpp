@@ -672,6 +672,17 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recvData)
     SendCharDelete(CHAR_DELETE_SUCCESS);
 }
 
+bool WorldSession::CanPB59RetireBotForClientLogin(ObjectGuid guid)
+{
+    // The packet hook runs before HandlePlayerLoginOpcode's admission checks.
+    // Do not give an unlisted GUID authority to retire a bot.
+    // Cluster gateway authorization is not available at this hook: fail closed.
+    return !IsHeadless() && !PlayerLoading() && !GetPlayer() &&
+        sWorld->getBoolConfig(CONFIG_REALM_LOGIN_ENABLED) &&
+        !sToCloud9Sidecar->ClusterModeEnabled() && guid.IsPlayer() &&
+        IsLegitCharacterForAccount(guid);
+}
+
 void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recvData)
 {
     if (!sWorld->getBoolConfig(CONFIG_REALM_LOGIN_ENABLED))
@@ -804,6 +815,20 @@ void WorldSession::HandlePlayerLoginFromDB(LoginQueryHolder const& holder)
 {
     m_playerLoading = true; // Set here for direct callers.
     ObjectGuid playerGuid = holder.GetGuid();
+
+    // A client and a headless bot can both have a DB login query in flight.
+    // Recheck at the actual load boundary, not only at packet/admission time.
+    // Ordinary client-to-client reconnect behavior stays on its existing path.
+    Player* existing = ObjectAccessor::FindConnectedPlayer(playerGuid);
+    if ((existing && (IsHeadless() || !existing->GetSession() || existing->GetSession()->IsHeadless())) ||
+        (IsHeadless() && sWorldSessionMgr->FindOfflineSessionForCharacterGUID(playerGuid.GetCounter())))
+    {
+        LOG_ERROR("network", "PB59 refused duplicate character load involving headless session: {}", playerGuid.ToString());
+        m_playerLoading = false;
+        if (!IsHeadless())
+            SendCharLoginFailed(LoginFailureReason::DuplicateCharacter);
+        return;
+    }
 
     Player* pCurrChar = new Player(this);
     // for send server info and strings (config)
