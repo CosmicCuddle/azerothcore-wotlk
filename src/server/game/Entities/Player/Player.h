@@ -1110,6 +1110,10 @@ public:
     {
         return _pb59Transaction.TryAcquireRetirement();
     }
+    [[nodiscard]] std::uint64_t GetPB59OwnerIncarnation() const noexcept
+    {
+        return _pb59Transaction.OwnerIncarnation();
+    }
     [[nodiscard]] bool PB59RetirementRecoveryRequired() const noexcept
     {
         return _pb59Transaction.RetirementRecoveryRequired();
