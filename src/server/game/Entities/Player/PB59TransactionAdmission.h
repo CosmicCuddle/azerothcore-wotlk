@@ -60,7 +60,7 @@ public:
         std::shared_ptr<RetirementTag const> _token;
     };
 
-    [[nodiscard]] bool RetirementInProgress() const noexcept { return !_retirement.expired(); }
+    [[nodiscard]] bool RetirementInProgress() const noexcept { return !_retirement.load(std::memory_order_acquire).expired(); }
     [[nodiscard]] bool CanRetire() const noexcept
     {
         return _phase == Phase::Idle && !_ownerSealed && !_externalDepth &&
@@ -76,7 +76,10 @@ public:
         try
         {
             auto token = std::make_shared<RetirementTag const>();
-            _retirement = token;
+            auto expected = _retirement.load(std::memory_order_acquire);
+            if (!expected.expired() || !_retirement.compare_exchange_strong(expected,
+                std::weak_ptr<RetirementTag const>(token), std::memory_order_acq_rel))
+                return {};
             return RetirementLease(std::move(token));
         }
         catch (std::bad_alloc const&)
@@ -286,6 +289,9 @@ private:
     bool _ownerSealed = false;
     bool _pendingSave = false;
     bool _pendingLogout = false;
-    std::weak_ptr<RetirementTag const> _retirement;
+    // Atomic publication rejects competing retirement producers even if their
+    // requests overlap. The rest of this ledger and Player access still
+    // require the serialized native owner context.
+    std::atomic<std::weak_ptr<RetirementTag const>> _retirement;
 };
 }
