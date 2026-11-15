@@ -14,7 +14,11 @@ namespace PB59
 // A native adapter must enforce decisions BEFORE the caller's first side effect.
 class TransactionAdmission final
 {
-    struct RetirementTag {};
+    enum class RetirementPhase { Reserved, Mutating, Completed, RecoveryRequired, Released };
+    struct RetirementTag
+    {
+        std::atomic<RetirementPhase> phase{RetirementPhase::Reserved};
+    };
 public:
     enum class Phase { Idle, Active, RecoveryRequired };
     enum class Access { Forward, Recovery };
@@ -49,18 +53,69 @@ public:
     {
     public:
         RetirementLease() = default;
+        ~RetirementLease() { Release(); }
         RetirementLease(RetirementLease&&) noexcept = default;
-        RetirementLease& operator=(RetirementLease&&) noexcept = default;
+        RetirementLease& operator=(RetirementLease&& other) noexcept
+        {
+            if (this != &other)
+            {
+                Release();
+                _token = std::move(other._token);
+            }
+            return *this;
+        }
         RetirementLease(RetirementLease const&) = delete;
         RetirementLease& operator=(RetirementLease const&) = delete;
         explicit operator bool() const noexcept { return bool(_token); }
+        // Mark BEFORE the first producer side effect, including a callback.
+        [[nodiscard]] bool MarkMutation() noexcept
+        {
+            auto expected = RetirementPhase::Reserved;
+            return _token && _token->phase.compare_exchange_strong(expected,
+                RetirementPhase::Mutating, std::memory_order_acq_rel);
+        }
+        // Completion is a producer result, NOT a durable save acknowledgement.
+        // The token remains held until the scope exits, even after Complete.
+        [[nodiscard]] bool Complete() noexcept
+        {
+            auto expected = RetirementPhase::Mutating;
+            return _token && _token->phase.compare_exchange_strong(expected,
+                RetirementPhase::Completed, std::memory_order_acq_rel);
+        }
     private:
         friend class TransactionAdmission;
-        explicit RetirementLease(std::shared_ptr<RetirementTag const> token) noexcept : _token(std::move(token)) { }
-        std::shared_ptr<RetirementTag const> _token;
+        explicit RetirementLease(std::shared_ptr<RetirementTag> token) noexcept : _token(std::move(token)) { }
+        void Release() noexcept
+        {
+            if (!_token)
+                return;
+            auto phase = _token->phase.load(std::memory_order_acquire);
+            // Only the unique lease writes this phase. Keep partial retirement
+            // latched in the owner's ledger when the producer unwinds.
+            _token->phase.store(phase == RetirementPhase::Mutating ?
+                RetirementPhase::RecoveryRequired : RetirementPhase::Released, std::memory_order_release);
+            _token.reset();
+        }
+        std::shared_ptr<RetirementTag> _token;
     };
 
-    [[nodiscard]] bool RetirementInProgress() const noexcept { return !_retirement.load(std::memory_order_acquire).expired(); }
+    [[nodiscard]] bool RetirementInProgress() const noexcept
+    {
+        auto token = _retirement.load(std::memory_order_acquire);
+        return token && token->phase.load(std::memory_order_acquire) != RetirementPhase::Released;
+    }
+    [[nodiscard]] bool RetirementRecoveryRequired() const noexcept
+    {
+        auto token = _retirement.load(std::memory_order_acquire);
+        return token && token->phase.load(std::memory_order_acquire) == RetirementPhase::RecoveryRequired;
+    }
+    // Compare the live owner's token after a callback. This does not pin
+    // the Player or authorize foreign-thread lookup/dereference.
+    [[nodiscard]] bool OwnsRetirement(RetirementLease const& lease) const noexcept
+    {
+        return lease._token && _retirement.load(std::memory_order_acquire) == lease._token &&
+            lease._token->phase.load(std::memory_order_acquire) == RetirementPhase::Mutating;
+    }
     [[nodiscard]] bool CanRetire() const noexcept
     {
         return _phase == Phase::Idle && !_ownerSealed && !_externalDepth &&
@@ -75,10 +130,10 @@ public:
             return {};
         try
         {
-            auto token = std::make_shared<RetirementTag const>();
+            auto token = std::make_shared<RetirementTag>();
             auto expected = _retirement.load(std::memory_order_acquire);
-            if (!expected.expired() || !_retirement.compare_exchange_strong(expected,
-                std::weak_ptr<RetirementTag const>(token), std::memory_order_acq_rel))
+            if ((expected && expected->phase.load(std::memory_order_acquire) != RetirementPhase::Released) ||
+                !_retirement.compare_exchange_strong(expected, token, std::memory_order_acq_rel))
                 return {};
             return RetirementLease(std::move(token));
         }
@@ -296,6 +351,8 @@ private:
     // Atomic publication rejects competing retirement producers even if their
     // requests overlap. The rest of this ledger and Player access still
     // require the serialized native owner context.
-    std::atomic<std::weak_ptr<RetirementTag const>> _retirement;
+    // Keep a partial-retirement token even after its lease has unwound.
+    // No automatic reset; an exact owner recovery adapter is still required.
+    std::atomic<std::shared_ptr<RetirementTag>> _retirement;
 };
 }
