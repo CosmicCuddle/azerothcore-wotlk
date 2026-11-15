@@ -672,6 +672,17 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recvData)
     SendCharDelete(CHAR_DELETE_SUCCESS);
 }
 
+bool WorldSession::CanPB59RetireBotForClientLogin(ObjectGuid guid)
+{
+    // The packet hook runs before HandlePlayerLoginOpcode's admission checks.
+    // Do not give an unlisted GUID authority to retire a bot.
+    // Cluster gateway authorization is not available at this hook: fail closed.
+    return !IsHeadless() && !PlayerLoading() && !GetPlayer() &&
+        sWorld->getBoolConfig(CONFIG_REALM_LOGIN_ENABLED) &&
+        !sToCloud9Sidecar->ClusterModeEnabled() && guid.IsPlayer() &&
+        IsLegitCharacterForAccount(guid);
+}
+
 void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recvData)
 {
     if (!sWorld->getBoolConfig(CONFIG_REALM_LOGIN_ENABLED))
