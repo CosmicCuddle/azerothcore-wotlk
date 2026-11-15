@@ -816,6 +816,20 @@ void WorldSession::HandlePlayerLoginFromDB(LoginQueryHolder const& holder)
     m_playerLoading = true; // Set here for direct callers.
     ObjectGuid playerGuid = holder.GetGuid();
 
+    // A client and a headless bot can both have a DB login query in flight.
+    // Recheck at the actual load boundary, not only at packet/admission time.
+    // Ordinary client-to-client reconnect behavior stays on its existing path.
+    Player* existing = ObjectAccessor::FindConnectedPlayer(playerGuid);
+    if ((existing && (IsHeadless() || (existing->GetSession() && existing->GetSession()->IsHeadless()))) ||
+        (IsHeadless() && sWorldSessionMgr->FindOfflineSessionForCharacterGUID(playerGuid.GetCounter())))
+    {
+        LOG_ERROR("network", "PB59 refused duplicate character load involving headless session: {}", playerGuid.ToString());
+        m_playerLoading = false;
+        if (!IsHeadless())
+            SendCharLoginFailed(LoginFailureReason::DuplicateCharacter);
+        return;
+    }
+
     Player* pCurrChar = new Player(this);
     // for send server info and strings (config)
     ChatHandler chH = ChatHandler(pCurrChar->GetSession());
