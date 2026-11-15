@@ -20,6 +20,7 @@
 
 #include "AuctionHouseMgr.h"
 #include "AuctionSearchItemFacts.h"
+#include "AuctionBrowseSelection.h"
 #include "Common.h"
 #include "Item.h"
 #include "LockedQueue.h"
@@ -88,6 +89,7 @@ struct SearchableAuctionEntry
     ObjectGuid bidderGuid;
     AuctionHouseFaction listFaction;
     SearchableAuctionEntryItem item;
+    AuctionVisibility::Tag visibilityTag; // Unknown until an authoritative publication is installed.
 
     void BuildAuctionInfo(WorldPacket& data) const;
     void SetItemNames(ItemTemplate const* proto);
@@ -160,6 +162,8 @@ struct AuctionSearchListRequest : AuctionSearcherRequest
 
     AuctionHouseSearchInfo searchInfo;
     AuctionHousePlayerInfo playerInfo;
+    // Phase 4B staging: deliberately fixed Disabled until publication and send fences are wired.
+    AuctionBrowseSelection::Context const visibility{};
 };
 
 struct AuctionSearchOwnerListRequest : AuctionSearcherRequest

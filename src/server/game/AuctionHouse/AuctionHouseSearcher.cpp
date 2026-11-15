@@ -162,39 +162,25 @@ void AuctionHouseWorkerThread::SearchListRequest(AuctionSearchListRequest const&
             std::sort(auctionEntries.begin(), auctionEntries.end(), sorter);
         }
 
-        SortableAuctionEntriesList::const_iterator itr = auctionEntries.begin();
-        if (searchListRequest.searchInfo.listfrom)
+        auto const window = AuctionBrowseSelection::PageWindow(auctionEntries.size(),
+            searchListRequest.searchInfo.listfrom, MAX_AUCTIONS_PER_PAGE);
+        for (std::size_t i = window.begin; i < window.end; ++i)
         {
-            if (searchListRequest.searchInfo.listfrom > auctionEntries.size())
-                itr = auctionEntries.end();
-            else
-                itr += searchListRequest.searchInfo.listfrom;
-        }
-
-        for (; itr != auctionEntries.end(); ++itr)
-        {
-            (*itr)->BuildAuctionInfo(searchResponse->packet);
-
-            if (++count >= MAX_AUCTIONS_PER_PAGE)
-                break;
+            auctionEntries[i]->BuildAuctionInfo(searchResponse->packet);
+            ++count;
         }
 
         totalCount = auctionEntries.size();
     }
     else
     {
-        // getAll handling
-        for (auto const& pair : searchableAuctionMap)
-        {
-            std::shared_ptr<SearchableAuctionEntry const> const& Aentry = pair.second;
-            ++count;
-            Aentry->BuildAuctionInfo(searchResponse->packet);
-
-            if (count >= MAX_GETALL_RETURN)
-                break;
-        }
-
-        totalCount = searchableAuctionMap.size();
+        // getAll retains its legacy ordinary-filter bypass.
+        auto const counts = AuctionBrowseSelection::GetAll(searchableAuctionMap,
+            searchListRequest.visibility, MAX_GETALL_RETURN,
+            [](auto const& pair) { return pair.second->visibilityTag; },
+            [&](auto const& pair) { pair.second->BuildAuctionInfo(searchResponse->packet); });
+        count = counts.returned;
+        totalCount = counts.total;
     }
 
     searchResponse->packet.put<uint32>(0, count);
@@ -285,7 +271,8 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
         && searchRequest.searchInfo.usable == 0x00 && searchRequest.searchInfo.wsearchedname.empty())
     {
         for (auto const& pair : auctionMap)
-            auctionEntries.push_back(pair.second.get());
+            if (AuctionBrowseSelection::Visible(searchRequest.visibility, pair.second->visibilityTag))
+                auctionEntries.push_back(pair.second.get());
 
         return;
     }
@@ -293,6 +280,8 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
     for (auto const& pair : auctionMap)
     {
         std::shared_ptr<SearchableAuctionEntry const> const& Aentry = pair.second;
+        if (!AuctionBrowseSelection::Visible(searchRequest.visibility, Aentry->visibilityTag))
+            continue;
         SearchableAuctionEntryItem const& Aitem = Aentry->item;
         AuctionSearchItemFacts::Facts const* proto = &Aitem.facts;
 
