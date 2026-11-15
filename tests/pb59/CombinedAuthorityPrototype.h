@@ -34,11 +34,12 @@ struct CombinedAuthority
     bool operator==(CombinedAuthority const&) const = default;
 };
 
-// Each reader must return a linearizable copy for the requested GUID. Both
-// publishers share a non-reused session epoch. Revisions never wrap/reuse
-// within that epoch, including invalidation and same-value republication.
+// Each reader must return a linearizable copy for the requested GUID. IP's
+// epoch and Core's incarnation are independent non-reused identifiers; never
+// compare them to one another. Revisions never wrap/reuse within their own
+// lifetime, including invalidation and same-value republication.
 // Equal progression reads bracket the equipment read: the pair existed at
-// that middle read. No lease is held and later changes are diagnostic only.
+// that middle read. No lease is held; this is not a mutation authorization.
 template<class ReadProgression, class ReadEquipment>
 std::optional<CombinedAuthority> ReadCoherent(std::uint64_t guid,
     ReadProgression readProgression, ReadEquipment readEquipment)
@@ -52,7 +53,7 @@ std::optional<CombinedAuthority> ReadCoherent(std::uint64_t guid,
         first.guid != guid || equipment.guid != guid || !first.session ||
         !first.revision || !first.generation || first.rawStage > 18 ||
         first.effectiveStage > first.rawStage ||
-        first.session != equipment.session || !equipment.revision || !equipment.level || !equipment.average)
+        !equipment.session || !equipment.revision || !equipment.level || !equipment.average)
         return std::nullopt;
     return CombinedAuthority{first, equipment};
 }

@@ -4,7 +4,7 @@ using namespace PB59Prototype;
 int main()
 {
     ProgressionPublication p{42, 7, 10, 1, 3, 3, true, true};
-    EquipmentPublication e{42, 7, 20, 45, 50, true};
+    EquipmentPublication e{42, 91, 20, 45, 50, true};
     auto rp = [&](auto) { return p; };
     auto re = [&](auto) { return e; };
     auto expected = ReadCoherent(42, rp, re);
@@ -15,8 +15,20 @@ int main()
     e.guid = 99;
     assert(!MatchesFinalB(*expected, rp, re));
     e = expected->equipment;
-    e.session++;
+    e.session++; // reconnect: same IP epoch, new Core incarnation
+    assert(ReadCoherent(42, rp, re));
+    assert(!MatchesFinalB(*expected, rp, re));
+    e = expected->equipment;
+    e.session = 0; // Core detached before IP logout
     assert(!ReadCoherent(42, rp, re));
+    e = expected->equipment;
+    p.session++; // new IP lifetime independent of Core
+    assert(ReadCoherent(42, rp, re));
+    assert(!MatchesFinalB(*expected, rp, re));
+    p = expected->progression;
+    p.session = 0; // Core bound before IP registration
+    assert(!ReadCoherent(42, rp, re));
+    p = expected->progression;
     e = expected->equipment;
     e.known = false;
     assert(!MatchesFinalB(*expected, rp, re));
