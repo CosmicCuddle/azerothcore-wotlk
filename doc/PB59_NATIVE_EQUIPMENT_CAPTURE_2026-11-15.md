@@ -27,3 +27,7 @@ Repeat clang++; sanitizer add -fsanitize=address,undefined. No native Worldserve
 ## Native gate and rollback
 
 Build exact Core+PB tuple with current approved IP snapshot and Character Services, and no-IP tuple separately. Review same-character reconnect, failed load, early logout, transfer, nested mutation callbacks, full caller/writer inventory, no-IP linkage, existing normal uncapped factory behavior and performance. Then wire sender owner capture plus IP authority, complete candidate source and safe reversible transaction; never activate capped command until all gates pass. AH #36/F14 experimental/release other branches not implicitly included. Rollback discard/revert isolated Core/PB drafts; no migration or live data change. No merge/deploy/config/SQL/feature activation.
+
+## Follow-up: exact sum and latest paired pin
+
+Codex review #59 6895772557 accepted the envelope shape and requested exact raw sum. Playerbots head `33b333671eb75efc7f550c94c45f43e50a9fc442` now retains the original 64-bit sum and exact counted mask in the native authority record, and compares both on revalidation. Revised adapter blob `39b9db6a6115e40176b9fb9535a0b0a536f35a18`, fixture `3a1c7bc607ad78656c4c2b352ccafc8e7906c861`: GCC/Clang/ASan+UBSan PASS, including sum100 vs101 at denominator3 (both floor33) and forged-sum refusal. Current test envelope already includes `<limits>` at exact blob c73eba3ac41d729828a84aa21d365083eb05bb3d; no change needed. Core runtime unchanged since 3af1c980. No native build or activation.
