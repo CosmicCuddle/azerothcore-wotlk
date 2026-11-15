@@ -40,6 +40,7 @@
 #include "SpellInfo.h"
 #include "TradeData.h"
 #include "Unit.h"
+#include "EquipmentCaptureState.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -1092,6 +1093,11 @@ public:
     explicit Player(WorldSession* session);
     ~Player() override;
 
+    // PB59 owner-context only. Raw facts, not a gear authorization.
+    PB59::EquipmentCaptureState& GetPB59EquipmentState() { return _pb59Equipment; }
+    [[nodiscard]] std::optional<PB59::EquipmentFacts> CapturePB59Equipment() const;
+    [[nodiscard]] bool IsPB59EquipmentCurrent(PB59::Stamp const& stamp) const;
+
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 
     void AddToWorld() override;
@@ -2030,7 +2036,7 @@ public:
     void RemovedInsignia(Player* looterPlr);
 
     [[nodiscard]] WorldSession* GetSession() const { return m_session; }
-    void SetSession(WorldSession* sess) { m_session = sess; }
+    void SetSession(WorldSession* sess);
 
     void BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) override;
     void DestroyForPlayer(Player* target, bool onDeath = false) const override;
@@ -2218,6 +2224,8 @@ public:
     void SetCanBlock(bool value);
     [[nodiscard]] bool CanTitanGrip() const { return m_canTitanGrip; }
     void SetCanTitanGrip(bool value);
+    void SetCanDualWield(bool value) override;
+    void SetDualWieldMode(DualWieldMode mode) override;
     [[nodiscard]] bool CanTameExoticPets() const { return IsGameMaster() || HasAuraType(SPELL_AURA_ALLOW_TAME_PET_TYPE); }
 
     void SetRegularAttackTime();
@@ -2850,6 +2858,7 @@ protected:
 
     uint32 m_atLoginFlags;
 
+    PB59::EquipmentCaptureState _pb59Equipment;
     Item* m_items[PLAYER_SLOTS_COUNT];
     uint32 m_currentBuybackSlot;
 

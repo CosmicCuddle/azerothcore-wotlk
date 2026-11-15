@@ -2634,6 +2634,7 @@ void Player::RemoveAmmo()
 
 Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, bool refund)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     AllowedLooterSet allowedLooters;
     return StoreNewItem(dest, item, update, randomPropertyId, allowedLooters, refund);
 }
@@ -2641,6 +2642,7 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
 // Return stored item (if stored to stack, it can diff. from pItem). And pItem ca be deleted in this case.
 Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint32 count = 0;
     for (ItemPosCountVec::const_iterator itr = dest.begin(); itr != dest.end(); ++itr)
         count += itr->count;
@@ -2689,6 +2691,7 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
 
 Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return nullptr;
 
@@ -2715,6 +2718,7 @@ Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 // Return stored item (if stored to stack, it can diff. from pItem). And pItem ca be deleted in this case.
 Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return nullptr;
 
@@ -2816,6 +2820,7 @@ Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool
 
 Item* Player::EquipNewItem(uint16 pos, uint32 item, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* _item = Item::CreateItem(item, 1, this);
     if (!_item)
         return nullptr;
@@ -2836,6 +2841,7 @@ Item* Player::EquipNewItem(uint16 pos, uint32 item, bool update)
 
 Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     AddEnchantmentDurations(pItem);
     AddItemDurations(pItem);
 
@@ -2944,6 +2950,7 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 
 void Player::QuickEquipItem(uint16 pos, Item* pItem)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (pItem)
     {
         AddEnchantmentDurations(pItem);
@@ -2984,6 +2991,7 @@ void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
 
 void Player::VisualizeItem(uint8 slot, Item* pItem)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return;
 
@@ -3008,6 +3016,7 @@ void Player::VisualizeItem(uint8 slot, Item* pItem)
 
 void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // note: removeitem does not actually change the item
     // it only takes the item out of storage temporarily
     // note2: if removeitem is to be used for delinking
@@ -3082,6 +3091,7 @@ void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 // Common operation need to remove item from inventory without delete in trade, auction, guild bank, mail....
 void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (Item* it = GetItemByPos(bag, slot))
     {
         ItemRemovedQuestCheck(it->GetEntry(), it->GetCount());
@@ -3102,6 +3112,7 @@ void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
 // Common operation need to add item from inventory without delete in trade, guild bank, mail....
 Item* Player::MoveItemToInventory(ItemPosCountVec const& dest, Item* pItem, bool update, bool in_characterInventoryDB)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // update quest counters
     ItemAddedQuestCheck(pItem->GetEntry(), pItem->GetCount());
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_RECEIVE_EPIC_ITEM, pItem->GetEntry(), pItem->GetCount());
@@ -3131,6 +3142,7 @@ Item* Player::MoveItemToInventory(ItemPosCountVec const& dest, Item* pItem, bool
 
 void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* pItem = GetItemByPos(bag, slot);
     if (pItem)
     {
@@ -3224,6 +3236,7 @@ void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
 
 void Player::DestroyItemCount(uint32 itemEntry, uint32 count, bool update, bool unequip_check)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     LOG_DEBUG("entities.player.items", "STORAGE: DestroyItemCount item = {}, count = {}", itemEntry, count);
     uint32 remcount = 0;
 
@@ -3500,6 +3513,7 @@ Item* Player::GetItemByEntry(uint32 entry) const
 
 void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return;
 
@@ -3524,6 +3538,7 @@ void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
 
 void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 srcbag = src >> 8;
     uint8 srcslot = src & 255;
 
@@ -3639,6 +3654,7 @@ void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
 
 void Player::SwapItem(uint16 src, uint16 dst)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 srcbag = src >> 8;
     uint8 srcslot = src & 255;
 
@@ -5022,6 +5038,7 @@ bool Player::isBeingLoaded() const
 
 bool Player::LoadFromDB(ObjectGuid playerGuid, CharacterDatabaseQueryHolder const& holder)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     ////                                                     0     1        2     3     4        5      6    7      8     9    10    11         12         13           14         15         16
     //QueryResult* result = CharacterDatabase.Query("SELECT guid, account, name, race, class, gender, level, xp, money, skin, face, hairStyle, hairColor, facialStyle, bankSlots, restState, playerFlags, "
     // 17          18          19          20   21           22        23        24         25         26          27           28                 29
@@ -5967,6 +5984,7 @@ void Player::LoadCorpse(PreparedQueryResult result)
 
 void Player::_LoadInventory(PreparedQueryResult result, uint32 timeDiff)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     //QueryResult* result = CharacterDatabase.Query("SELECT data, text, bag, slot, item, item_template FROM character_inventory JOIN item_instance ON character_inventory.item = item_instance.guid WHERE character_inventory.guid = '{}' ORDER BY bag, slot", GetGUID().GetCounter());
     //NOTE: the "order by `bag`" is important because it makes sure
     //the bagMap is filled before items in the bags are loaded

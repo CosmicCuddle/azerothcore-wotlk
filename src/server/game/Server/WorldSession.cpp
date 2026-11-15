@@ -697,6 +697,8 @@ void WorldSession::LogoutPlayer(bool save, bool redirecting)
 
     m_playerLogout = true;
     m_playerSave = save;
+    if (_player)
+        _player->GetPB59EquipmentState().Detach();
 
     if (_player)
     {
@@ -1416,7 +1418,10 @@ void WorldSession::SetPlayer(Player* player)
 
     // set m_GUID that can be used while player loggined and later until m_playerRecentlyLogout not reset
     if (_player)
+    {
+        _player->GetPB59EquipmentState().Bind();
         m_GUIDLow = _player->GetGUID().GetCounter();
+    }
 }
 
 void WorldSession::ProcessQueryCallbacks()
