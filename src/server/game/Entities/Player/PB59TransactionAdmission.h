@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <limits>
 
@@ -12,6 +13,7 @@ class TransactionAdmission final
 {
 public:
     enum class Phase { Idle, Active, RecoveryRequired };
+    enum class Access { Forward, Recovery };
     enum class Work
     {
         StandaloneSave, CallerOwnedSave, InventoryAndGold, GoldOnly,
@@ -38,7 +40,7 @@ public:
     [[nodiscard]] bool CanBegin() const noexcept
     {
         return _phase == Phase::Idle && !_ownerSealed && !_externalDepth && !_pendingSave &&
-            !_pendingLogout && _last != std::numeric_limits<Ticket>::max();
+            !_pendingLogout && _lastIssued.load(std::memory_order_relaxed) != std::numeric_limits<Ticket>::max();
     }
 
     // Only a verified native owner/lifetime adapter may call Begin. Zero is
@@ -47,13 +49,30 @@ public:
     {
         if (!CanBegin())
             return 0;
-        _phase = Phase::Active;
-        return ++_last;
+        auto last = _lastIssued.load(std::memory_order_relaxed);
+        while (last != std::numeric_limits<Ticket>::max())
+        {
+            if (_lastIssued.compare_exchange_weak(last, last + 1, std::memory_order_relaxed))
+            {
+                _last = last + 1;
+                _phase = Phase::Active;
+                return _last;
+            }
+        }
+        return 0;
     }
 
     [[nodiscard]] bool IsActive(Ticket ticket) const noexcept
     {
-        return ticket && ticket == _last && _phase == Phase::Active;
+        return CanAccess(ticket, Access::Forward);
+    }
+
+    [[nodiscard]] bool CanAccess(Ticket ticket, Access access) const noexcept
+    {
+        if (!ticket || ticket != _last || _externalDepth || _ownerSealed)
+            return false;
+        return (access == Access::Forward && _phase == Phase::Active) ||
+            (access == Access::Recovery && _phase == Phase::RecoveryRequired);
     }
 
     // No reset/timeout escape hatch. A failed or abandoned operation retains
@@ -202,6 +221,7 @@ public:
     // durability acknowledgement. The native adapter must preserve the actual
     // logout flags, replay ownership, bounded retry and shutdown policy.
 private:
+    inline static std::atomic<Ticket> _lastIssued{0};
     Phase _phase = Phase::Idle;
     Ticket _last = 0;
     std::uint64_t _externalDepth = 0;
