@@ -1106,6 +1106,12 @@ public:
     [[nodiscard]] std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
     // Owner-context only: producer admission before bot identity retirement.
     // Lease owns no Player pointer and may outlive native Player destruction.
+    // Owner-context only; scope blocks admitted retirement, not native lifetime.
+    [[nodiscard]] PB59::TransactionAdmission::ExternalScope AcquirePB59CallbackScope() noexcept
+    {
+        return PB59::TransactionAdmission::ExternalScope(_pb59Transaction,
+            PB59::TransactionAdmission::Work::Callback);
+    }
     [[nodiscard]] PB59::TransactionAdmission::RetirementLease TryAcquirePB59Retirement() noexcept
     {
         return _pb59Transaction.TryAcquireRetirement();
