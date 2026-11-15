@@ -42,6 +42,7 @@
 #include "Unit.h"
 #include "EquipmentCaptureState.h"
 #include "ExactStorageGate.h"
+#include "PB59InventorySlotFacts.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -1098,6 +1099,9 @@ public:
     PB59::EquipmentCaptureState& GetPB59EquipmentState() { return _pb59Equipment; }
     [[nodiscard]] std::optional<PB59::EquipmentFacts> CapturePB59Equipment() const;
     [[nodiscard]] bool IsPB59EquipmentCurrent(PB59::Stamp const& stamp) const;
+    // Bot owner-context only, including a future serialized movement scope.
+    // Nullopt means unknown, never empty. No script callbacks or mutation.
+    [[nodiscard]] std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
 
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 

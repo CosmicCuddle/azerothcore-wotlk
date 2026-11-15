@@ -458,6 +458,99 @@ Item* Player::GetItemByPos(uint8 bag, uint8 slot) const
     return nullptr;
 }
 
+std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 pos) const
+{
+    // Unlike human command authority, headless bot sessions are allowed.
+    // Caller owns the serialized Player context; no cross-thread pointers.
+    WorldSession* session = GetSession();
+    if (!session || session->GetPlayer() != this || session->PlayerLoading() ||
+        session->PlayerLogout() || !IsInWorld() || !IsAlive() ||
+        IsBeingTeleportedFar() || IsBeingTeleportedNear() || m_itemUpdateQueueBlocked)
+        return std::nullopt;
+
+    uint8 const bag = pos >> 8;
+    uint8 const slot = pos & 255;
+    bool const equipment = bag == INVENTORY_SLOT_BAG_0 &&
+        slot < EQUIPMENT_SLOT_END && slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    bool const backpack = bag == INVENTORY_SLOT_BAG_0 &&
+        slot >= INVENTORY_SLOT_ITEM_START && slot < INVENTORY_SLOT_ITEM_END;
+    Bag* container = nullptr;
+    ObjectGuid fieldGuid;
+    if (equipment || backpack)
+        fieldGuid = GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + slot * 2);
+    else if (bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
+    {
+        container = GetBagByPos(bag);
+        if (!container || container->GetBagSize() > MAX_BAG_SIZE || slot >= container->GetBagSize() ||
+            container->GetOwnerGUID() != GetGUID() || container->GetPos() !=
+                ((uint16(INVENTORY_SLOT_BAG_0) << 8) | bag) || container->GetContainer() ||
+            container->GetGuidValue(ITEM_FIELD_CONTAINED) != GetGUID() ||
+            GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != container->GetGUID() ||
+            container->GetState() == ITEM_REMOVED)
+            return std::nullopt;
+        fieldGuid = container->GetGuidValue(CONTAINER_FIELD_SLOT_1 + slot * 2);
+    }
+    else
+        return std::nullopt;
+
+    PB59::InventorySlotFacts facts{GetGUID().GetRawValue(),
+        container ? container->GetGUID().GetRawValue() : 0, pos, std::nullopt};
+    Item* item = GetItemByPos(pos);
+    if (item)
+    {
+        // Reject special state whose additional lifetime/DB records have not
+        // yet been accounted for. This is a technical refusal, not NoSet.
+        if (item->GetGUID() != fieldGuid || item->GetOwnerGUID() != GetGUID() ||
+            item->GetPos() != pos || item->GetContainer() != container ||
+            item->GetGuidValue(ITEM_FIELD_CONTAINED) != (container ? container->GetGUID() : GetGUID()) ||
+            !item->GetTemplate() || item->GetState() == ITEM_REMOVED || item->IsBag() ||
+            item->IsInTrade() || item->m_lootGenerated || item->GetGUID() == GetLootGUID() ||
+            item->IsRefundable() || item->IsBOPTradable() || item->IsWrapped())
+            return std::nullopt;
+
+        PB59::InventoryInstanceFacts raw;
+        raw.guid = item->GetGUID().GetRawValue();
+        raw.owner = item->GetOwnerGUID().GetRawValue();
+        raw.creator = item->GetGuidValue(ITEM_FIELD_CREATOR).GetRawValue();
+        raw.giftCreator = item->GetGuidValue(ITEM_FIELD_GIFTCREATOR).GetRawValue();
+        raw.entry = item->GetEntry();
+        raw.count = item->GetCount();
+        raw.duration = item->GetUInt32Value(ITEM_FIELD_DURATION);
+        raw.flags = item->GetUInt32Value(ITEM_FIELD_FLAGS);
+        raw.durability = item->GetUInt32Value(ITEM_FIELD_DURABILITY);
+        raw.maxDurability = item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY);
+        raw.playedTime = item->GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME);
+        raw.suffix = item->GetItemSuffixFactor();
+        raw.randomProperty = item->GetItemRandomPropertyId();
+        raw.text = item->GetText();
+        static_assert(MAX_ITEM_PROTO_SPELLS == 5 && MAX_ENCHANTMENT_SLOT == 12);
+        for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
+            raw.spellCharges[i] = item->GetSpellCharges(i);
+        for (uint8 i = 0; i < MAX_ENCHANTMENT_SLOT; ++i)
+        {
+            auto enchant = EnchantmentSlot(i);
+            raw.enchants[i] = {item->GetEnchantmentId(enchant),
+                item->GetEnchantmentDuration(enchant), item->GetEnchantmentCharges(enchant)};
+        }
+        // RemoveEnchantmentDurations flushes effective remaining time to the
+        // item field. Normalize to the live timer before comparing snapshots.
+        std::array<bool, MAX_ENCHANTMENT_SLOT> seen{};
+        for (auto const& timer : m_enchantDuration)
+            if (timer.item == item)
+            {
+                auto index = static_cast<std::size_t>(timer.slot);
+                if (index >= seen.size() || seen[index] || !raw.enchants[index].id || !timer.leftduration)
+                    return std::nullopt;
+                seen[index] = true;
+                raw.enchants[index].duration = timer.leftduration;
+            }
+        facts.item = std::move(raw);
+    }
+    if (!PB59::ValidInventorySlot(facts, fieldGuid.GetRawValue(), true, true))
+        return std::nullopt;
+    return facts;
+}
+
 Bag* Player::GetBagByPos(uint8 bag) const
 {
     if ((bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
