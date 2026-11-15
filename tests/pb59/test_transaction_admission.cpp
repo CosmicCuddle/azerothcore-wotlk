@@ -124,6 +124,23 @@ int main()
     assert(!fresh.CanBegin() && fresh.Request(W::Destroy) == D::RetainOwner);
     { A::ExternalScope logout(fresh, W::Logout); assert(logout.SealOwner()); }
     assert(fresh.OwnerSealed() && !fresh.CanBegin());
+    // Tickets cannot alias another live owner or a recreated owner state.
+    {
+        A first, second;
+        auto one = first.Begin(), two = second.Begin();
+        assert(one && two && one != two);
+        assert(!first.CanAccess(two, A::Access::Forward));
+        assert(!second.CanAccess(one, A::Access::Forward));
+        assert(first.CanAccess(one, A::Access::Forward));
+        assert(!first.CanAccess(one, A::Access::Recovery));
+        assert(first.RequireRecovery(one));
+        assert(!first.CanAccess(one, A::Access::Forward));
+        assert(first.CanAccess(one, A::Access::Recovery));
+        assert(!first.CanAccess(two, A::Access::Recovery));
+        assert(!first.CanAccess(one, static_cast<A::Access>(99)));
+        assert(first.Finish(one, stable) && !first.CanAccess(one, A::Access::Recovery));
+        assert(second.Finish(two, stable));
+    }
     A invalid;
     assert(invalid.Request(static_cast<W>(99)) == D::RejectBeforeMutation);
     {
