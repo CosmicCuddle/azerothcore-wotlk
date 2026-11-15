@@ -511,6 +511,7 @@ public:
     void SetSecurity(AccountTypes security) { _security = security; }
     std::string const& GetRemoteAddress() { return m_Address; }
     void SetPlayer(Player* player);
+    uint64 GetAuctionBrowseIncarnation() const { return _auctionBrowseIncarnation.load(); }
     uint8 Expansion() const { return m_expansion; }
 
     void SetTotalTime(uint32 TotalTime) { m_total_time = TotalTime; }
@@ -1292,6 +1293,7 @@ private:
 
     ObjectGuid::LowType m_GUIDLow;                     // set logined or recently logout player (while m_playerRecentlyLogout set)
     Player* _player;
+    std::atomic<uint64> _auctionBrowseIncarnation{0};
     std::shared_ptr<WorldSocket> m_Socket;
     std::string m_Address;
 

@@ -21,9 +21,10 @@
 #include "AuctionHouseMgr.h"
 #include "AuctionSearchItemFacts.h"
 #include "AuctionBrowseSelection.h"
+#include "AuctionCatalogPublication.h"
+#include "AuctionResponseFence.h"
 #include "Common.h"
 #include "Item.h"
-#include "LockedQueue.h"
 #include "MPSCQueue.h"
 #include "PCQueue.h"
 #include <memory>
@@ -91,11 +92,14 @@ struct SearchableAuctionEntry
     SearchableAuctionEntryItem item;
     AuctionVisibility::Tag visibilityTag; // Unknown until an authoritative publication is installed.
 
-    void BuildAuctionInfo(WorldPacket& data) const;
+    void BuildAuctionInfo(WorldPacket& data, time_t searchTime) const;
     void SetItemNames(ItemTemplate const* proto);
 
     int CompareAuctionEntry(uint32 column, SearchableAuctionEntry const& auc, int loc_idx) const;
 };
+
+using SearchableAuctionCatalog = AuctionCatalogPublication::Catalog<SearchableAuctionEntry, MAX_AUCTION_HOUSE_FACTIONS>;
+using SearchableAuctionEntriesMap = SearchableAuctionCatalog::Map;
 
 typedef std::vector<AuctionSortInfo> AuctionSortOrderVector;
 
@@ -133,6 +137,7 @@ struct AuctionHouseUsablePlayerInfo
 struct AuctionHousePlayerInfo
 {
     ObjectGuid playerGuid;
+    uint64 sessionIncarnation = 0;
     uint32 faction;
     int loc_idx;
     int locdbc_idx;
@@ -153,6 +158,8 @@ struct AuctionSearcherRequest
 
     Type requestType;
     AuctionHouseFaction listFaction;
+    std::shared_ptr<SearchableAuctionCatalog::View const> catalog;
+    time_t searchTime = 0;
 };
 
 struct AuctionSearchListRequest : AuctionSearcherRequest
@@ -162,8 +169,8 @@ struct AuctionSearchListRequest : AuctionSearcherRequest
 
     AuctionHouseSearchInfo searchInfo;
     AuctionHousePlayerInfo playerInfo;
-    // Phase 4B staging: deliberately fixed Disabled until publication and send fences are wired.
-    AuctionBrowseSelection::Context const visibility{};
+    AuctionBrowseSelection::Context visibility;
+    AuctionResponseFence::Stamp stamp;
 };
 
 struct AuctionSearchOwnerListRequest : AuctionSearcherRequest
@@ -187,51 +194,10 @@ struct AuctionSearcherResponse
 {
     ObjectGuid playerGuid;
     WorldPacket packet;
+    bool browse = false;
+    AuctionResponseFence::Stamp stamp;
 };
 
-struct AuctionSearcherUpdate
-{
-    enum class Type : uint8
-    {
-        ADD,
-        REMOVE,
-        UPDATE_BID
-    };
-
-    AuctionSearcherUpdate(Type const _updateType, AuctionHouseFaction _listFaction) : updateType(_updateType), listFaction(_listFaction) { }
-    virtual ~AuctionSearcherUpdate() = default;
-
-    Type updateType;
-    AuctionHouseFaction listFaction;
-};
-
-struct AuctionSearchAdd : AuctionSearcherUpdate
-{
-    AuctionSearchAdd(std::shared_ptr<SearchableAuctionEntry const> _searchableAuctionEntry)
-        : AuctionSearcherUpdate(AuctionSearcherUpdate::Type::ADD, _searchableAuctionEntry->listFaction), searchableAuctionEntry(_searchableAuctionEntry) { }
-
-    std::shared_ptr<SearchableAuctionEntry const> searchableAuctionEntry;
-};
-
-struct AuctionSearchRemove : AuctionSearcherUpdate
-{
-    AuctionSearchRemove(uint32 _auctionId, AuctionHouseFaction _listFaction)
-        : AuctionSearcherUpdate(AuctionSearcherUpdate::Type::REMOVE, _listFaction), auctionId(_auctionId) { }
-
-    uint32 auctionId;
-};
-
-struct AuctionSearchUpdateBid : AuctionSearcherUpdate
-{
-    AuctionSearchUpdateBid(uint32 _auctionId, AuctionHouseFaction _listFaction, uint32 _bid, ObjectGuid _bidderGuid)
-        : AuctionSearcherUpdate(AuctionSearcherUpdate::Type::UPDATE_BID, _listFaction), auctionId(_auctionId), bid(_bid), bidderGuid(_bidderGuid) { }
-
-    uint32 auctionId;
-    uint32 bid;
-    ObjectGuid bidderGuid;
-};
-
-typedef std::unordered_map<uint32, std::shared_ptr<SearchableAuctionEntry const>> SearchableAuctionEntriesMap;
 typedef std::vector<SearchableAuctionEntry const*> SortableAuctionEntriesList;
 
 class AuctionSorter
@@ -253,15 +219,8 @@ public:
     ~AuctionHouseWorkerThread();
     void Stop();
 
-    void AddAuctionSearchUpdateToQueue(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate);
-
 private:
     void Run();
-
-    void ProcessSearchUpdates();
-    void SearchUpdateAdd(AuctionSearchAdd const& auctionAdd);
-    void SearchUpdateRemove(AuctionSearchRemove const& auctionRemove);
-    void SearchUpdateBid(AuctionSearchUpdateBid const& auctionUpdateBid);
 
     void ProcessSearchRequests();
     void SearchListRequest(AuctionSearchListRequest const& searchListRequest);
@@ -269,11 +228,6 @@ private:
     void SearchBidderListRequest(AuctionSearchBidderListRequest const& searchBidderListRequest);
 
     void BuildListAuctionItems(AuctionSearchListRequest const& searchRequest, SortableAuctionEntriesList& auctionEntries, SearchableAuctionEntriesMap const& auctionMap) const;
-
-    SearchableAuctionEntriesMap& GetSearchableAuctionMap(AuctionHouseFaction faction) { return _searchableAuctionMap[static_cast<uint8>(faction)]; };
-
-    SearchableAuctionEntriesMap _searchableAuctionMap[MAX_AUCTION_HOUSE_FACTIONS];
-    LockedQueue<std::shared_ptr<AuctionSearcherUpdate>> _auctionUpdatesQueue;
 
     ProducerConsumerQueue<AuctionSearcherRequest*>* _requestQueue;
     MPSCQueue<AuctionSearcherResponse>* _responseQueue;
@@ -296,9 +250,16 @@ public:
     void RemoveAuction(AuctionEntry const* auctionEntry);
     void UpdateBid(AuctionEntry const* auctionEntry);
 
-    void NotifyAllWorkers(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate);
-
 private:
+    SearchableAuctionCatalog _catalog;
+    // Draft bounded admission: reserve half the total for management requests.
+    // Revisit limits with native load evidence before acceptance.
+    static constexpr std::size_t MaxOutstanding = 128;
+    static constexpr std::size_t MaxBrowseOutstanding = 64;
+    std::mutex _admissionMutex;
+    std::size_t _outstanding = 0;
+    std::size_t _browseOutstanding = 0;
+    bool _closing = false;
     ProducerConsumerQueue<AuctionSearcherRequest*> _requestQueue;
     MPSCQueue<AuctionSearcherResponse> _responseQueue;
     std::vector<std::unique_ptr<AuctionHouseWorkerThread>> _workerThreads;

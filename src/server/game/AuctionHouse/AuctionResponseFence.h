@@ -1,9 +1,21 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <limits>
 
 namespace AuctionResponseFence
 {
+// Process-local login incarnation. Saturate instead of reusing a value.
+inline std::uint64_t AllocateIncarnation(std::atomic<std::uint64_t>& last)
+{
+    auto value = last.load(std::memory_order_relaxed);
+    while (value != std::numeric_limits<std::uint64_t>::max())
+        if (last.compare_exchange_weak(value, value + 1, std::memory_order_relaxed))
+            return value + 1;
+    return 0;
+}
+
 // Value-only token for a browse request and its completed response. All fields
 // are captured and revalidated by the owner, not by a search worker.
 // Generation must be monotonic across policy/mode changes; session is a fresh

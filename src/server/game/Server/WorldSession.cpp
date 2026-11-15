@@ -22,6 +22,7 @@
 #include "TC9Sidecar.h"
 #include "WorldSession.h"
 #include "AccountMgr.h"
+#include "AuctionResponseFence.h"
 #include "BattlegroundMgr.h"
 #include "BanMgr.h"
 #include "CharacterPackets.h"
@@ -62,6 +63,7 @@
 namespace
 {
     std::string const DefaultPlayerName = "<none>";
+    std::atomic<std::uint64_t> LastAuctionBrowseIncarnation{0};
 }
 
 bool MapSessionFilter::Process(WorldPacket* packet)
@@ -1413,6 +1415,7 @@ void WorldSession::SendAddonsInfo()
 void WorldSession::SetPlayer(Player* player)
 {
     _player = player;
+    _auctionBrowseIncarnation.store(player ? AuctionResponseFence::AllocateIncarnation(LastAuctionBrowseIncarnation) : 0);
 
     // set m_GUID that can be used while player loggined and later until m_playerRecentlyLogout not reset
     if (_player)

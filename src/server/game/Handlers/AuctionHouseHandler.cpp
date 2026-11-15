@@ -820,6 +820,7 @@ void WorldSession::HandleAuctionListItems(WorldPacket& recvData)
 
     AuctionHousePlayerInfo ahPlayerInfo;
     ahPlayerInfo.playerGuid = GetPlayer()->GetGUID();
+    ahPlayerInfo.sessionIncarnation = GetAuctionBrowseIncarnation();
     ahPlayerInfo.faction = GetPlayer()->GetFaction();
     ahPlayerInfo.loc_idx = GetPlayer()->GetSession()->GetSessionDbLocaleIndex();
     ahPlayerInfo.locdbc_idx = GetPlayer()->GetSession()->GetSessionDbcLocale();
