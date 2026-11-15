@@ -43,6 +43,7 @@
 #include "EquipmentCaptureState.h"
 #include "ExactStorageGate.h"
 #include "PB59InventorySlotFacts.h"
+#include "PB59InventoryCustody.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -3015,6 +3016,10 @@ private:
         PB59::ExactStorageReservation const* exact = nullptr);
     // Private exact restoration insertion; no runtime caller until ownership is proven.
     Item* _EquipItem(uint16 pos, Item* pItem, bool update, PB59::ExactStorageReservation const* exact);
+    // Raw link relocation only; NOT an equip/unequip API. No caller until
+    // effect/notification reconciliation and failure quarantine are proven.
+    PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const& source,
+        PB59::InventorySlotFacts const& destination);
     Item* _LoadItem(CharacterDatabaseTransaction trans, uint32 zoneId, uint32 timeDiff, Field* fields);
 
     CinematicMgr _cinematicMgr;

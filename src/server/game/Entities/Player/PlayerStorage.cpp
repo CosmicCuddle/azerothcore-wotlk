@@ -551,6 +551,94 @@ std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 
     return facts;
 }
 
+PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
+    PB59::InventorySlotFacts const& source, PB59::InventorySlotFacts const& destination)
+{
+    // Private raw custody primitive. The caller must supply a serialized
+    // owner scope, validate all gameplay policy, reconcile equipment effects
+    // and defer notifications, and handle RecoveryRequired before saving.
+    // This deliberately does not call RemoveItem, StoreItem or EquipItem.
+    using Result = PB59::LinkTransferResult;
+    if (!source.item || destination.item || source.owner != destination.owner ||
+        source.position == destination.position)
+        return Result::Rejected;
+    auto combat = [](uint16 pos)
+    {
+        uint8 const slot = pos & 255;
+        return (pos >> 8) == INVENTORY_SLOT_BAG_0 && slot < EQUIPMENT_SLOT_END &&
+            slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    };
+    if (combat(source.position) == combat(destination.position))
+        return Result::Rejected;
+
+    bool linked = false;
+    try
+    {
+        auto fromNow = CapturePB59InventorySlot(source.position);
+        auto toNow = CapturePB59InventorySlot(destination.position);
+        if (!fromNow || !toNow || *fromNow != source || *toNow != destination)
+            return Result::Rejected;
+
+        uint8 const fromSlot = source.position & 255;
+        uint8 const toSlot = destination.position & 255;
+        Bag* fromBag = source.bag ? GetBagByPos(source.position >> 8) : nullptr;
+        Bag* toBag = destination.bag ? GetBagByPos(destination.position >> 8) : nullptr;
+        if ((source.bag && !fromBag) || (destination.bag && !toBag))
+            return Result::Rejected;
+        Item*& from = fromBag ? fromBag->m_bagslot[fromSlot] : m_items[fromSlot];
+        Item*& to = toBag ? toBag->m_bagslot[toSlot] : m_items[toSlot];
+        Item* item = from;
+        if (!item || to || item->GetGUID().GetRawValue() != source.item->guid)
+            return Result::Rejected;
+
+        PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+        // Mark the save queue before physical relocation. These calls can
+        // allocate; if they fail, the original item is still in its slot.
+        item->SetState(ITEM_CHANGED, this);
+        if (fromBag)
+            fromBag->SetState(ITEM_CHANGED, this);
+        if (toBag)
+            toBag->SetState(ITEM_CHANGED, this);
+        if (!item->IsInUpdateQueue() || (fromBag && !fromBag->IsInUpdateQueue()) ||
+            (toBag && !toBag->IsInUpdateQueue()))
+            return Result::Rejected;
+
+        // No callbacks, allocation, deletion or yield in the pointer handoff.
+        // The destination owns the same object before the source is cleared.
+        if (!PB59::RelocateInventoryPointer(from, to, item))
+            return Result::Rejected;
+        linked = true;
+        item->SetSlot(toSlot);
+        item->SetContainer(toBag);
+
+        // Field setters enqueue object updates and can fail. Even if they do,
+        // the original object remains attached to the destination pointer;
+        // do not destroy or guess a rollback from incomplete field state.
+        if (fromBag)
+            fromBag->SetGuidValue(CONTAINER_FIELD_SLOT_1 + fromSlot * 2, ObjectGuid::Empty);
+        else
+            SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + fromSlot * 2, ObjectGuid::Empty);
+        if (toBag)
+            toBag->SetGuidValue(CONTAINER_FIELD_SLOT_1 + toSlot * 2, item->GetGUID());
+        else
+            SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + toSlot * 2, item->GetGUID());
+        item->SetGuidValue(ITEM_FIELD_CONTAINED, toBag ? toBag->GetGUID() : GetGUID());
+
+        fromNow = CapturePB59InventorySlot(source.position);
+        toNow = CapturePB59InventorySlot(destination.position);
+        if (!fromNow || !toNow || fromNow->item || fromNow->owner != source.owner ||
+            fromNow->bag != source.bag || toNow->owner != destination.owner ||
+            toNow->bag != destination.bag || !PB59::SameInventoryInstance(source, *toNow))
+            return Result::RecoveryRequired;
+        // Linked is only a raw custody result, not a finished equipment move.
+        return Result::Linked;
+    }
+    catch (...)
+    {
+        return linked ? Result::RecoveryRequired : Result::Rejected;
+    }
+}
+
 Bag* Player::GetBagByPos(uint8 bag) const
 {
     if ((bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)

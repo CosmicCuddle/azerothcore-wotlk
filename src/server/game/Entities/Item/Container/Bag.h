@@ -60,6 +60,9 @@ public:
     std::string GetDebugInfo() const override;
 
 protected:
+    // Player owns the serialized inventory; PB59 raw link relocation needs
+    // the exact slot reference, without calling detach/attach callbacks.
+    friend class Player;
     // Bag Storage space
     Item* m_bagslot[MAX_BAG_SIZE];
 };
