@@ -772,6 +772,7 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recvData)
                 return;
             }
 
+            p->GetPB59EquipmentState().Detach();
             sess->SetPlayer(nullptr);
             SetPlayer(p);
             p->SetSession(this);

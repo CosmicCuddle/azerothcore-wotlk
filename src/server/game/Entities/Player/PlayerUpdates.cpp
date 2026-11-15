@@ -322,9 +322,17 @@ void Player::Update(uint32 p_time)
     {
         if (p_time >= m_nextSave)
         {
-            // m_nextSave reset in SaveToDB call
-            SaveToDB(false, false);
-            LOG_DEBUG("entities.player", "Player::Update: Player '{}' ({}) saved", GetName(), GetGUID().ToString());
+            // Keep the due timer intact when PB59 cannot admit this save.
+            PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
+                PB59::TransactionAdmission::Work::ScheduledSave);
+            if (admission.Admitted() && !IsBeingTeleportedFar())
+            {
+                // m_nextSave reset in SaveToDB call
+                SaveToDB(false, false);
+                if (!admission.Admitted())
+                    return; // the owner disappeared during a native callback
+                LOG_DEBUG("entities.player", "Player::Update: Player '{}' ({}) saved", GetName(), GetGUID().ToString());
+            }
         }
         else
         {
@@ -2697,6 +2705,13 @@ void Player::UpdateAdditionalSaves(uint32 p_time)
         m_additionalSaveTimer -= p_time;
         return;
     }
+
+    // Admit the entire scheduled save before consuming its timer or mask.
+    // A deferred tick leaves both intact; never save only some categories.
+    PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
+        PB59::TransactionAdmission::Work::ScheduledSave);
+    if (!admission.Admitted())
+        return;
 
     uint8 mask = m_additionalSaveMask;
     m_additionalSaveTimer = 0;

@@ -12000,6 +12000,7 @@ float Unit::GetWeaponDamageRange(WeaponAttackType attType, WeaponDamageRange typ
 
 void Unit::SetLevel(uint8 lvl, bool showLevelChange)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(IsPlayer() ? &ToPlayer()->GetPB59EquipmentState() : nullptr);
     SetUInt32Value(UNIT_FIELD_LEVEL, lvl);
 
     // Xinef: unmark field bit update

@@ -110,6 +110,15 @@ void WorldSession::HandleSendMail(WorldPacket& recvData)
 
     // packet read complete, now do check
 
+    // Admit before mailbox callbacks, item/money changes or SQL creation.
+    PB59::TransactionAdmission::ExternalScope admission(_player->_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        _player->SendMailResult(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
+
     if (!CanOpenMailBox(mailbox))
         return;
 
@@ -411,6 +420,15 @@ void WorldSession::HandleMailDelete(WorldPacket& recvData)
     recvData >> mailId;
     recvData.read_skip<uint32>();                          // mailTemplateId
 
+    // Admit before mailbox callbacks, item/money changes or SQL creation.
+    PB59::TransactionAdmission::ExternalScope admission(_player->_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        _player->SendMailResult(mailId, MAIL_DELETED, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
+
     if (!CanOpenMailBox(mailbox))
         return;
 
@@ -440,6 +458,15 @@ void WorldSession::HandleMailReturnToSender(WorldPacket& recvData)
     recvData >> mailbox;
     recvData >> mailId;
     recvData.read_skip<uint64>();                          // original sender GUID for return to, not used
+
+    // Admit before mailbox callbacks, item/money changes or SQL creation.
+    PB59::TransactionAdmission::ExternalScope admission(_player->_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        _player->SendMailResult(mailId, MAIL_RETURNED_TO_SENDER, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
 
     if (!CanOpenMailBox(mailbox))
         return;
@@ -522,6 +549,15 @@ void WorldSession::HandleMailTakeItem(WorldPacket& recvData)
     recvData >> mailbox;
     recvData >> mailId;
     recvData >> itemLowGuid;    // item guid low
+
+    // Admit before mailbox callbacks, item/money changes or SQL creation.
+    PB59::TransactionAdmission::ExternalScope admission(_player->_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        _player->SendMailResult(mailId, MAIL_ITEM_TAKEN, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
 
     if (!CanOpenMailBox(mailbox))
         return;
@@ -639,6 +675,15 @@ void WorldSession::HandleMailTakeMoney(WorldPacket& recvData)
     uint32 mailId;
     recvData >> mailbox;
     recvData >> mailId;
+
+    // Admit before mailbox callbacks, item/money changes or SQL creation.
+    PB59::TransactionAdmission::ExternalScope admission(_player->_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        _player->SendMailResult(mailId, MAIL_MONEY_TAKEN, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
 
     if (!CanOpenMailBox(mailbox))
         return;
@@ -828,6 +873,15 @@ void WorldSession::HandleMailCreateTextItem(WorldPacket& recvData)
 
     recvData >> mailbox;
     recvData >> mailId;
+
+    // Admit before mailbox callbacks, item/money changes or SQL creation.
+    PB59::TransactionAdmission::ExternalScope admission(_player->_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        _player->SendMailResult(mailId, MAIL_MADE_PERMANENT, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
 
     if (!CanOpenMailBox(mailbox))
         return;

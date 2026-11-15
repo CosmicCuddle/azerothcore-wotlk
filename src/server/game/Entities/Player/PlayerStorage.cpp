@@ -48,6 +48,8 @@
 #include "OutdoorPvP.h"
 #include "Pet.h"
 #include "Player.h"
+#include "PB59VisibleEquipment.h"
+#include <algorithm>
 #include "QueryHolder.h"
 #include "QuestDef.h"
 #include "RBAC.h"
@@ -456,6 +458,252 @@ Item* Player::GetItemByPos(uint8 bag, uint8 slot) const
     else if (Bag* pBag = GetBagByPos(bag))
         return pBag->GetItemByPos(slot);
     return nullptr;
+}
+
+std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 pos) const
+{
+    // Unlike human command authority, headless bot sessions are allowed.
+    // Caller owns the serialized Player context; no cross-thread pointers.
+    WorldSession* session = GetSession();
+    if (!session || session->GetPlayer() != this || session->PlayerLoading() ||
+        session->PlayerLogout() || !IsInWorld() || !IsAlive() ||
+        IsBeingTeleportedFar() || IsBeingTeleportedNear() || m_itemUpdateQueueBlocked)
+        return std::nullopt;
+
+    uint8 const bag = pos >> 8;
+    uint8 const slot = pos & 255;
+    bool const equipment = bag == INVENTORY_SLOT_BAG_0 &&
+        slot < EQUIPMENT_SLOT_END && slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    bool const backpack = bag == INVENTORY_SLOT_BAG_0 &&
+        slot >= INVENTORY_SLOT_ITEM_START && slot < INVENTORY_SLOT_ITEM_END;
+    Bag* container = nullptr;
+    ObjectGuid fieldGuid;
+    if (equipment || backpack)
+        fieldGuid = GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + slot * 2);
+    else if (bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
+    {
+        container = GetBagByPos(bag);
+        if (!container || container->GetBagSize() > MAX_BAG_SIZE || slot >= container->GetBagSize() ||
+            container->GetOwnerGUID() != GetGUID() || container->GetPos() !=
+                ((uint16(INVENTORY_SLOT_BAG_0) << 8) | bag) || container->GetContainer() ||
+            container->GetGuidValue(ITEM_FIELD_CONTAINED) != GetGUID() ||
+            GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != container->GetGUID() ||
+            container->GetState() == ITEM_REMOVED)
+            return std::nullopt;
+        fieldGuid = container->GetGuidValue(CONTAINER_FIELD_SLOT_1 + slot * 2);
+    }
+    else
+        return std::nullopt;
+
+    PB59::InventorySlotFacts facts{GetGUID().GetRawValue(),
+        container ? container->GetGUID().GetRawValue() : 0, pos, std::nullopt};
+    Item* item = GetItemByPos(pos);
+    if (item)
+    {
+        // Reject special state whose additional lifetime/DB records have not
+        // yet been accounted for. This is a technical refusal, not NoSet.
+        if (item->GetGUID() != fieldGuid || item->GetOwnerGUID() != GetGUID() ||
+            item->GetPos() != pos || item->GetContainer() != container ||
+            item->GetGuidValue(ITEM_FIELD_CONTAINED) != (container ? container->GetGUID() : GetGUID()) ||
+            !item->GetTemplate() || item->GetState() == ITEM_REMOVED || item->IsBag() ||
+            item->IsInTrade() || item->m_lootGenerated || item->GetGUID() == GetLootGUID() ||
+            item->IsRefundable() || item->IsBOPTradable() || item->IsWrapped())
+            return std::nullopt;
+
+        PB59::InventoryInstanceFacts raw;
+        raw.guid = item->GetGUID().GetRawValue();
+        raw.owner = item->GetOwnerGUID().GetRawValue();
+        raw.creator = item->GetGuidValue(ITEM_FIELD_CREATOR).GetRawValue();
+        raw.giftCreator = item->GetGuidValue(ITEM_FIELD_GIFTCREATOR).GetRawValue();
+        raw.entry = item->GetEntry();
+        raw.count = item->GetCount();
+        raw.duration = item->GetUInt32Value(ITEM_FIELD_DURATION);
+        raw.flags = item->GetUInt32Value(ITEM_FIELD_FLAGS);
+        raw.durability = item->GetUInt32Value(ITEM_FIELD_DURABILITY);
+        raw.maxDurability = item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY);
+        raw.playedTime = item->GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME);
+        raw.suffix = item->GetItemSuffixFactor();
+        raw.randomProperty = item->GetItemRandomPropertyId();
+        raw.text = item->GetText();
+        static_assert(MAX_ITEM_PROTO_SPELLS == 5 && MAX_ENCHANTMENT_SLOT == 12);
+        for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
+            raw.spellCharges[i] = item->GetSpellCharges(i);
+        for (uint8 i = 0; i < MAX_ENCHANTMENT_SLOT; ++i)
+        {
+            auto enchant = EnchantmentSlot(i);
+            raw.enchants[i] = {item->GetEnchantmentId(enchant),
+                item->GetEnchantmentDuration(enchant), item->GetEnchantmentCharges(enchant)};
+        }
+        // RemoveEnchantmentDurations flushes effective remaining time to the
+        // item field. Normalize to the live timer before comparing snapshots.
+        std::array<bool, MAX_ENCHANTMENT_SLOT> seen{};
+        for (auto const& timer : m_enchantDuration)
+            if (timer.item == item)
+            {
+                auto index = static_cast<std::size_t>(timer.slot);
+                if (index >= seen.size() || seen[index] || !raw.enchants[index].id || !timer.leftduration)
+                    return std::nullopt;
+                seen[index] = true;
+                raw.enchants[index].duration = timer.leftduration;
+            }
+        facts.item = std::move(raw);
+    }
+    if (!PB59::ValidInventorySlot(facts, fieldGuid.GetRawValue(), true, true))
+        return std::nullopt;
+    return facts;
+}
+
+PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
+    PB59::InventorySlotFacts const& source, PB59::InventorySlotFacts const& destination,
+    PB59::TransactionAdmission::Ticket ticket, PB59::TransactionAdmission::Access access)
+{
+    // Private raw custody primitive. The caller must supply a serialized
+    // owner scope, validate all gameplay policy, reconcile equipment effects
+    // and defer notifications, and handle RecoveryRequired before saving.
+    // This deliberately does not call RemoveItem, StoreItem or EquipItem.
+    using Result = PB59::LinkTransferResult;
+    if (!_pb59Transaction.CanAccess(ticket, access))
+        return Result::Rejected;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return Result::RecoveryRequired;
+    };
+    if (!source.item || destination.item || source.owner != destination.owner ||
+        source.position == destination.position)
+        return Result::Rejected;
+    auto combat = [](uint16 pos)
+    {
+        uint8 const slot = pos & 255;
+        return (pos >> 8) == INVENTORY_SLOT_BAG_0 && slot < EQUIPMENT_SLOT_END &&
+            slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    };
+    if (combat(source.position) == combat(destination.position))
+        return Result::Rejected;
+
+    bool touched = false;
+    try
+    {
+        auto fromNow = CapturePB59InventorySlot(source.position);
+        auto toNow = CapturePB59InventorySlot(destination.position);
+        if (!fromNow || !toNow || *fromNow != source || *toNow != destination)
+            return Result::Rejected;
+
+        uint8 const fromSlot = source.position & 255;
+        uint8 const toSlot = destination.position & 255;
+        Bag* fromBag = source.bag ? GetBagByPos(source.position >> 8) : nullptr;
+        Bag* toBag = destination.bag ? GetBagByPos(destination.position >> 8) : nullptr;
+        if ((source.bag && !fromBag) || (destination.bag && !toBag))
+            return Result::Rejected;
+        Item*& from = fromBag ? fromBag->m_bagslot[fromSlot] : m_items[fromSlot];
+        Item*& to = toBag ? toBag->m_bagslot[toSlot] : m_items[toSlot];
+        Item* item = from;
+        if (!item || to || item->GetGUID().GetRawValue() != source.item->guid)
+            return Result::Rejected;
+
+        // A nonnegative queue position is not proof that the save queue
+        // actually owns this item. Validate the exact queue entry, including
+        // duplicate/stale references, before changing any native links.
+        auto validQueue = [&](Item* candidate, bool requireQueued)
+        {
+            auto const occurrences = std::count(m_itemUpdateQueue.begin(),
+                m_itemUpdateQueue.end(), candidate);
+            if (!candidate->IsInUpdateQueue())
+                return !requireQueued && occurrences == 0;
+            auto const index = candidate->GetQueuePos();
+            return index < m_itemUpdateQueue.size() && m_itemUpdateQueue[index] == candidate &&
+                occurrences == 1;
+        };
+        if (!validQueue(item, false) || (fromBag && !validQueue(fromBag, false)) ||
+            (toBag && !validQueue(toBag, false)))
+            return Result::Rejected;
+
+        PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+        // Mark the save queue before physical relocation. These calls can
+        // allocate or partially change the queue before a failure. Once
+        // marking starts, an unverified result requires reconciliation even
+        // if the original item is still attached to its original slot.
+        touched = true;
+        item->SetState(ITEM_CHANGED, this);
+        if (fromBag)
+            fromBag->SetState(ITEM_CHANGED, this);
+        if (toBag)
+            toBag->SetState(ITEM_CHANGED, this);
+        if (!validQueue(item, true) || (fromBag && !validQueue(fromBag, true)) ||
+            (toBag && !validQueue(toBag, true)))
+            return recovery();
+
+        // No callbacks, allocation, deletion or yield in the pointer handoff.
+        // The destination owns the same object before the source is cleared.
+        if (!PB59::RelocateInventoryPointer(from, to, item))
+            return recovery();
+        item->SetSlot(toSlot);
+        item->SetContainer(toBag);
+
+        // A setter may write the GUID and then fail to enqueue its object
+        // update. Retrying SetGuidValue alone would skip an unchanged value.
+        // Only reconcile the three known links, with exact old/new values.
+        auto fromField = fromBag ? CONTAINER_FIELD_SLOT_1 + fromSlot * 2 :
+            PLAYER_FIELD_INV_SLOT_HEAD + fromSlot * 2;
+        auto toField = toBag ? CONTAINER_FIELD_SLOT_1 + toSlot * 2 :
+            PLAYER_FIELD_INV_SLOT_HEAD + toSlot * 2;
+        auto const itemGuid = item->GetGUID();
+        auto const fromContainer = fromBag ? fromBag->GetGUID() : GetGUID();
+        auto const toContainer = toBag ? toBag->GetGUID() : GetGUID();
+        auto writeFields = [&](bool repair)
+        {
+            auto write = [&](auto& object, uint16 field, ObjectGuid value)
+            {
+                object.SetGuidValue(field, value);
+                if (repair)
+                {
+                    object.ForceValuesUpdateAtIndex(field);
+                    object.ForceValuesUpdateAtIndex(field + 1);
+                }
+            };
+            if (fromBag)
+                write(*fromBag, fromField, ObjectGuid::Empty);
+            else
+                write(*this, fromField, ObjectGuid::Empty);
+            if (toBag)
+                write(*toBag, toField, itemGuid);
+            else
+                write(*this, toField, itemGuid);
+            write(*item, ITEM_FIELD_CONTAINED, toContainer);
+        };
+        try
+        {
+            writeFields(false);
+        }
+        catch (...)
+        {
+            // One bounded repair in the same serialized scope. Never rewrite
+            // an unexpected third-party GUID or a changed inventory pointer.
+            auto fromGuid = fromBag ? fromBag->GetGuidValue(fromField) : GetGuidValue(fromField);
+            auto toGuid = toBag ? toBag->GetGuidValue(toField) : GetGuidValue(toField);
+            auto contained = item->GetGuidValue(ITEM_FIELD_CONTAINED);
+            if (from || to != item || item->GetGUID() != itemGuid ||
+                (fromGuid != itemGuid && fromGuid != ObjectGuid::Empty) ||
+                (toGuid != itemGuid && toGuid != ObjectGuid::Empty) ||
+                (contained != fromContainer && contained != toContainer))
+                return recovery();
+            // A second failure propagates to the outer recovery result.
+            writeFields(true);
+        }
+
+        fromNow = CapturePB59InventorySlot(source.position);
+        toNow = CapturePB59InventorySlot(destination.position);
+        if (!fromNow || !toNow || fromNow->item || fromNow->owner != source.owner ||
+            fromNow->bag != source.bag || toNow->owner != destination.owner ||
+            toNow->bag != destination.bag || !PB59::SameInventoryInstance(source, *toNow))
+            return recovery();
+        // Linked is only a raw custody result, not a finished equipment move.
+        return Result::Linked;
+    }
+    catch (...)
+    {
+        return touched ? recovery() : Result::Rejected;
+    }
 }
 
 Bag* Player::GetBagByPos(uint8 bag) const
@@ -2634,6 +2882,7 @@ void Player::RemoveAmmo()
 
 Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, bool refund)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     AllowedLooterSet allowedLooters;
     return StoreNewItem(dest, item, update, randomPropertyId, allowedLooters, refund);
 }
@@ -2641,6 +2890,7 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
 // Return stored item (if stored to stack, it can diff. from pItem). And pItem ca be deleted in this case.
 Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint32 count = 0;
     for (ItemPosCountVec::const_iterator itr = dest.begin(); itr != dest.end(); ++itr)
         count += itr->count;
@@ -2689,6 +2939,7 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
 
 Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return nullptr;
 
@@ -2713,8 +2964,10 @@ Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 }
 
 // Return stored item (if stored to stack, it can diff. from pItem). And pItem ca be deleted in this case.
-Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update)
+Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update,
+    PB59::ExactStorageReservation const* exact)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return nullptr;
 
@@ -2723,7 +2976,35 @@ Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool
 
     LOG_DEBUG("entities.player.items", "STORAGE: StoreItem bag = {}, slot = {}, item = {}, count = {}, {}", bag, slot, pItem->GetEntry(), count, pItem->GetGUID().ToString());
 
+    // The exact path may only attach a caller-owned detached item to its
+    // reserved empty inventory slot. It must never reach clone/merge/delete.
+    if (exact)
+    {
+        bool const backpack = bag == INVENTORY_SLOT_BAG_0 &&
+            slot >= INVENTORY_SLOT_ITEM_START && slot < INVENTORY_SLOT_ITEM_END;
+        Bag* container = nullptr;
+        if (bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
+            container = GetBagByPos(bag);
+        bool const validPosition = backpack || (container &&
+            slot < MAX_BAG_SIZE && slot < container->GetBagSize());
+        if (!validPosition)
+            return nullptr;
+        PB59::ExactStorageObservation const observed{
+            pItem->GetGUID().GetRawValue(),
+            container ? container->GetGUID().GetRawValue() : 0,
+            pos, pItem->GetCount(),
+            pItem->GetSlot() == NULL_SLOT && !pItem->GetContainer(),
+            pItem->GetOwnerGUID() == GetGUID(),
+            pItem->GetTemplate() && !pItem->IsInTrade() && !pItem->m_lootGenerated &&
+                pItem->GetGUID() != GetLootGUID() && !pItem->IsBag(),
+            validPosition, GetItemByPos(bag, slot) != nullptr, clone};
+        if (count != observed.count || !PB59::AcceptExactStorage(*exact, observed))
+            return nullptr;
+    }
     Item* pItem2 = GetItemByPos(bag, slot);
+    // Last check at the native merge branch, with no callback between reads.
+    if (exact && pItem2)
+        return nullptr;
 
     if (!pItem2)
     {
@@ -2816,6 +3097,7 @@ Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool
 
 Item* Player::EquipNewItem(uint16 pos, uint32 item, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* _item = Item::CreateItem(item, 1, this);
     if (!_item)
         return nullptr;
@@ -2836,13 +3118,45 @@ Item* Player::EquipNewItem(uint16 pos, uint32 item, bool update)
 
 Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 {
-    AddEnchantmentDurations(pItem);
-    AddItemDurations(pItem);
+    return _EquipItem(pos, pItem, update, nullptr);
+}
 
+Item* Player::_EquipItem(uint16 pos, Item* pItem, bool update,
+    PB59::ExactStorageReservation const* exact)
+{
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 bag = pos >> 8;
     uint8 slot = pos & 255;
 
+    if (exact)
+    {
+        // No script policy checks here: the caller must validate CanEquipItem
+        // and the exact destination before detaching the original item.
+        bool const validPosition = bag == INVENTORY_SLOT_BAG_0 &&
+            slot < EQUIPMENT_SLOT_END && slot != EQUIPMENT_SLOT_BODY &&
+            slot != EQUIPMENT_SLOT_TABARD;
+        if (!pItem || !validPosition)
+            return nullptr;
+        PB59::ExactStorageObservation const observed{
+            pItem->GetGUID().GetRawValue(), 0, pos, pItem->GetCount(),
+            pItem->GetSlot() == NULL_SLOT && !pItem->GetContainer(),
+            pItem->GetOwnerGUID() == GetGUID(),
+            pItem->GetTemplate() && !pItem->IsInTrade() && !pItem->m_lootGenerated &&
+                pItem->GetGUID() != GetLootGUID() && !pItem->IsBag(),
+            validPosition, GetItemByPos(bag, slot) != nullptr, false};
+        if (!PB59::AcceptExactEquip(*exact, observed))
+            return nullptr;
+    }
+
+    AddEnchantmentDurations(pItem);
+    AddItemDurations(pItem);
+
     Item* pItem2 = GetItemByPos(bag, slot);
+    // Exact mode never reaches the occupied-slot merge/delete branch.
+    // Duration bookkeeping and later callbacks still require an ownership
+    // contract before any exact caller can be enabled.
+    if (exact && pItem2)
+        return nullptr;
 
     if (!pItem2)
     {
@@ -2944,6 +3258,7 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 
 void Player::QuickEquipItem(uint16 pos, Item* pItem)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (pItem)
     {
         AddEnchantmentDurations(pItem);
@@ -2982,8 +3297,65 @@ void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
     sScriptMgr->OnPlayerAfterSetVisibleItemSlot(this, slot, pItem);
 }
 
+bool Player::ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& before,
+    PB59::InventorySlotFacts const& after, PB59::TransactionAdmission::Ticket ticket,
+    PB59::TransactionAdmission::Access access)
+{
+    // Private post-link effect step. The caller must hold the same serialized
+    // owner scope and reconcile all other effects before save or notification.
+    // A false result means recovery is still required, not a completed move.
+    if (!_pb59Transaction.CanAccess(ticket, access))
+        return false;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return false;
+    };
+    if (!PB59::VisibleTransitionValid(before, after))
+        return recovery();
+    uint8 const slot = after.position & 255;
+    if ((after.position >> 8) != INVENTORY_SLOT_BAG_0 || slot >= EQUIPMENT_SLOT_END ||
+        slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD)
+        return recovery();
+    try
+    {
+        auto current = CapturePB59InventorySlot(after.position);
+        if (!current || *current != after)
+            return recovery();
+        static_assert(PERM_ENCHANTMENT_SLOT == 0 && TEMP_ENCHANTMENT_SLOT == 1);
+        auto const old = PB59::VisibleEquipment(before);
+        auto const target = PB59::VisibleEquipment(after);
+        uint16 const entryField = PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2;
+        uint16 const enchantField = PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + slot * 2;
+        auto read = [&]() -> PB59::VisibleEquipmentFacts
+        {
+            return {GetUInt32Value(entryField), GetUInt16Value(enchantField, 0),
+                GetUInt16Value(enchantField, 1)};
+        };
+        if (!PB59::CanReconcileVisible(old, target, read()))
+            return recovery();
+        PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+        SetUInt32Value(entryField, target.entry);
+        SetUInt16Value(enchantField, 0, target.permanent);
+        SetUInt16Value(enchantField, 1, target.temporary);
+        // Also enqueue unchanged values after a possible prior interrupted
+        // write. No OnPlayerAfterSetVisibleItemSlot callback in this step.
+        ForceValuesUpdateAtIndex(entryField);
+        ForceValuesUpdateAtIndex(enchantField);
+        current = CapturePB59InventorySlot(after.position);
+        if (current && *current == after && read() == target)
+            return true;
+        return recovery();
+    }
+    catch (...)
+    {
+        return recovery();
+    }
+}
+
 void Player::VisualizeItem(uint8 slot, Item* pItem)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return;
 
@@ -3008,6 +3380,7 @@ void Player::VisualizeItem(uint8 slot, Item* pItem)
 
 void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // note: removeitem does not actually change the item
     // it only takes the item out of storage temporarily
     // note2: if removeitem is to be used for delinking
@@ -3082,6 +3455,7 @@ void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 // Common operation need to remove item from inventory without delete in trade, auction, guild bank, mail....
 void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (Item* it = GetItemByPos(bag, slot))
     {
         ItemRemovedQuestCheck(it->GetEntry(), it->GetCount());
@@ -3102,6 +3476,7 @@ void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
 // Common operation need to add item from inventory without delete in trade, guild bank, mail....
 Item* Player::MoveItemToInventory(ItemPosCountVec const& dest, Item* pItem, bool update, bool in_characterInventoryDB)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // update quest counters
     ItemAddedQuestCheck(pItem->GetEntry(), pItem->GetCount());
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_RECEIVE_EPIC_ITEM, pItem->GetEntry(), pItem->GetCount());
@@ -3131,6 +3506,7 @@ Item* Player::MoveItemToInventory(ItemPosCountVec const& dest, Item* pItem, bool
 
 void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* pItem = GetItemByPos(bag, slot);
     if (pItem)
     {
@@ -3224,6 +3600,7 @@ void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
 
 void Player::DestroyItemCount(uint32 itemEntry, uint32 count, bool update, bool unequip_check)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     LOG_DEBUG("entities.player.items", "STORAGE: DestroyItemCount item = {}, count = {}", itemEntry, count);
     uint32 remcount = 0;
 
@@ -3500,6 +3877,7 @@ Item* Player::GetItemByEntry(uint32 entry) const
 
 void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return;
 
@@ -3524,6 +3902,7 @@ void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
 
 void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 srcbag = src >> 8;
     uint8 srcslot = src & 255;
 
@@ -3639,6 +4018,7 @@ void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
 
 void Player::SwapItem(uint16 src, uint16 dst)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 srcbag = src >> 8;
     uint8 srcslot = src & 255;
 
@@ -5022,6 +5402,7 @@ bool Player::isBeingLoaded() const
 
 bool Player::LoadFromDB(ObjectGuid playerGuid, CharacterDatabaseQueryHolder const& holder)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     ////                                                     0     1        2     3     4        5      6    7      8     9    10    11         12         13           14         15         16
     //QueryResult* result = CharacterDatabase.Query("SELECT guid, account, name, race, class, gender, level, xp, money, skin, face, hairStyle, hairColor, facialStyle, bankSlots, restState, playerFlags, "
     // 17          18          19          20   21           22        23        24         25         26          27           28                 29
@@ -5967,6 +6348,7 @@ void Player::LoadCorpse(PreparedQueryResult result)
 
 void Player::_LoadInventory(PreparedQueryResult result, uint32 timeDiff)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     //QueryResult* result = CharacterDatabase.Query("SELECT data, text, bag, slot, item, item_template FROM character_inventory JOIN item_instance ON character_inventory.item = item_instance.guid WHERE character_inventory.guid = '{}' ORDER BY bag, slot", GetGUID().GetCounter());
     //NOTE: the "order by `bag`" is important because it makes sure
     //the bagMap is filled before items in the bags are loaded

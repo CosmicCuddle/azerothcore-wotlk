@@ -40,6 +40,11 @@
 #include "SpellInfo.h"
 #include "TradeData.h"
 #include "Unit.h"
+#include "EquipmentCaptureState.h"
+#include "ExactStorageGate.h"
+#include "PB59InventorySlotFacts.h"
+#include "PB59InventoryCustody.h"
+#include "PB59TransactionAdmission.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -1092,6 +1097,32 @@ public:
     explicit Player(WorldSession* session);
     ~Player() override;
 
+    // PB59 owner-context only. Raw facts, not a gear authorization.
+    PB59::EquipmentCaptureState& GetPB59EquipmentState() { return _pb59Equipment; }
+    [[nodiscard]] std::optional<PB59::EquipmentFacts> CapturePB59Equipment() const;
+    [[nodiscard]] bool IsPB59EquipmentCurrent(PB59::Stamp const& stamp) const;
+    // Bot owner-context only, including a future serialized movement scope.
+    // Nullopt means unknown, never empty. No script callbacks or mutation.
+    [[nodiscard]] std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
+    // Owner-context only: producer admission before bot identity retirement.
+    // Lease owns no Player pointer and may outlive native Player destruction.
+    [[nodiscard]] PB59::TransactionAdmission::RetirementLease TryAcquirePB59Retirement() noexcept
+    {
+        return _pb59Transaction.TryAcquireRetirement();
+    }
+    [[nodiscard]] std::uint64_t GetPB59OwnerIncarnation() const noexcept
+    {
+        return _pb59Transaction.OwnerIncarnation();
+    }
+    [[nodiscard]] bool PB59RetirementRecoveryRequired() const noexcept
+    {
+        return _pb59Transaction.RetirementRecoveryRequired();
+    }
+    [[nodiscard]] bool OwnsPB59Retirement(PB59::TransactionAdmission::RetirementLease const& lease) const noexcept
+    {
+        return _pb59Transaction.OwnsRetirement(lease);
+    }
+
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 
     void AddToWorld() override;
@@ -2030,7 +2061,7 @@ public:
     void RemovedInsignia(Player* looterPlr);
 
     [[nodiscard]] WorldSession* GetSession() const { return m_session; }
-    void SetSession(WorldSession* sess) { m_session = sess; }
+    void SetSession(WorldSession* sess);
 
     void BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) override;
     void DestroyForPlayer(Player* target, bool onDeath = false) const override;
@@ -2218,6 +2249,8 @@ public:
     void SetCanBlock(bool value);
     [[nodiscard]] bool CanTitanGrip() const { return m_canTitanGrip; }
     void SetCanTitanGrip(bool value);
+    void SetCanDualWield(bool value) override;
+    void SetDualWieldMode(DualWieldMode mode) override;
     [[nodiscard]] bool CanTameExoticPets() const { return IsGameMaster() || HasAuraType(SPELL_AURA_ALLOW_TAME_PET_TYPE); }
 
     void SetRegularAttackTime();
@@ -2850,6 +2883,9 @@ protected:
 
     uint32 m_atLoginFlags;
 
+    PB59::EquipmentCaptureState _pb59Equipment;
+    // Private admission ledger. No native Begin caller until save/lifetime gates are proven.
+    PB59::TransactionAdmission _pb59Transaction;
     Item* m_items[PLAYER_SLOTS_COUNT];
     uint32 m_currentBuybackSlot;
 
@@ -2996,7 +3032,20 @@ private:
     InventoryResult CanStoreItem_InSpecificSlot(uint8 bag, uint8 slot, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool swap, Item* pSrcItem) const;
     InventoryResult CanStoreItem_InBag(uint8 bag, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool merge, bool non_specialized, Item* pSrcItem, uint8 skip_bag, uint8 skip_slot) const;
     InventoryResult CanStoreItem_InInventorySlots(uint8 slot_begin, uint8 slot_end, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool merge, Item* pSrcItem, uint8 skip_bag, uint8 skip_slot) const;
-    Item* _StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update);
+    // PB59 exact mode is a private insertion building block, not a move API.
+    Item* _StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update,
+        PB59::ExactStorageReservation const* exact = nullptr);
+    // Private exact restoration insertion; no runtime caller until ownership is proven.
+    Item* _EquipItem(uint16 pos, Item* pItem, bool update, PB59::ExactStorageReservation const* exact);
+    // Raw link relocation only; NOT an equip/unequip API. No caller until
+    // effect/notification reconciliation and failure quarantine are proven.
+    PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const& source,
+        PB59::InventorySlotFacts const& destination, PB59::TransactionAdmission::Ticket ticket,
+        PB59::TransactionAdmission::Access access);
+    // Stock visible-field reconciliation only; no script notification or stat effects.
+    bool ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& before,
+        PB59::InventorySlotFacts const& after, PB59::TransactionAdmission::Ticket ticket,
+        PB59::TransactionAdmission::Access access);
     Item* _LoadItem(CharacterDatabaseTransaction trans, uint32 zoneId, uint32 timeDiff, Field* fields);
 
     CinematicMgr _cinematicMgr;

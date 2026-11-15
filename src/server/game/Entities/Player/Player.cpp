@@ -1688,8 +1688,23 @@ void Player::ProcessDelayedOperations()
         SpawnCorpseBones();
     }
 
+    bool retrySave = false;
     if (m_DelayedOperations & DELAYED_SAVE_PLAYER)
-        SaveToDB(false, false);
+    {
+        // Consume only this request. Re-arm the existing full-save timer if
+        // blocked; never replay the unrelated delayed gameplay operations.
+        m_DelayedOperations &= ~DELAYED_SAVE_PLAYER;
+        PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
+            PB59::TransactionAdmission::Work::ScheduledSave);
+        if (!admission.Admitted() || IsBeingTeleportedFar())
+            retrySave = true;
+        else
+        {
+            SaveToDB(false, false);
+            if (!admission.Admitted())
+                return; // the owner disappeared during a native callback
+        }
+    }
 
     if ((m_DelayedOperations & DELAYED_SPELL_CAST_DESERTER)
         && !GetAura(26013))
@@ -1740,12 +1755,16 @@ void Player::ProcessDelayedOperations()
         }
     }
 
-    //we have executed ALL delayed ops, so clear the flag
+    // Keep a refused or newly queued save due even when periodic saves are
+    // configured off. All other delayed flags retain their original semantics.
+    if (retrySave || (m_DelayedOperations & DELAYED_SAVE_PLAYER))
+        m_nextSave = 1;
     m_DelayedOperations = 0;
 }
 
 void Player::AddToWorld()
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     ///- Do not add/remove the player from the object storage
     ///- It will crash when updating the ObjectAccessor
     ///- The player should only be added when logging in
@@ -1758,6 +1777,7 @@ void Player::AddToWorld()
 
 void Player::RemoveFromWorld()
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // cleanup
     if (IsInWorld())
     {
@@ -2477,6 +2497,7 @@ void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward)
 // Current player experience not update (must be update by caller)
 void Player::GiveLevel(uint8 level)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 oldLevel = GetLevel();
     if (level == oldLevel)
         return;
@@ -3158,6 +3179,7 @@ void Player::SendLearnPacket(uint32 spellId, bool learn)
 
 bool Player::addSpell(uint32 spellId, uint8 addSpecMask, bool updateActive, bool temporary /*= false*/, bool learnFromSkill /*= false*/)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!_addSpell(spellId, addSpecMask, temporary, learnFromSkill))
         return false;
 
@@ -3426,6 +3448,7 @@ bool Player::IsNeedCastPassiveSpellAtLearn(SpellInfo const* spellInfo) const
 
 void Player::learnSpell(uint32 spellId, bool temporary /*= false*/, bool learnFromSkill /*= false*/)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!sScriptMgr->OnPlayerCanLearnSpell(this, spellId))
         return;
 
@@ -3511,6 +3534,7 @@ uint8 Player::GetLearnSpellSpecMask(uint32 spellId) const
 
 void Player::removeSpell(uint32 spell_id, uint8 removeSpecMask, bool onlyTemporary, bool sendPacket /*= true*/)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     PlayerSpellMap::iterator itr = m_spells.find(spell_id);
     if (itr == m_spells.end())
         return;
@@ -3884,6 +3908,7 @@ uint32 Player::resetTalentsCost() const
 
 bool Player::resetTalents(bool noResetCost)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     sScriptMgr->OnPlayerTalentsReset(this, noResetCost);
 
     // xinef: remove at login flag upon talents reset
@@ -5484,6 +5509,7 @@ void Player::SetRegularAttackTime()
 
 void Player::ModifySkillBonus(uint32 skillid, int32 val, bool talent)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     SkillStatusMap::const_iterator itr = mSkillStatus.find(skillid);
     if (itr == mSkillStatus.end() || itr->second.uState == SKILL_DELETED)
         return;
@@ -5504,6 +5530,7 @@ void Player::ModifySkillBonus(uint32 skillid, int32 val, bool talent)
 // To "remove" a skill line, set it's values to zero
 void Player::SetSkill(uint16 id, uint16 step, uint16 newVal, uint16 maxVal)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!id)
         return;
 
@@ -12091,6 +12118,7 @@ void Player::ApplyEquipCooldown(Item* pItem)
 
 void Player::resetSpells()
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // not need after this call
     if (HasAtLoginFlag(AT_LOGIN_RESET_SPELLS))
         RemoveAtLoginFlag(AT_LOGIN_RESET_SPELLS, true);
@@ -12756,6 +12784,7 @@ void Player::AddItemDurations(Item* item)
 
 void Player::AutoUnequipOffhandIfNeed(bool force /*= false*/)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* offItem = GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
     if (!offItem)
     {
@@ -13462,6 +13491,7 @@ void Player::SetOriginalGroup(Group* group, int8 subgroup)
 
 void Player::SetCanParry(bool value)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (m_canParry == value)
         return;
 
@@ -13471,6 +13501,7 @@ void Player::SetCanParry(bool value)
 
 void Player::SetCanBlock(bool value)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (m_canBlock == value)
         return;
 
@@ -13478,8 +13509,70 @@ void Player::SetCanBlock(bool value)
     UpdateBlockPercentage();
 }
 
+void Player::SetSession(WorldSession* sess)
+{
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
+    m_session = sess;
+}
+
+void Player::SetCanDualWield(bool value)
+{
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
+    Unit::SetCanDualWield(value);
+}
+
+void Player::SetDualWieldMode(DualWieldMode mode)
+{
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
+    Unit::SetDualWieldMode(mode);
+}
+
+bool Player::IsPB59EquipmentCurrent(PB59::Stamp const& stamp) const
+{
+    WorldSession* session = GetSession();
+    return session && session->GetPlayer() == this && !session->PlayerLoading() &&
+        !session->PlayerLogout() && !session->IsHeadless() && IsInWorld() &&
+        !IsBeingTeleportedFar() && !IsBeingTeleportedNear() && _pb59Equipment.Current(stamp);
+}
+
+std::optional<PB59::EquipmentFacts> Player::CapturePB59Equipment() const
+{
+    // Only the sender-owning serialized execution context may call this.
+    auto stamp = _pb59Equipment.Capture();
+    if (!stamp || !IsPB59EquipmentCurrent(*stamp))
+        return std::nullopt;
+
+    PB59::EquipmentFacts facts;
+    facts.stamp = *stamp;
+    facts.guid = GetGUID().GetRawValue();
+    facts.level = GetLevel();
+    facts.playerClass = getClass();
+    facts.race = getRace();
+    facts.spec = GetActiveSpec();
+    facts.dualWield = CanDualWield();
+    facts.titanGrip = CanTitanGrip();
+    static_assert(EQUIPMENT_SLOT_START == 0 && EQUIPMENT_SLOT_END == 19);
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        Item const* item = GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (!item)
+            continue;
+        ItemTemplate const* proto = item->GetTemplate();
+        if (!proto)
+            return std::nullopt;
+        facts.slots[slot] = {item->GetGUID().GetRawValue(), item->GetEntry(), proto->ItemLevel,
+            proto->Quality, proto->InventoryType, proto->Class, proto->SubClass,
+            proto->ScalingStatDistribution, proto->ScalingStatValue};
+    }
+
+    if (!facts.guid || !facts.level || !IsPB59EquipmentCurrent(*stamp))
+        return std::nullopt;
+    return facts;
+}
+
 void Player::SetCanTitanGrip(bool value)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     m_canTitanGrip = value;
 }
 
@@ -14294,6 +14387,7 @@ void Player::CompletedAchievement(AchievementEntry const* entry)
 
 void Player::LearnTalent(uint32 talentId, uint32 talentRank, bool command /*= false*/)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint32 CurTalentPoints = GetFreeTalentPoints();
 
     if (!command)
@@ -15513,6 +15607,7 @@ void Player::_SaveTalents(CharacterDatabaseTransaction trans)
 
 void Player::ActivateSpec(uint8 spec)
 {
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // xinef: some basic checks
     if (GetActiveSpec() == spec)
         return;
@@ -16061,6 +16156,18 @@ PetStable& Player::GetOrInitPetStable()
 
 void Player::RefundItem(Item* item)
 {
+    // Refund expiration and recipient checks can also mutate the item.
+    PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        WorldPacket data(SMSG_ITEM_REFUND_RESULT, 8 + 4);
+        data << item->GetGUID();
+        data << uint32(10);
+        SendDirectMessage(&data);
+        return;
+    }
+
     if (!item->IsRefundable())
     {
         LOG_DEBUG("entities.player.items", "Item refund: item not refundable!");
