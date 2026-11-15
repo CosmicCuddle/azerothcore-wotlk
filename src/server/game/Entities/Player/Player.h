@@ -44,6 +44,7 @@
 #include "ExactStorageGate.h"
 #include "PB59InventorySlotFacts.h"
 #include "PB59InventoryCustody.h"
+#include "PB59TransactionAdmission.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -2865,6 +2866,8 @@ protected:
     uint32 m_atLoginFlags;
 
     PB59::EquipmentCaptureState _pb59Equipment;
+    // Private admission ledger. No native Begin caller until save/lifetime gates are proven.
+    PB59::TransactionAdmission _pb59Transaction;
     Item* m_items[PLAYER_SLOTS_COUNT];
     uint32 m_currentBuybackSlot;
 
@@ -3019,10 +3022,12 @@ private:
     // Raw link relocation only; NOT an equip/unequip API. No caller until
     // effect/notification reconciliation and failure quarantine are proven.
     PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const& source,
-        PB59::InventorySlotFacts const& destination);
+        PB59::InventorySlotFacts const& destination, PB59::TransactionAdmission::Ticket ticket,
+        PB59::TransactionAdmission::Access access);
     // Stock visible-field reconciliation only; no script notification or stat effects.
     bool ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& before,
-        PB59::InventorySlotFacts const& after);
+        PB59::InventorySlotFacts const& after, PB59::TransactionAdmission::Ticket ticket,
+        PB59::TransactionAdmission::Access access);
     Item* _LoadItem(CharacterDatabaseTransaction trans, uint32 zoneId, uint32 timeDiff, Field* fields);
 
     CinematicMgr _cinematicMgr;
