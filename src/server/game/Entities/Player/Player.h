@@ -41,6 +41,7 @@
 #include "TradeData.h"
 #include "Unit.h"
 #include "EquipmentCaptureState.h"
+#include "ExactStorageGate.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -3005,7 +3006,9 @@ private:
     InventoryResult CanStoreItem_InSpecificSlot(uint8 bag, uint8 slot, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool swap, Item* pSrcItem) const;
     InventoryResult CanStoreItem_InBag(uint8 bag, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool merge, bool non_specialized, Item* pSrcItem, uint8 skip_bag, uint8 skip_slot) const;
     InventoryResult CanStoreItem_InInventorySlots(uint8 slot_begin, uint8 slot_end, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool merge, Item* pSrcItem, uint8 skip_bag, uint8 skip_slot) const;
-    Item* _StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update);
+    // PB59 exact mode is a private insertion building block, not a move API.
+    Item* _StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update,
+        PB59::ExactStorageReservation const* exact = nullptr);
     Item* _LoadItem(CharacterDatabaseTransaction trans, uint32 zoneId, uint32 timeDiff, Field* fields);
 
     CinematicMgr _cinematicMgr;

@@ -2716,7 +2716,8 @@ Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 }
 
 // Return stored item (if stored to stack, it can diff. from pItem). And pItem ca be deleted in this case.
-Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update)
+Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update,
+    PB59::ExactStorageReservation const* exact)
 {
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
@@ -2727,7 +2728,35 @@ Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool
 
     LOG_DEBUG("entities.player.items", "STORAGE: StoreItem bag = {}, slot = {}, item = {}, count = {}, {}", bag, slot, pItem->GetEntry(), count, pItem->GetGUID().ToString());
 
+    // The exact path may only attach a caller-owned detached item to its
+    // reserved empty inventory slot. It must never reach clone/merge/delete.
+    if (exact)
+    {
+        bool const backpack = bag == INVENTORY_SLOT_BAG_0 &&
+            slot >= INVENTORY_SLOT_ITEM_START && slot < INVENTORY_SLOT_ITEM_END;
+        Bag* container = nullptr;
+        if (bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
+            container = GetBagByPos(bag);
+        bool const validPosition = backpack || (container &&
+            slot < MAX_BAG_SIZE && slot < container->GetBagSize());
+        if (!validPosition)
+            return nullptr;
+        PB59::ExactStorageObservation const observed{
+            pItem->GetGUID().GetRawValue(),
+            container ? container->GetGUID().GetRawValue() : 0,
+            pos, pItem->GetCount(),
+            pItem->GetSlot() == NULL_SLOT && !pItem->GetContainer(),
+            pItem->GetOwnerGUID() == GetGUID(),
+            pItem->GetTemplate() && !pItem->IsInTrade() && !pItem->m_lootGenerated &&
+                pItem->GetGUID() != GetLootGUID() && !pItem->IsBag(),
+            validPosition, GetItemByPos(bag, slot) != nullptr, clone};
+        if (count != observed.count || !PB59::AcceptExactStorage(*exact, observed))
+            return nullptr;
+    }
     Item* pItem2 = GetItemByPos(bag, slot);
+    // Last check at the native merge branch, with no callback between reads.
+    if (exact && pItem2)
+        return nullptr;
 
     if (!pItem2)
     {
