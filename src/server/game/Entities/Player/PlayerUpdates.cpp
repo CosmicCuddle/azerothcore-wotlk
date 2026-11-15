@@ -325,10 +325,12 @@ void Player::Update(uint32 p_time)
             // Keep the due timer intact when PB59 cannot admit this save.
             PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
                 PB59::TransactionAdmission::Work::ScheduledSave);
-            if (admission.Admitted())
+            if (admission.Admitted() && !IsBeingTeleportedFar())
             {
                 // m_nextSave reset in SaveToDB call
                 SaveToDB(false, false);
+                if (!admission.Admitted())
+                    return; // the owner disappeared during a native callback
                 LOG_DEBUG("entities.player", "Player::Update: Player '{}' ({}) saved", GetName(), GetGUID().ToString());
             }
         }
