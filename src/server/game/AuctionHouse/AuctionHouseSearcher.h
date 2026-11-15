@@ -23,6 +23,7 @@
 #include "AuctionBrowseSelection.h"
 #include "AuctionCatalogPublication.h"
 #include "AuctionResponseFence.h"
+#include "AuctionSearchAdmission.h"
 #include "Common.h"
 #include "Item.h"
 #include "MPSCQueue.h"
@@ -257,9 +258,7 @@ private:
     static constexpr std::size_t MaxOutstanding = 128;
     static constexpr std::size_t MaxBrowseOutstanding = 64;
     std::mutex _admissionMutex;
-    std::size_t _outstanding = 0;
-    std::size_t _browseOutstanding = 0;
-    bool _closing = false;
+    AuctionSearchAdmission::Budget _admission{MaxOutstanding, MaxBrowseOutstanding};
     ProducerConsumerQueue<AuctionSearcherRequest*> _requestQueue;
     MPSCQueue<AuctionSearcherResponse> _responseQueue;
     std::vector<std::unique_ptr<AuctionHouseWorkerThread>> _workerThreads;

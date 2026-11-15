@@ -280,7 +280,7 @@ AuctionHouseSearcher::~AuctionHouseSearcher()
 {
     {
         std::lock_guard lock(_admissionMutex);
-        _closing = true;
+        _admission.Close();
         _requestQueue.Cancel();
     }
     for (std::unique_ptr<AuctionHouseWorkerThread> const& workerThread : _workerThreads)
@@ -312,9 +312,7 @@ void AuctionHouseSearcher::Update()
 
         {
             std::lock_guard lock(_admissionMutex);
-            --_outstanding;
-            if (response->browse)
-                --_browseOutstanding;
+            _admission.Release(response->browse);
         }
         delete response;
     }
@@ -327,8 +325,10 @@ void AuctionHouseSearcher::QueueSearchRequest(AuctionSearcherRequest* searchRequ
         return;
     std::lock_guard lock(_admissionMutex);
     bool const browse = request->requestType == AuctionSearcherRequest::Type::LIST;
-    if (_closing || _workerThreads.empty() || _outstanding >= MaxOutstanding ||
-        (browse && _browseOutstanding >= MaxBrowseOutstanding))
+    if (!browse && request->requestType != AuctionSearcherRequest::Type::OWNER_LIST &&
+        request->requestType != AuctionSearcherRequest::Type::BIDDER_LIST)
+        return;
+    if (_workerThreads.empty() || !_admission.CanAcquire(browse))
         return;
     request->catalog = _catalog.Capture(static_cast<uint8>(request->listFaction));
     if (!request->catalog)
@@ -347,11 +347,18 @@ void AuctionHouseSearcher::QueueSearchRequest(AuctionSearcherRequest* searchRequ
         if (!AuctionResponseFence::Valid(list.stamp))
             return;
     }
-    _requestQueue.Push(request.get());
-    request.release();
-    ++_outstanding;
-    if (browse)
-        ++_browseOutstanding;
+    if (!_admission.Acquire(browse))
+        return;
+    try
+    {
+        _requestQueue.Push(request.get());
+        request.release();
+    }
+    catch (...)
+    {
+        _admission.Release(browse);
+        throw;
+    }
 }
 
 void AuctionHouseSearcher::AddAuction(AuctionEntry const* auctionEntry)
