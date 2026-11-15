@@ -32,7 +32,7 @@ public:
     enum class Work
     {
         StandaloneSave, CallerOwnedSave, InventoryAndGold, GoldOnly,
-        InventoryMutation, Logout, Redirect, Destroy, ScheduledSave
+        InventoryMutation, Logout, Redirect, Destroy, ScheduledSave, Callback
     };
     enum class Decision { Admit, DeferStandaloneSave, DeferLogout, RejectBeforeMutation, RetainOwner, DeferScheduledSave };
     using Ticket = std::uint64_t;
@@ -220,6 +220,10 @@ public:
     // appended. The caller must reject BEFORE any of its own side effects.
     [[nodiscard]] Decision Request(Work work) noexcept
     {
+        if (work == Work::Callback)
+            return _ownerIncarnation && !_ownerSealed && _phase == Phase::Idle &&
+                !RetirementInProgress() && !_pendingSave && !_pendingLogout ?
+                Decision::Admit : Decision::RejectBeforeMutation;
         if (_ownerSealed)
             return work == Work::Destroy && !ExternalDepth() ? Decision::Admit : Decision::RejectBeforeMutation;
         // An independent retirement request cannot enter an admitted producer.
@@ -238,6 +242,7 @@ public:
         {
             switch (work)
             {
+                case Work::Callback: return Decision::RejectBeforeMutation; // handled above
                 case Work::ScheduledSave:
                 case Work::StandaloneSave:
                 case Work::CallerOwnedSave:
@@ -268,6 +273,7 @@ public:
             case Work::StandaloneSave: _pendingSave = true; return Decision::DeferStandaloneSave;
             case Work::Logout: _pendingLogout = true; return Decision::DeferLogout;
             case Work::Destroy: return Decision::RetainOwner;
+            case Work::Callback:
             case Work::CallerOwnedSave:
             case Work::InventoryAndGold:
             case Work::GoldOnly:
