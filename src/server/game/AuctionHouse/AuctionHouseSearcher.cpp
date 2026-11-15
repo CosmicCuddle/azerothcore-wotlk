@@ -21,24 +21,24 @@
 #include "DBCStores.h"
 #include "GameTime.h"
 #include "Player.h"
+#include "WorldSession.h"
 
 AuctionHouseWorkerThread::AuctionHouseWorkerThread(ProducerConsumerQueue<AuctionSearcherRequest*>* requestQueue, MPSCQueue<AuctionSearcherResponse>* responseQueue)
+    : _requestQueue(requestQueue), _responseQueue(responseQueue)
 {
     _workerThread = std::thread(&AuctionHouseWorkerThread::Run, this);
-    _requestQueue = requestQueue;
-    _responseQueue = responseQueue;
-    _stopped = false;
+}
+
+AuctionHouseWorkerThread::~AuctionHouseWorkerThread()
+{
+    Stop();
 }
 
 void AuctionHouseWorkerThread::Stop()
 {
     _stopped = true;
-    _workerThread.join();
-}
-
-void AuctionHouseWorkerThread::AddAuctionSearchUpdateToQueue(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate)
-{
-    _auctionUpdatesQueue.add(auctionSearchUpdate);
+    if (_workerThread.joinable())
+        _workerThread.join();
 }
 
 void AuctionHouseWorkerThread::Run()
@@ -46,63 +46,8 @@ void AuctionHouseWorkerThread::Run()
     while (!_stopped)
     {
         std::this_thread::sleep_for(Milliseconds(25));
-
-        ProcessSearchUpdates();
-        ProcessSearchRequests();
-    }
-}
-
-void AuctionHouseWorkerThread::ProcessSearchUpdates()
-{
-    std::shared_ptr<AuctionSearcherUpdate> auctionSearchUpdate;
-    while (_auctionUpdatesQueue.next(auctionSearchUpdate))
-    {
-        switch (auctionSearchUpdate->updateType)
-        {
-        case AuctionSearcherUpdate::Type::ADD:
-        {
-            std::shared_ptr<AuctionSearchAdd> const auctionAdd = std::static_pointer_cast<AuctionSearchAdd>(auctionSearchUpdate);
-            SearchUpdateAdd(*auctionAdd.get());
-            break;
-        }
-        case AuctionSearcherUpdate::Type::REMOVE:
-        {
-            std::shared_ptr<AuctionSearchRemove> const auctionRemove = std::static_pointer_cast<AuctionSearchRemove>(auctionSearchUpdate);
-            SearchUpdateRemove(*auctionRemove.get());
-            break;
-        }
-        case AuctionSearcherUpdate::Type::UPDATE_BID:
-        {
-            std::shared_ptr<AuctionSearchUpdateBid> const auctionUpdateBid = std::static_pointer_cast<AuctionSearchUpdateBid>(auctionSearchUpdate);
-            SearchUpdateBid(*auctionUpdateBid.get());
-            break;
-        }
-        default:
-            break;
-        }
-    }
-}
-
-void AuctionHouseWorkerThread::SearchUpdateAdd(AuctionSearchAdd const& auctionAdd)
-{
-    SearchableAuctionEntriesMap& searchableAuctionMap = GetSearchableAuctionMap(auctionAdd.listFaction);
-    searchableAuctionMap.insert(std::make_pair(auctionAdd.searchableAuctionEntry->Id, auctionAdd.searchableAuctionEntry));
-}
-
-void AuctionHouseWorkerThread::SearchUpdateRemove(AuctionSearchRemove const& auctionRemove)
-{
-    SearchableAuctionEntriesMap& searchableAuctionMap = GetSearchableAuctionMap(auctionRemove.listFaction);
-    searchableAuctionMap.erase(auctionRemove.auctionId);
-}
-
-void AuctionHouseWorkerThread::SearchUpdateBid(AuctionSearchUpdateBid const& auctionUpdateBid)
-{
-    SearchableAuctionEntriesMap const& searchableAuctionMap = GetSearchableAuctionMap(auctionUpdateBid.listFaction);
-    SearchableAuctionEntriesMap::const_iterator itr = searchableAuctionMap.find(auctionUpdateBid.auctionId);
-    if (itr != searchableAuctionMap.end())
-    {
-        itr->second->bid = auctionUpdateBid.bid;
-        itr->second->bidderGuid = auctionUpdateBid.bidderGuid;
+        if (!_stopped)
+            ProcessSearchRequests();
     }
 }
 
@@ -141,11 +86,13 @@ void AuctionHouseWorkerThread::ProcessSearchRequests()
 
 void AuctionHouseWorkerThread::SearchListRequest(AuctionSearchListRequest const& searchListRequest)
 {
-    SearchableAuctionEntriesMap const& searchableAuctionMap = GetSearchableAuctionMap(searchListRequest.listFaction);
+    SearchableAuctionEntriesMap const& searchableAuctionMap = searchListRequest.catalog->rows;
     uint32 count = 0, totalCount = 0;
 
     AuctionSearcherResponse* searchResponse = new AuctionSearcherResponse();
     searchResponse->playerGuid = searchListRequest.playerInfo.playerGuid;
+    searchResponse->browse = true;
+    searchResponse->stamp = searchListRequest.stamp;
     searchResponse->packet.Initialize(SMSG_AUCTION_LIST_RESULT, (4 + 4 + 4));
     searchResponse->packet << (uint32)0;
 
@@ -160,39 +107,25 @@ void AuctionHouseWorkerThread::SearchListRequest(AuctionSearchListRequest const&
             std::sort(auctionEntries.begin(), auctionEntries.end(), sorter);
         }
 
-        SortableAuctionEntriesList::const_iterator itr = auctionEntries.begin();
-        if (searchListRequest.searchInfo.listfrom)
+        auto const window = AuctionBrowseSelection::PageWindow(auctionEntries.size(),
+            searchListRequest.searchInfo.listfrom, MAX_AUCTIONS_PER_PAGE);
+        for (std::size_t i = window.begin; i < window.end; ++i)
         {
-            if (searchListRequest.searchInfo.listfrom > auctionEntries.size())
-                itr = auctionEntries.end();
-            else
-                itr += searchListRequest.searchInfo.listfrom;
-        }
-
-        for (; itr != auctionEntries.end(); ++itr)
-        {
-            (*itr)->BuildAuctionInfo(searchResponse->packet);
-
-            if (++count >= MAX_AUCTIONS_PER_PAGE)
-                break;
+            auctionEntries[i]->BuildAuctionInfo(searchResponse->packet, searchListRequest.searchTime);
+            ++count;
         }
 
         totalCount = auctionEntries.size();
     }
     else
     {
-        // getAll handling
-        for (auto const& pair : searchableAuctionMap)
-        {
-            std::shared_ptr<SearchableAuctionEntry> const& Aentry = pair.second;
-            ++count;
-            Aentry->BuildAuctionInfo(searchResponse->packet);
-
-            if (count >= MAX_GETALL_RETURN)
-                break;
-        }
-
-        totalCount = searchableAuctionMap.size();
+        // getAll retains its legacy ordinary-filter bypass.
+        auto const counts = AuctionBrowseSelection::GetAll(searchableAuctionMap,
+            searchListRequest.visibility, MAX_GETALL_RETURN,
+            [](auto const& pair) { return pair.second->visibilityTag; },
+            [&](auto const& pair) { pair.second->BuildAuctionInfo(searchResponse->packet, searchListRequest.searchTime); });
+        count = counts.returned;
+        totalCount = counts.total;
     }
 
     searchResponse->packet.put<uint32>(0, count);
@@ -204,7 +137,7 @@ void AuctionHouseWorkerThread::SearchListRequest(AuctionSearchListRequest const&
 
 void AuctionHouseWorkerThread::SearchOwnerListRequest(AuctionSearchOwnerListRequest const& searchOwnerListRequest)
 {
-    SearchableAuctionEntriesMap const& searchableAuctionMap = GetSearchableAuctionMap(searchOwnerListRequest.listFaction);
+    SearchableAuctionEntriesMap const& searchableAuctionMap = searchOwnerListRequest.catalog->rows;
 
     AuctionSearcherResponse* searchResponse = new AuctionSearcherResponse();
     searchResponse->playerGuid = searchOwnerListRequest.ownerGuid;
@@ -219,8 +152,8 @@ void AuctionHouseWorkerThread::SearchOwnerListRequest(AuctionSearchOwnerListRequ
         if (pair.second->ownerGuid != searchOwnerListRequest.ownerGuid)
             continue;
 
-        std::shared_ptr<SearchableAuctionEntry> const& auctionEntry = pair.second;
-        auctionEntry->BuildAuctionInfo(searchResponse->packet);
+        std::shared_ptr<SearchableAuctionEntry const> const& auctionEntry = pair.second;
+        auctionEntry->BuildAuctionInfo(searchResponse->packet, searchOwnerListRequest.searchTime);
         ++count;
         ++totalcount;
     }
@@ -234,7 +167,7 @@ void AuctionHouseWorkerThread::SearchOwnerListRequest(AuctionSearchOwnerListRequ
 
 void AuctionHouseWorkerThread::SearchBidderListRequest(AuctionSearchBidderListRequest const& searchBidderListRequest)
 {
-    SearchableAuctionEntriesMap const& searchableAuctionMap = GetSearchableAuctionMap(searchBidderListRequest.listFaction);
+    SearchableAuctionEntriesMap const& searchableAuctionMap = searchBidderListRequest.catalog->rows;
 
     AuctionSearcherResponse* searchResponse = new AuctionSearcherResponse();
     searchResponse->playerGuid = searchBidderListRequest.ownerGuid;
@@ -250,8 +183,8 @@ void AuctionHouseWorkerThread::SearchBidderListRequest(AuctionSearchBidderListRe
         if (itr == searchableAuctionMap.end())
             continue;
 
-        std::shared_ptr<SearchableAuctionEntry> const& auctionEntry = itr->second;
-        auctionEntry->BuildAuctionInfo(searchResponse->packet);
+        std::shared_ptr<SearchableAuctionEntry const> const& auctionEntry = itr->second;
+        auctionEntry->BuildAuctionInfo(searchResponse->packet, searchBidderListRequest.searchTime);
         ++count;
         ++totalcount;
     }
@@ -261,8 +194,8 @@ void AuctionHouseWorkerThread::SearchBidderListRequest(AuctionSearchBidderListRe
         if (pair.second->bidderGuid != searchBidderListRequest.ownerGuid)
             continue;
 
-        std::shared_ptr<SearchableAuctionEntry> const& auctionEntry = pair.second;
-        auctionEntry->BuildAuctionInfo(searchResponse->packet);
+        std::shared_ptr<SearchableAuctionEntry const> const& auctionEntry = pair.second;
+        auctionEntry->BuildAuctionInfo(searchResponse->packet, searchBidderListRequest.searchTime);
         ++count;
         ++totalcount;
     }
@@ -283,16 +216,19 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
         && searchRequest.searchInfo.usable == 0x00 && searchRequest.searchInfo.wsearchedname.empty())
     {
         for (auto const& pair : auctionMap)
-            auctionEntries.push_back(pair.second.get());
+            if (AuctionBrowseSelection::Visible(searchRequest.visibility, pair.second->visibilityTag))
+                auctionEntries.push_back(pair.second.get());
 
         return;
     }
 
     for (auto const& pair : auctionMap)
     {
-        std::shared_ptr<SearchableAuctionEntry> const& Aentry = pair.second;
+        std::shared_ptr<SearchableAuctionEntry const> const& Aentry = pair.second;
+        if (!AuctionBrowseSelection::Visible(searchRequest.visibility, Aentry->visibilityTag))
+            continue;
         SearchableAuctionEntryItem const& Aitem = Aentry->item;
-        ItemTemplate const* proto = Aitem.itemTemplate;
+        AuctionSearchItemFacts::Facts const* proto = &Aitem.facts;
 
         if (searchRequest.searchInfo.itemClass != 0xffffffff && proto->Class != searchRequest.searchInfo.itemClass)
             continue;
@@ -318,7 +254,7 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
 
         if (searchRequest.searchInfo.usable != 0x00)
         {
-            if (!searchRequest.playerInfo.usablePlayerInfo.value().PlayerCanUseItem(proto))
+            if (!searchRequest.playerInfo.usablePlayerInfo.value().PlayerCanUseItem(*proto))
                 continue;
         }
 
@@ -342,7 +278,11 @@ AuctionHouseSearcher::AuctionHouseSearcher()
 
 AuctionHouseSearcher::~AuctionHouseSearcher()
 {
-    _requestQueue.Cancel();
+    {
+        std::lock_guard lock(_admissionMutex);
+        _admission.Close();
+        _requestQueue.Cancel();
+    }
     for (std::unique_ptr<AuctionHouseWorkerThread> const& workerThread : _workerThreads)
         workerThread->Stop();
 }
@@ -353,16 +293,72 @@ void AuctionHouseSearcher::Update()
     while (_responseQueue.Dequeue(response))
     {
         Player* player = ObjectAccessor::FindConnectedPlayer(response->playerGuid);
-        if (player)
+        bool send = player != nullptr;
+        if (send && response->browse)
+        {
+            auto const active = _catalog.Current();
+            WorldSession* session = player->GetSession();
+            // Native B remains Disabled: no real provider or eligibility revision
+            // source is registered. Non-Disabled cannot emit until that seam exists.
+            AuctionResponseFence::Stamp current;
+            if (active.mode == AuctionVisibility::Mode::Disabled && session &&
+                session->GetPlayer() == player && !session->PlayerLogout())
+                current = {active.policy.generation, player->GetGUID().GetRawValue(),
+                    session->GetAuctionBrowseIncarnation(), 1};
+            send = AuctionResponseFence::MayEmit(response->stamp, current);
+        }
+        if (send)
             player->SendDirectMessage(&response->packet);
 
+        {
+            std::lock_guard lock(_admissionMutex);
+            _admission.Release(response->browse);
+        }
         delete response;
     }
 }
 
 void AuctionHouseSearcher::QueueSearchRequest(AuctionSearcherRequest* searchRequestInfo)
 {
-    _requestQueue.Push(searchRequestInfo);
+    std::unique_ptr<AuctionSearcherRequest> request(searchRequestInfo);
+    if (!request)
+        return;
+    std::lock_guard lock(_admissionMutex);
+    bool const browse = request->requestType == AuctionSearcherRequest::Type::LIST;
+    if (!browse && request->requestType != AuctionSearcherRequest::Type::OWNER_LIST &&
+        request->requestType != AuctionSearcherRequest::Type::BIDDER_LIST)
+        return;
+    if (_workerThreads.empty() || !_admission.CanAcquire(browse))
+        return;
+    request->catalog = _catalog.Capture(static_cast<uint8>(request->listFaction));
+    if (!request->catalog)
+        return;
+    request->searchTime = GameTime::GetGameTime().count();
+    if (browse)
+    {
+        auto& list = static_cast<AuctionSearchListRequest&>(*request);
+        // No live provider in Phase 4B. Disabled uses a constant eligibility
+        // revision because progression cannot affect the result.
+        if (request->catalog->mode != AuctionVisibility::Mode::Disabled)
+            return;
+        list.visibility = {request->catalog->mode, request->catalog->policy, {}};
+        list.stamp = {request->catalog->policy.generation, list.playerInfo.playerGuid.GetRawValue(),
+            list.playerInfo.sessionIncarnation, 1};
+        if (!AuctionResponseFence::Valid(list.stamp))
+            return;
+    }
+    if (!_admission.Acquire(browse))
+        return;
+    try
+    {
+        _requestQueue.Push(request.get());
+        request.release();
+    }
+    catch (...)
+    {
+        _admission.Release(browse);
+        throw;
+    }
 }
 
 void AuctionHouseSearcher::AddAuction(AuctionEntry const* auctionEntry)
@@ -371,67 +367,71 @@ void AuctionHouseSearcher::AddAuction(AuctionEntry const* auctionEntry)
     if (!item)
         return;
 
-    // SearchableAuctionEntry is a shared_ptr as it will be shared among all the worker threads and needs to be self-managed
-    std::shared_ptr<SearchableAuctionEntry> searchableAuctionEntry = std::make_shared<SearchableAuctionEntry>();
-    searchableAuctionEntry->Id = auctionEntry->Id;
+    SearchableAuctionEntry searchableAuctionEntry{};
+    searchableAuctionEntry.Id = auctionEntry->Id;
 
     // Auction info
-    searchableAuctionEntry->ownerGuid = auctionEntry->owner;
-    sCharacterCache->GetCharacterNameByGuid(auctionEntry->owner, searchableAuctionEntry->ownerName);
-    searchableAuctionEntry->startbid = auctionEntry->startbid;
-    searchableAuctionEntry->buyout = auctionEntry->buyout;
-    searchableAuctionEntry->expire_time = auctionEntry->expire_time;
-    searchableAuctionEntry->listFaction = auctionEntry->GetFactionId();
-    searchableAuctionEntry->bid = auctionEntry->bid;
-    searchableAuctionEntry->bidderGuid = auctionEntry->bidder;
+    searchableAuctionEntry.ownerGuid = auctionEntry->owner;
+    sCharacterCache->GetCharacterNameByGuid(auctionEntry->owner, searchableAuctionEntry.ownerName);
+    searchableAuctionEntry.startbid = auctionEntry->startbid;
+    searchableAuctionEntry.buyout = auctionEntry->buyout;
+    searchableAuctionEntry.expire_time = auctionEntry->expire_time;
+    searchableAuctionEntry.listFaction = auctionEntry->GetFactionId();
+    searchableAuctionEntry.bid = auctionEntry->bid;
+    searchableAuctionEntry.bidderGuid = auctionEntry->bidder;
 
     // Item info
-    searchableAuctionEntry->item.entry = item->GetEntry();
+    searchableAuctionEntry.item.entry = item->GetEntry();
 
     for (uint8 i = 0; i < MAX_INSPECTED_ENCHANTMENT_SLOT; ++i)
     {
-        searchableAuctionEntry->item.enchants[i].id = item->GetEnchantmentId(EnchantmentSlot(i));
-        searchableAuctionEntry->item.enchants[i].duration = item->GetEnchantmentDuration(EnchantmentSlot(i));
-        searchableAuctionEntry->item.enchants[i].charges = item->GetEnchantmentCharges(EnchantmentSlot(i));
+        searchableAuctionEntry.item.enchants[i].id = item->GetEnchantmentId(EnchantmentSlot(i));
+        searchableAuctionEntry.item.enchants[i].duration = item->GetEnchantmentDuration(EnchantmentSlot(i));
+        searchableAuctionEntry.item.enchants[i].charges = item->GetEnchantmentCharges(EnchantmentSlot(i));
     }
 
-    searchableAuctionEntry->item.randomPropertyId = item->GetItemRandomPropertyId();
-    searchableAuctionEntry->item.suffixFactor = item->GetItemSuffixFactor();
-    searchableAuctionEntry->item.count = item->GetCount();
-    searchableAuctionEntry->item.spellCharges = item->GetSpellCharges();
-    searchableAuctionEntry->item.itemTemplate = item->GetTemplate();
+    searchableAuctionEntry.item.randomPropertyId = item->GetItemRandomPropertyId();
+    searchableAuctionEntry.item.suffixFactor = item->GetItemSuffixFactor();
+    searchableAuctionEntry.item.count = item->GetCount();
+    searchableAuctionEntry.item.spellCharges = item->GetSpellCharges();
+    ItemTemplate const* proto = item->GetTemplate();
+    auto& facts = searchableAuctionEntry.item.facts;
+    facts.Class = proto->Class;
+    facts.SubClass = proto->SubClass;
+    facts.InventoryType = proto->InventoryType;
+    facts.Quality = proto->Quality;
+    facts.RequiredLevel = proto->RequiredLevel;
+    facts.AllowableClass = proto->AllowableClass;
+    facts.AllowableRace = proto->AllowableRace;
+    facts.RequiredSkill = proto->RequiredSkill;
+    facts.RequiredSkillRank = proto->RequiredSkillRank;
+    facts.RequiredSpell = proto->RequiredSpell;
+    facts.itemSkill = proto->GetSkill();
+    if (proto->Spells[0].SpellId)
+    {
+        SpellEntry const* spellEntry = sSpellStore.LookupEntry(proto->Spells[0].SpellId);
+        if (spellEntry && spellEntry->Effect[0] == SPELL_EFFECT_LEARN_SPELL && spellEntry->EffectTriggerSpell[0])
+            facts.vanillaLearnedSpell = spellEntry->EffectTriggerSpell[0];
+        facts.teachingSpell = proto->Spells[0].SpellId == 483 || proto->Spells[0].SpellId == 55884;
+        facts.taughtSpell = proto->Spells[1].SpellId;
+    }
 
-    searchableAuctionEntry->SetItemNames();
+    searchableAuctionEntry.SetItemNames(proto);
 
-    // Let the worker threads know we have a new auction
-    NotifyAllWorkers(std::make_shared<AuctionSearchAdd>(searchableAuctionEntry));
+    _catalog.Add(static_cast<uint8>(searchableAuctionEntry.listFaction), std::move(searchableAuctionEntry));
 }
 
 void AuctionHouseSearcher::RemoveAuction(AuctionEntry const* auctionEntry)
 {
-    NotifyAllWorkers(std::make_shared<AuctionSearchRemove>(auctionEntry->Id, auctionEntry->GetFactionId()));
+    _catalog.Remove(static_cast<uint8>(auctionEntry->GetFactionId()), auctionEntry->Id);
 }
 
 void AuctionHouseSearcher::UpdateBid(AuctionEntry const* auctionEntry)
 {
-    // Updating bids is a bit unique, we really only need to update a single worker as every worker thread contains
-    // a map of shared pointers to the same SearchableAuctionEntry's, so updating one will update them all.
-    NotifyOneWorker(std::make_shared<AuctionSearchUpdateBid>(auctionEntry->Id, auctionEntry->GetFactionId(), auctionEntry->bid, auctionEntry->bidder));
+    _catalog.UpdateBid(static_cast<uint8>(auctionEntry->GetFactionId()), auctionEntry->Id, auctionEntry->bid, auctionEntry->bidder);
 }
 
-void AuctionHouseSearcher::NotifyAllWorkers(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate)
-{
-    for (std::unique_ptr<AuctionHouseWorkerThread> const& workerThread : _workerThreads)
-        workerThread->AddAuctionSearchUpdateToQueue(auctionSearchUpdate);
-}
-
-void AuctionHouseSearcher::NotifyOneWorker(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate)
-{
-    // Just notify the first worker in the list, no big deal which
-    (*_workerThreads.begin())->AddAuctionSearchUpdateToQueue(auctionSearchUpdate);
-}
-
-void SearchableAuctionEntry::BuildAuctionInfo(WorldPacket& data) const
+void SearchableAuctionEntry::BuildAuctionInfo(WorldPacket& data, time_t searchTime) const
 {
     data << uint32(Id);
     data << uint32(item.entry);
@@ -453,14 +453,13 @@ void SearchableAuctionEntry::BuildAuctionInfo(WorldPacket& data) const
     data << uint32(bid ? AuctionEntry::CalculateAuctionOutBid(bid) : 0);
     // Minimal outbid
     data << uint32(buyout);                                         // Auction->buyout
-    data << uint32((expire_time - GameTime::GetGameTime().count()) * IN_MILLISECONDS); // time left
+    data << uint32((expire_time - searchTime) * IN_MILLISECONDS); // time left
     data << bidderGuid;                                             // auction->bidder current
     data << uint32(bid);                                            // current bid
 }
 
-void SearchableAuctionEntry::SetItemNames()
+void SearchableAuctionEntry::SetItemNames(ItemTemplate const* proto)
 {
-    ItemTemplate const* proto = item.itemTemplate;
     ItemLocale const* il = sObjectMgr->GetItemLocale(proto->ItemId);
 
     for (uint32 locale = 0; locale < TOTAL_LOCALES; ++locale)
@@ -523,8 +522,8 @@ int SearchableAuctionEntry::CompareAuctionEntry(uint32 column, SearchableAuction
     {
     case AUCTION_SORT_MINLEVEL:                                             // level = 0
     {
-        ItemTemplate const* itemProto1 = item.itemTemplate;
-        ItemTemplate const* itemProto2 = auc.item.itemTemplate;
+        AuctionSearchItemFacts::Facts const* itemProto1 = &item.facts;
+        AuctionSearchItemFacts::Facts const* itemProto2 = &auc.item.facts;
 
         if (itemProto1->RequiredLevel > itemProto2->RequiredLevel)
             return -1;
@@ -534,8 +533,8 @@ int SearchableAuctionEntry::CompareAuctionEntry(uint32 column, SearchableAuction
     }
     case AUCTION_SORT_RARITY:                                             // quality = 1
     {
-        ItemTemplate const* itemProto1 = item.itemTemplate;
-        ItemTemplate const* itemProto2 = auc.item.itemTemplate;
+        AuctionSearchItemFacts::Facts const* itemProto1 = &item.facts;
+        AuctionSearchItemFacts::Facts const* itemProto2 = &auc.item.facts;
 
         if (itemProto1->Quality < itemProto2->Quality)
             return -1;
@@ -660,47 +659,11 @@ bool AuctionSorter::operator()(SearchableAuctionEntry const* auc1, SearchableAuc
 }
 
 // Slightly simplified version of Player::CanUseItem. Only checks relevant to auctionhouse items
-bool AuctionHouseUsablePlayerInfo::PlayerCanUseItem(ItemTemplate const* proto) const
+bool AuctionHouseUsablePlayerInfo::PlayerCanUseItem(AuctionSearchItemFacts::Facts const& facts) const
 {
-    uint32 itemSkill = proto->GetSkill();
-    if (itemSkill != 0)
-    {
-        if (GetSkillValue(itemSkill) == 0)
-            return false;
-    }
-
-    if ((proto->AllowableClass & classMask) == 0 || (proto->AllowableRace & raceMask) == 0)
-        return false;
-
-    if (proto->RequiredSkill != 0)
-    {
-        if (GetSkillValue(proto->RequiredSkill) == 0)
-            return false;
-        else if (GetSkillValue(proto->RequiredSkill) < proto->RequiredSkillRank)
-            return false;
-    }
-
-    if (proto->RequiredSpell != 0 && !HasSpell(proto->RequiredSpell))
-        return false;
-
-    if (level < proto->RequiredLevel)
-        return false;
-
-    if (proto->Spells[0].SpellId)
-    {
-        // this check is for vanilla recipies. Spells are learned through individual learning spells instead of spell 483 and 55884
-        SpellEntry const* spellEntry = sSpellStore.LookupEntry(proto->Spells[0].SpellId);
-        if (spellEntry && spellEntry->Effect[0] == SPELL_EFFECT_LEARN_SPELL && spellEntry->EffectTriggerSpell[0])
-            if (HasSpell(spellEntry->EffectTriggerSpell[0]))
-                return false;
-
-        // this check is for tbc/wotlk recipies. Spells are learned through 483 and 55884, the second spell in the item will be the actual spell learned.
-        if (proto->Spells[0].SpellId == 483 || proto->Spells[0].SpellId == 55884)
-            if (HasSpell(proto->Spells[1].SpellId))
-                return false;
-    }
-
-    return true;
+    return AuctionSearchItemFacts::Usable(facts, classMask, raceMask, level,
+        [this](uint32 skill) { return GetSkillValue(skill); },
+        [this](uint32 spell) { return HasSpell(spell); });
 }
 
 uint16 AuctionHouseUsablePlayerInfo::GetSkillValue(uint32 skill) const
