@@ -21,9 +21,9 @@ public:
     enum class Work
     {
         StandaloneSave, CallerOwnedSave, InventoryAndGold, GoldOnly,
-        InventoryMutation, Logout, Redirect, Destroy
+        InventoryMutation, Logout, Redirect, Destroy, ScheduledSave
     };
-    enum class Decision { Admit, DeferStandaloneSave, DeferLogout, RejectBeforeMutation, RetainOwner };
+    enum class Decision { Admit, DeferStandaloneSave, DeferLogout, RejectBeforeMutation, RetainOwner, DeferScheduledSave };
     using Ticket = std::uint64_t;
     struct StableProof
     {
@@ -167,6 +167,7 @@ public:
         {
             switch (work)
             {
+                case Work::ScheduledSave:
                 case Work::StandaloneSave:
                 case Work::CallerOwnedSave:
                 case Work::InventoryAndGold:
@@ -190,6 +191,9 @@ public:
         }
         switch (work)
         {
+            // Timer and mask remain owned by the scheduled producer. No
+            // separate full-save intent is manufactured for a deferred tick.
+            case Work::ScheduledSave: return Decision::DeferScheduledSave;
             case Work::StandaloneSave: _pendingSave = true; return Decision::DeferStandaloneSave;
             case Work::Logout: _pendingLogout = true; return Decision::DeferLogout;
             case Work::Destroy: return Decision::RetainOwner;
