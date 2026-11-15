@@ -3,6 +3,7 @@
 #include "PB59InventorySlotFacts.h"
 #include "PB59InventoryCustody.h"
 #include "EquipmentCaptureState.h"
+#include "PB59TransactionAdmission.h"
 #include <algorithm>
 #include <cassert>
 #include <functional>
@@ -77,6 +78,8 @@ struct Player
 {
     Faults faults;
     PB59::EquipmentCaptureState _pb59Equipment;
+    PB59::TransactionAdmission _pb59Transaction;
+    PB59::TransactionAdmission::Ticket ticket = _pb59Transaction.Begin();
     Item* m_items[40]{};
     std::vector<Item*> m_itemUpdateQueue;
     ObjectGuid fields[40]{};
@@ -114,7 +117,8 @@ struct Player
         return result;
     }
     PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const&,
-        PB59::InventorySlotFacts const&);
+        PB59::InventorySlotFacts const&, PB59::TransactionAdmission::Ticket,
+        PB59::TransactionAdmission::Access);
     Player()
     {
         _pb59Equipment.Bind();
@@ -139,6 +143,7 @@ void Item::SetState(int,Player* player)
 }
 #include "RelocatePB59InventoryLinks.inc"
 using Result=PB59::LinkTransferResult;
+using Admission=PB59::TransactionAdmission;
 constexpr uint16 gear=0xff0f, bagSlot=0x1300, backpack=0xff17;
 int main()
 {
@@ -146,7 +151,10 @@ int main()
     {
         auto a=p.CapturePB59InventorySlot(from), b=p.CapturePB59InventorySlot(to);
         assert(a&&b);
-        return p.RelocatePB59InventoryLinks(*a,*b);
+        auto result=p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Forward);
+        if (result==Result::RecoveryRequired)
+            assert(p._pb59Transaction.State()==Admission::Phase::RecoveryRequired);
+        return result;
     };
     {
         Player p;
@@ -162,6 +170,31 @@ int main()
         assert(p.m_items[23]==&p.item && !p.m_items[15]);
         assert(check(p,backpack,gear)==Result::Linked);
         assert(p.CapturePB59InventorySlot(gear)==before);
+    }
+    // Wrong/foreign/expired tickets and wrong phase refuse before observing or writing.
+    {
+        Player p, foreign;
+        auto a=p.CapturePB59InventorySlot(gear), b=p.CapturePB59InventorySlot(bagSlot);
+        auto captures=p.captures;
+        for (auto t : {Admission::Ticket{0}, foreign.ticket})
+            assert(p.RelocatePB59InventoryLinks(*a,*b,t,Admission::Access::Forward)==Result::Rejected);
+        assert(p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Recovery)==Result::Rejected);
+        assert(p.captures==captures && p.faults.operation==0);
+        assert(p._pb59Transaction.Finish(p.ticket,{true,true,true,true}));
+        assert(p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Forward)==Result::Rejected);
+        assert(p.captures==captures && p.faults.operation==0);
+    }
+    // A quarantined operation can only use explicitly authorized recovery access.
+    {
+        Player p;
+        assert(check(p,gear,bagSlot)==Result::Linked);
+        assert(p._pb59Transaction.RequireRecovery(p.ticket));
+        auto a=p.CapturePB59InventorySlot(bagSlot), b=p.CapturePB59InventorySlot(gear);
+        auto writes=p.faults.operation;
+        assert(p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Forward)==Result::Rejected);
+        assert(p.faults.operation==writes);
+        assert(p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Recovery)==Result::Linked);
+        assert(p.m_items[15]==&p.item && p._pb59Transaction.State()==Admission::Phase::RecoveryRequired);
     }
     // Stale, duplicated, missing, or misdirected save-queue references refuse.
     for (int mode=0;mode<5;++mode)
@@ -184,7 +217,8 @@ int main()
             auto result=check(p,gear,bagSlot);
             if (operation<=2)
             {
-                assert(result==Result::Rejected && p.m_items[15]==&p.item && !p.bag.m_bagslot[0]);
+                assert(result==Result::RecoveryRequired && p.m_items[15]==&p.item && !p.bag.m_bagslot[0]);
+                assert(p._pb59Transaction.State()==Admission::Phase::RecoveryRequired);
             }
             else
             {
@@ -234,10 +268,10 @@ int main()
         Player p;
         auto a=p.CapturePB59InventorySlot(gear), b=p.CapturePB59InventorySlot(bagSlot);
         ++a->item->durability;
-        assert(p.RelocatePB59InventoryLinks(*a,*b)==Result::Rejected);
+        assert(p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Forward)==Result::Rejected);
         assert(p.m_items[15]==&p.item && !p.bag.m_bagslot[0]);
         a=p.CapturePB59InventorySlot(gear); ++b->bag;
-        assert(p.RelocatePB59InventoryLinks(*a,*b)==Result::Rejected);
+        assert(p.RelocatePB59InventoryLinks(*a,*b,p.ticket,Admission::Access::Forward)==Result::Rejected);
         assert(p.faults.operation==0);
     }
 }
