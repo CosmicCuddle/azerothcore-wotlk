@@ -3,7 +3,7 @@
 using namespace PB59Prototype;
 int main()
 {
-    ProgressionPublication p{42, 7, 10, 3, 0, true};
+    ProgressionPublication p{42, 7, 10, 1, 3, 3, true, true};
     EquipmentPublication e{42, 7, 20, 45, 50, true};
     auto rp = [&](auto) { return p; };
     auto re = [&](auto) { return e; };
@@ -52,9 +52,27 @@ int main()
     assert(MatchesFinalB(*expected, laterEquipment, re));
     assert(!MatchesFinalB(*expected, rp, re));
     e = expected->equipment;
-    p.stage++;
+    p.rawStage++;
     assert(!MatchesFinalB(*expected, rp, re));
     p = expected->progression;
     e.level++;
+    assert(!MatchesFinalB(*expected, rp, re));
+    e = expected->equipment;
+    p.revision = 0;
+    assert(!ReadCoherent(42, rp, re));
+    p = expected->progression;
+    p.generation = 0;
+    assert(!ReadCoherent(42, rp, re));
+    p = expected->progression;
+    p.generation++;
+    assert(!MatchesFinalB(*expected, rp, re));
+    p = expected->progression;
+    p.rawStage = 19;
+    assert(!ReadCoherent(42, rp, re));
+    p = expected->progression;
+    p.effectiveStage = 4;
+    assert(!ReadCoherent(42, rp, re));
+    p = expected->progression;
+    p.gatedHuman = false;
     assert(!MatchesFinalB(*expected, rp, re));
 }
