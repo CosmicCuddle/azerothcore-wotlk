@@ -34,4 +34,13 @@ constexpr bool AcceptExactStorage(ExactStorageReservation const& expected,
         actual.detached && actual.owned && actual.transferable && actual.validPosition &&
         !actual.occupied && !actual.clone;
 }
+// Equipment restoration uses only the base inventory and an explicitly
+// validated combat slot. The native caller must preflight CanEquipItem and
+// prove detached-item ownership; this gate is not a lifetime proof.
+constexpr bool AcceptExactEquip(ExactStorageReservation const& expected,
+    ExactStorageObservation const& actual)
+{
+    return expected.bagGuid == 0 && actual.bagGuid == 0 &&
+        AcceptExactStorage(expected, actual);
+}
 }

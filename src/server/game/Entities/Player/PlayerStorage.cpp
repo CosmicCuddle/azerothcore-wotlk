@@ -2870,14 +2870,45 @@ Item* Player::EquipNewItem(uint16 pos, uint32 item, bool update)
 
 Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 {
-    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
-    AddEnchantmentDurations(pItem);
-    AddItemDurations(pItem);
+    return _EquipItem(pos, pItem, update, nullptr);
+}
 
+Item* Player::_EquipItem(uint16 pos, Item* pItem, bool update,
+    PB59::ExactStorageReservation const* exact)
+{
+    PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 bag = pos >> 8;
     uint8 slot = pos & 255;
 
+    if (exact)
+    {
+        // No script policy checks here: the caller must validate CanEquipItem
+        // and the exact destination before detaching the original item.
+        bool const validPosition = bag == INVENTORY_SLOT_BAG_0 &&
+            slot < EQUIPMENT_SLOT_END && slot != EQUIPMENT_SLOT_BODY &&
+            slot != EQUIPMENT_SLOT_TABARD;
+        if (!pItem || !validPosition)
+            return nullptr;
+        PB59::ExactStorageObservation const observed{
+            pItem->GetGUID().GetRawValue(), 0, pos, pItem->GetCount(),
+            pItem->GetSlot() == NULL_SLOT && !pItem->GetContainer(),
+            pItem->GetOwnerGUID() == GetGUID(),
+            pItem->GetTemplate() && !pItem->IsInTrade() && !pItem->m_lootGenerated &&
+                pItem->GetGUID() != GetLootGUID() && !pItem->IsBag(),
+            validPosition, GetItemByPos(bag, slot) != nullptr, false};
+        if (!PB59::AcceptExactEquip(*exact, observed))
+            return nullptr;
+    }
+
+    AddEnchantmentDurations(pItem);
+    AddItemDurations(pItem);
+
     Item* pItem2 = GetItemByPos(bag, slot);
+    // Exact mode never reaches the occupied-slot merge/delete branch.
+    // Duration bookkeeping and later callbacks still require an ownership
+    // contract before any exact caller can be enabled.
+    if (exact && pItem2)
+        return nullptr;
 
     if (!pItem2)
     {

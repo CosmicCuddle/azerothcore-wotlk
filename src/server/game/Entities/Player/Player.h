@@ -3009,6 +3009,8 @@ private:
     // PB59 exact mode is a private insertion building block, not a move API.
     Item* _StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update,
         PB59::ExactStorageReservation const* exact = nullptr);
+    // Private exact restoration insertion; no runtime caller until ownership is proven.
+    Item* _EquipItem(uint16 pos, Item* pItem, bool update, PB59::ExactStorageReservation const* exact);
     Item* _LoadItem(CharacterDatabaseTransaction trans, uint32 zoneId, uint32 timeDiff, Field* fields);
 
     CinematicMgr _cinematicMgr;
