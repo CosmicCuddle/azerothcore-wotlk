@@ -16138,6 +16138,18 @@ PetStable& Player::GetOrInitPetStable()
 
 void Player::RefundItem(Item* item)
 {
+    // Refund expiration and recipient checks can also mutate the item.
+    PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
+        PB59::TransactionAdmission::Work::InventoryMutation);
+    if (!admission.Admitted())
+    {
+        WorldPacket data(SMSG_ITEM_REFUND_RESULT, 8 + 4);
+        data << item->GetGUID();
+        data << uint32(10);
+        SendDirectMessage(&data);
+        return;
+    }
+
     if (!item->IsRefundable())
     {
         LOG_DEBUG("entities.player.items", "Item refund: item not refundable!");
