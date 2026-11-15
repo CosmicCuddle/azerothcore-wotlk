@@ -17,23 +17,28 @@
 
 #include "AuctionHouseMgr.h"
 #include "AuctionHouseSearcher.h"
+#include "AuctionWorkerSnapshot.h"
 #include "CharacterCache.h"
 #include "DBCStores.h"
 #include "GameTime.h"
 #include "Player.h"
 
 AuctionHouseWorkerThread::AuctionHouseWorkerThread(ProducerConsumerQueue<AuctionSearcherRequest*>* requestQueue, MPSCQueue<AuctionSearcherResponse>* responseQueue)
+    : _requestQueue(requestQueue), _responseQueue(responseQueue)
 {
     _workerThread = std::thread(&AuctionHouseWorkerThread::Run, this);
-    _requestQueue = requestQueue;
-    _responseQueue = responseQueue;
-    _stopped = false;
+}
+
+AuctionHouseWorkerThread::~AuctionHouseWorkerThread()
+{
+    Stop();
 }
 
 void AuctionHouseWorkerThread::Stop()
 {
     _stopped = true;
-    _workerThread.join();
+    if (_workerThread.joinable())
+        _workerThread.join();
 }
 
 void AuctionHouseWorkerThread::AddAuctionSearchUpdateToQueue(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate)
@@ -97,13 +102,10 @@ void AuctionHouseWorkerThread::SearchUpdateRemove(AuctionSearchRemove const& auc
 
 void AuctionHouseWorkerThread::SearchUpdateBid(AuctionSearchUpdateBid const& auctionUpdateBid)
 {
-    SearchableAuctionEntriesMap const& searchableAuctionMap = GetSearchableAuctionMap(auctionUpdateBid.listFaction);
-    SearchableAuctionEntriesMap::const_iterator itr = searchableAuctionMap.find(auctionUpdateBid.auctionId);
+    SearchableAuctionEntriesMap& searchableAuctionMap = GetSearchableAuctionMap(auctionUpdateBid.listFaction);
+    auto itr = searchableAuctionMap.find(auctionUpdateBid.auctionId);
     if (itr != searchableAuctionMap.end())
-    {
-        itr->second->bid = auctionUpdateBid.bid;
-        itr->second->bidderGuid = auctionUpdateBid.bidderGuid;
-    }
+        itr->second = AuctionWorkerSnapshot::WithBid(itr->second, auctionUpdateBid.bid, auctionUpdateBid.bidderGuid);
 }
 
 void AuctionHouseWorkerThread::ProcessSearchRequests()
@@ -184,7 +186,7 @@ void AuctionHouseWorkerThread::SearchListRequest(AuctionSearchListRequest const&
         // getAll handling
         for (auto const& pair : searchableAuctionMap)
         {
-            std::shared_ptr<SearchableAuctionEntry> const& Aentry = pair.second;
+            std::shared_ptr<SearchableAuctionEntry const> const& Aentry = pair.second;
             ++count;
             Aentry->BuildAuctionInfo(searchResponse->packet);
 
@@ -219,7 +221,7 @@ void AuctionHouseWorkerThread::SearchOwnerListRequest(AuctionSearchOwnerListRequ
         if (pair.second->ownerGuid != searchOwnerListRequest.ownerGuid)
             continue;
 
-        std::shared_ptr<SearchableAuctionEntry> const& auctionEntry = pair.second;
+        std::shared_ptr<SearchableAuctionEntry const> const& auctionEntry = pair.second;
         auctionEntry->BuildAuctionInfo(searchResponse->packet);
         ++count;
         ++totalcount;
@@ -250,7 +252,7 @@ void AuctionHouseWorkerThread::SearchBidderListRequest(AuctionSearchBidderListRe
         if (itr == searchableAuctionMap.end())
             continue;
 
-        std::shared_ptr<SearchableAuctionEntry> const& auctionEntry = itr->second;
+        std::shared_ptr<SearchableAuctionEntry const> const& auctionEntry = itr->second;
         auctionEntry->BuildAuctionInfo(searchResponse->packet);
         ++count;
         ++totalcount;
@@ -261,7 +263,7 @@ void AuctionHouseWorkerThread::SearchBidderListRequest(AuctionSearchBidderListRe
         if (pair.second->bidderGuid != searchBidderListRequest.ownerGuid)
             continue;
 
-        std::shared_ptr<SearchableAuctionEntry> const& auctionEntry = pair.second;
+        std::shared_ptr<SearchableAuctionEntry const> const& auctionEntry = pair.second;
         auctionEntry->BuildAuctionInfo(searchResponse->packet);
         ++count;
         ++totalcount;
@@ -290,7 +292,7 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
 
     for (auto const& pair : auctionMap)
     {
-        std::shared_ptr<SearchableAuctionEntry> const& Aentry = pair.second;
+        std::shared_ptr<SearchableAuctionEntry const> const& Aentry = pair.second;
         SearchableAuctionEntryItem const& Aitem = Aentry->item;
         ItemTemplate const* proto = Aitem.itemTemplate;
 
@@ -414,21 +416,14 @@ void AuctionHouseSearcher::RemoveAuction(AuctionEntry const* auctionEntry)
 
 void AuctionHouseSearcher::UpdateBid(AuctionEntry const* auctionEntry)
 {
-    // Updating bids is a bit unique, we really only need to update a single worker as every worker thread contains
-    // a map of shared pointers to the same SearchableAuctionEntry's, so updating one will update them all.
-    NotifyOneWorker(std::make_shared<AuctionSearchUpdateBid>(auctionEntry->Id, auctionEntry->GetFactionId(), auctionEntry->bid, auctionEntry->bidder));
+    // Each worker owns its map; replace immutable entries instead of mutating shared bid fields.
+    NotifyAllWorkers(std::make_shared<AuctionSearchUpdateBid>(auctionEntry->Id, auctionEntry->GetFactionId(), auctionEntry->bid, auctionEntry->bidder));
 }
 
 void AuctionHouseSearcher::NotifyAllWorkers(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate)
 {
     for (std::unique_ptr<AuctionHouseWorkerThread> const& workerThread : _workerThreads)
         workerThread->AddAuctionSearchUpdateToQueue(auctionSearchUpdate);
-}
-
-void AuctionHouseSearcher::NotifyOneWorker(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate)
-{
-    // Just notify the first worker in the list, no big deal which
-    (*_workerThreads.begin())->AddAuctionSearchUpdateToQueue(auctionSearchUpdate);
 }
 
 void SearchableAuctionEntry::BuildAuctionInfo(WorldPacket& data) const

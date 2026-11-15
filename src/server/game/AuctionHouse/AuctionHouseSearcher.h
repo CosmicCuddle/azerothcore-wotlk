@@ -202,10 +202,10 @@ struct AuctionSearcherUpdate
 
 struct AuctionSearchAdd : AuctionSearcherUpdate
 {
-    AuctionSearchAdd(std::shared_ptr<SearchableAuctionEntry> _searchableAuctionEntry)
+    AuctionSearchAdd(std::shared_ptr<SearchableAuctionEntry const> _searchableAuctionEntry)
         : AuctionSearcherUpdate(AuctionSearcherUpdate::Type::ADD, _searchableAuctionEntry->listFaction), searchableAuctionEntry(_searchableAuctionEntry) { }
 
-    std::shared_ptr<SearchableAuctionEntry> searchableAuctionEntry;
+    std::shared_ptr<SearchableAuctionEntry const> searchableAuctionEntry;
 };
 
 struct AuctionSearchRemove : AuctionSearcherUpdate
@@ -226,8 +226,8 @@ struct AuctionSearchUpdateBid : AuctionSearcherUpdate
     ObjectGuid bidderGuid;
 };
 
-typedef std::unordered_map<uint32, std::shared_ptr<SearchableAuctionEntry>> SearchableAuctionEntriesMap;
-typedef std::vector<SearchableAuctionEntry*> SortableAuctionEntriesList;
+typedef std::unordered_map<uint32, std::shared_ptr<SearchableAuctionEntry const>> SearchableAuctionEntriesMap;
+typedef std::vector<SearchableAuctionEntry const*> SortableAuctionEntriesList;
 
 class AuctionSorter
 {
@@ -245,6 +245,7 @@ class AuctionHouseWorkerThread
 public:
     AuctionHouseWorkerThread(ProducerConsumerQueue<AuctionSearcherRequest*>* requestQueue, MPSCQueue<AuctionSearcherResponse>* responseQueue);
 
+    ~AuctionHouseWorkerThread();
     void Stop();
 
     void AddAuctionSearchUpdateToQueue(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate);
@@ -272,8 +273,8 @@ private:
     ProducerConsumerQueue<AuctionSearcherRequest*>* _requestQueue;
     MPSCQueue<AuctionSearcherResponse>* _responseQueue;
 
+    std::atomic<bool> _stopped{false};
     std::thread _workerThread;
-    std::atomic<bool> _stopped;
 };
 
 class AuctionHouseSearcher
@@ -291,7 +292,6 @@ public:
     void UpdateBid(AuctionEntry const* auctionEntry);
 
     void NotifyAllWorkers(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate);
-    void NotifyOneWorker(std::shared_ptr<AuctionSearcherUpdate> const auctionSearchUpdate);
 
 private:
     ProducerConsumerQueue<AuctionSearcherRequest*> _requestQueue;
