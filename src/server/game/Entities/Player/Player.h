@@ -1104,6 +1104,12 @@ public:
     // Bot owner-context only, including a future serialized movement scope.
     // Nullopt means unknown, never empty. No script callbacks or mutation.
     [[nodiscard]] std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
+    // Owner-context only: producer admission before bot identity retirement.
+    // Lease owns no Player pointer and may outlive native Player destruction.
+    [[nodiscard]] PB59::TransactionAdmission::RetirementLease TryAcquirePB59Retirement() noexcept
+    {
+        return _pb59Transaction.TryAcquireRetirement();
+    }
 
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 
