@@ -98,6 +98,7 @@ struct SlotFacts
     std::uint32_t itemSubClass = 0;
     std::uint32_t scalingDistribution = 0;
     std::uint32_t scalingValue = 0;
+    bool operator==(SlotFacts const&) const = default;
 };
 
 struct EquipmentFacts
@@ -111,5 +112,6 @@ struct EquipmentFacts
     bool dualWield = false;
     bool titanGrip = false;
     std::array<SlotFacts, 19> slots{};
+    bool operator==(EquipmentFacts const&) const = default;
 };
 }
