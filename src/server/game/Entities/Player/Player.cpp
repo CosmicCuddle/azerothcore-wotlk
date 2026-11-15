@@ -1688,8 +1688,23 @@ void Player::ProcessDelayedOperations()
         SpawnCorpseBones();
     }
 
+    bool retrySave = false;
     if (m_DelayedOperations & DELAYED_SAVE_PLAYER)
-        SaveToDB(false, false);
+    {
+        // Consume only this request. Re-arm the existing full-save timer if
+        // blocked; never replay the unrelated delayed gameplay operations.
+        m_DelayedOperations &= ~DELAYED_SAVE_PLAYER;
+        PB59::TransactionAdmission::ExternalScope admission(_pb59Transaction,
+            PB59::TransactionAdmission::Work::ScheduledSave);
+        if (!admission.Admitted() || IsBeingTeleportedFar())
+            retrySave = true;
+        else
+        {
+            SaveToDB(false, false);
+            if (!admission.Admitted())
+                return; // the owner disappeared during a native callback
+        }
+    }
 
     if ((m_DelayedOperations & DELAYED_SPELL_CAST_DESERTER)
         && !GetAura(26013))
@@ -1740,7 +1755,10 @@ void Player::ProcessDelayedOperations()
         }
     }
 
-    //we have executed ALL delayed ops, so clear the flag
+    // Keep a refused or newly queued save due even when periodic saves are
+    // configured off. All other delayed flags retain their original semantics.
+    if (retrySave || (m_DelayedOperations & DELAYED_SAVE_PLAYER))
+        m_nextSave = 1;
     m_DelayedOperations = 0;
 }
 
