@@ -591,6 +591,23 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
         if (!item || to || item->GetGUID().GetRawValue() != source.item->guid)
             return Result::Rejected;
 
+        // A nonnegative queue position is not proof that the save queue
+        // actually owns this item. Validate the exact queue entry, including
+        // duplicate/stale references, before changing any native links.
+        auto validQueue = [&](Item* candidate, bool requireQueued)
+        {
+            auto const occurrences = std::count(m_itemUpdateQueue.begin(),
+                m_itemUpdateQueue.end(), candidate);
+            if (!candidate->IsInUpdateQueue())
+                return !requireQueued && occurrences == 0;
+            auto const index = candidate->GetQueuePos();
+            return index < m_itemUpdateQueue.size() && m_itemUpdateQueue[index] == candidate &&
+                occurrences == 1;
+        };
+        if (!validQueue(item, false) || (fromBag && !validQueue(fromBag, false)) ||
+            (toBag && !validQueue(toBag, false)))
+            return Result::Rejected;
+
         PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
         // Mark the save queue before physical relocation. These calls can
         // allocate; if they fail, the original item is still in its slot.
@@ -599,8 +616,8 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
             fromBag->SetState(ITEM_CHANGED, this);
         if (toBag)
             toBag->SetState(ITEM_CHANGED, this);
-        if (!item->IsInUpdateQueue() || (fromBag && !fromBag->IsInUpdateQueue()) ||
-            (toBag && !toBag->IsInUpdateQueue()))
+        if (!validQueue(item, true) || (fromBag && !validQueue(fromBag, true)) ||
+            (toBag && !validQueue(toBag, true)))
             return Result::Rejected;
 
         // No callbacks, allocation, deletion or yield in the pointer handoff.

@@ -3,11 +3,13 @@
 #include "PB59InventorySlotFacts.h"
 #include "PB59InventoryCustody.h"
 #include "EquipmentCaptureState.h"
+#include <algorithm>
 #include <cassert>
 #include <functional>
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 using uint8 = std::uint8_t;
 using uint16 = std::uint16_t;
@@ -51,9 +53,11 @@ struct Item
     Bag* container=nullptr;
     ObjectGuid contained;
     bool queued=false;
+    unsigned queuePos=0;
     ObjectGuid GetGUID() const { return {facts.guid}; }
-    void SetState(int,Player*) { faults->Write([&]{queued=true;}); }
+    void SetState(int,Player*);
     bool IsInUpdateQueue() const { return queued; }
+    unsigned GetQueuePos() const { return queuePos; }
     void SetSlot(uint8 value) { slot=value; }
     void SetContainer(Bag* value) { container=value; }
     ObjectGuid GetGuidValue(int field) const { assert(field==ITEM_FIELD_CONTAINED); return contained; }
@@ -74,6 +78,7 @@ struct Player
     Faults faults;
     PB59::EquipmentCaptureState _pb59Equipment;
     Item* m_items[40]{};
+    std::vector<Item*> m_itemUpdateQueue;
     ObjectGuid fields[40]{};
     Bag bag;
     Item item;
@@ -121,6 +126,17 @@ struct Player
         m_items[15]=&item; fields[15]=item.GetGUID();
     }
 };
+void Item::SetState(int,Player* player)
+{
+    faults->Write([&]{
+        if (!queued)
+        {
+            queuePos=player->m_itemUpdateQueue.size();
+            player->m_itemUpdateQueue.push_back(this);
+            queued=true;
+        }
+    });
+}
 #include "RelocatePB59InventoryLinks.inc"
 using Result=PB59::LinkTransferResult;
 constexpr uint16 gear=0xff0f, bagSlot=0x1300, backpack=0xff17;
@@ -146,6 +162,18 @@ int main()
         assert(p.m_items[23]==&p.item && !p.m_items[15]);
         assert(check(p,backpack,gear)==Result::Linked);
         assert(p.CapturePB59InventorySlot(gear)==before);
+    }
+    // Stale, duplicated, missing, or misdirected save-queue references refuse.
+    for (int mode=0;mode<5;++mode)
+    {
+        Player p;
+        if (mode==0) { p.item.queued=true; p.item.queuePos=8; }
+        if (mode==1) { p.item.queued=true; p.m_itemUpdateQueue={&p.bag}; }
+        if (mode==2) { p.item.queued=true; p.m_itemUpdateQueue={&p.item,&p.item}; }
+        if (mode==3) { p.m_itemUpdateQueue={&p.item}; }
+        if (mode==4) { p.bag.queued=true; p.bag.queuePos=8; }
+        assert(check(p,gear,bagSlot)==Result::Rejected && p.faults.operation==0);
+        assert(p.m_items[15]==&p.item && !p.bag.m_bagslot[0]);
     }
     // Exact function uses two queue writes then three field writes for bag transfer.
     // Pre- and post-write failure injection: all post-link failures preserve custody.
