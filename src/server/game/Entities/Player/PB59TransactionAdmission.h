@@ -53,6 +53,9 @@ public:
     TransactionAdmission(TransactionAdmission const&) = delete;
     TransactionAdmission& operator=(TransactionAdmission const&) = delete;
 
+    // Process-unique ledger incarnation, independent of the mutable equipment
+    // publication stamp and of the character GUID. Not a lifetime pin.
+    [[nodiscard]] std::uint64_t OwnerIncarnation() const noexcept { return _ownerIncarnation; }
     [[nodiscard]] Phase State() const noexcept { return _phase; }
     [[nodiscard]] bool OwnerSealed() const noexcept { return _ownerSealed; }
     [[nodiscard]] bool PendingSave() const noexcept { return _pendingSave; }
@@ -130,7 +133,7 @@ public:
     }
     [[nodiscard]] bool CanRetire() const noexcept
     {
-        return _phase == Phase::Idle && !_ownerSealed && !ExternalDepth() &&
+        return _ownerIncarnation && _phase == Phase::Idle && !_ownerSealed && !ExternalDepth() &&
             !_pendingSave && !_pendingLogout && !RetirementInProgress();
     }
 
@@ -370,6 +373,16 @@ public:
     // durability acknowledgement. The native adapter must preserve the actual
     // logout flags, replay ownership, bounded retry and shutdown policy.
 private:
+    static std::uint64_t IssueOwnerIncarnation() noexcept
+    {
+        auto last = _lastOwner.load(std::memory_order_relaxed);
+        while (last != std::numeric_limits<std::uint64_t>::max())
+            if (_lastOwner.compare_exchange_weak(last, last + 1, std::memory_order_relaxed))
+                return last + 1;
+        return 0; // exhausted: never reuse an old owner identity
+    }
+    inline static std::atomic<std::uint64_t> _lastOwner{0};
+    std::uint64_t const _ownerIncarnation = IssueOwnerIncarnation();
     inline static std::atomic<Ticket> _lastIssued{0};
     Phase _phase = Phase::Idle;
     Ticket _last = 0;
