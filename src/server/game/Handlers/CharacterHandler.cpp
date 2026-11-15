@@ -820,7 +820,7 @@ void WorldSession::HandlePlayerLoginFromDB(LoginQueryHolder const& holder)
     // Recheck at the actual load boundary, not only at packet/admission time.
     // Ordinary client-to-client reconnect behavior stays on its existing path.
     Player* existing = ObjectAccessor::FindConnectedPlayer(playerGuid);
-    if ((existing && (IsHeadless() || (existing->GetSession() && existing->GetSession()->IsHeadless()))) ||
+    if ((existing && (IsHeadless() || !existing->GetSession() || existing->GetSession()->IsHeadless())) ||
         (IsHeadless() && sWorldSessionMgr->FindOfflineSessionForCharacterGUID(playerGuid.GetCounter())))
     {
         LOG_ERROR("network", "PB59 refused duplicate character load involving headless session: {}", playerGuid.ToString());
