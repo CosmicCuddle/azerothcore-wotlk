@@ -3,6 +3,9 @@
 #include <atomic>
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <new>
+#include <utility>
 
 namespace PB59
 {
@@ -11,6 +14,7 @@ namespace PB59
 // A native adapter must enforce decisions BEFORE the caller's first side effect.
 class TransactionAdmission final
 {
+    struct RetirementTag {};
 public:
     enum class Phase { Idle, Active, RecoveryRequired };
     enum class Access { Forward, Recovery };
@@ -37,10 +41,53 @@ public:
     [[nodiscard]] bool OwnerSealed() const noexcept { return _ownerSealed; }
     [[nodiscard]] bool PendingSave() const noexcept { return _pendingSave; }
     [[nodiscard]] bool PendingLogout() const noexcept { return _pendingLogout; }
+    // The producer lease owns only a tiny token, never Player/AI/session.
+    // Its destruction is safe even after the native logout deletes Player.
+    // It excludes new PB59 work during the producer's synchronous retirement;
+    // it is NOT a thread lock or a proof that every deletion path is guarded.
+    class RetirementLease final
+    {
+    public:
+        RetirementLease() = default;
+        RetirementLease(RetirementLease&&) noexcept = default;
+        RetirementLease& operator=(RetirementLease&&) noexcept = default;
+        RetirementLease(RetirementLease const&) = delete;
+        RetirementLease& operator=(RetirementLease const&) = delete;
+        explicit operator bool() const noexcept { return bool(_token); }
+    private:
+        friend class TransactionAdmission;
+        explicit RetirementLease(std::shared_ptr<RetirementTag const> token) noexcept : _token(std::move(token)) { }
+        std::shared_ptr<RetirementTag const> _token;
+    };
+
+    [[nodiscard]] bool RetirementInProgress() const noexcept { return !_retirement.expired(); }
+    [[nodiscard]] bool CanRetire() const noexcept
+    {
+        return _phase == Phase::Idle && !_ownerSealed && !_externalDepth &&
+            !_pendingSave && !_pendingLogout && !RetirementInProgress();
+    }
+
+    // Explicit busy/retry, not a promise to replay a specific caller's intent.
+    // Do not consume a deferred logout: its flags belong to the native adapter.
+    [[nodiscard]] RetirementLease TryAcquireRetirement() noexcept
+    {
+        if (!CanRetire())
+            return {};
+        try
+        {
+            auto token = std::make_shared<RetirementTag const>();
+            _retirement = token;
+            return RetirementLease(std::move(token));
+        }
+        catch (std::bad_alloc const&)
+        {
+            return {};
+        }
+    }
+
     [[nodiscard]] bool CanBegin() const noexcept
     {
-        return _phase == Phase::Idle && !_ownerSealed && !_externalDepth && !_pendingSave &&
-            !_pendingLogout && _lastIssued.load(std::memory_order_relaxed) != std::numeric_limits<Ticket>::max();
+        return CanRetire() && _lastIssued.load(std::memory_order_relaxed) != std::numeric_limits<Ticket>::max();
     }
 
     // Only a verified native owner/lifetime adapter may call Begin. Zero is
@@ -102,6 +149,17 @@ public:
     {
         if (_ownerSealed)
             return work == Work::Destroy && !_externalDepth ? Decision::Admit : Decision::RejectBeforeMutation;
+        // An independent retirement request cannot enter an admitted producer.
+        // Ordinary save/economic scopes still use their existing idle rules.
+        // The admitted producer's native handoff must be distinguished by its
+        // own adapter; this generic Request is not that handoff.
+        if (RetirementInProgress())
+        {
+            if (work == Work::Destroy)
+                return Decision::RetainOwner;
+            if (work == Work::Logout || work == Work::Redirect)
+                return Decision::RejectBeforeMutation;
+        }
         if (_phase == Phase::Idle)
         {
             switch (work)
@@ -228,5 +286,6 @@ private:
     bool _ownerSealed = false;
     bool _pendingSave = false;
     bool _pendingLogout = false;
+    std::weak_ptr<RetirementTag const> _retirement;
 };
 }
