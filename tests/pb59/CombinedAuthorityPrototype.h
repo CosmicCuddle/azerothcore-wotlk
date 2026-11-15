@@ -52,7 +52,7 @@ std::optional<CombinedAuthority> ReadCoherent(std::uint64_t guid,
         first.guid != guid || equipment.guid != guid || !first.session ||
         !first.revision || !first.generation || first.rawStage > 18 ||
         first.effectiveStage > first.rawStage ||
-        first.session != equipment.session || !equipment.level || !equipment.average)
+        first.session != equipment.session || !equipment.revision || !equipment.level || !equipment.average)
         return std::nullopt;
     return CombinedAuthority{first, equipment};
 }
