@@ -554,13 +554,21 @@ std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 
 }
 
 PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
-    PB59::InventorySlotFacts const& source, PB59::InventorySlotFacts const& destination)
+    PB59::InventorySlotFacts const& source, PB59::InventorySlotFacts const& destination,
+    PB59::TransactionAdmission::Ticket ticket, PB59::TransactionAdmission::Access access)
 {
     // Private raw custody primitive. The caller must supply a serialized
     // owner scope, validate all gameplay policy, reconcile equipment effects
     // and defer notifications, and handle RecoveryRequired before saving.
     // This deliberately does not call RemoveItem, StoreItem or EquipItem.
     using Result = PB59::LinkTransferResult;
+    if (!_pb59Transaction.CanAccess(ticket, access))
+        return Result::Rejected;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return Result::RecoveryRequired;
+    };
     if (!source.item || destination.item || source.owner != destination.owner ||
         source.position == destination.position)
         return Result::Rejected;
@@ -573,7 +581,7 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
     if (combat(source.position) == combat(destination.position))
         return Result::Rejected;
 
-    bool linked = false;
+    bool touched = false;
     try
     {
         auto fromNow = CapturePB59InventorySlot(source.position);
@@ -612,7 +620,10 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
 
         PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
         // Mark the save queue before physical relocation. These calls can
-        // allocate; if they fail, the original item is still in its slot.
+        // allocate or partially change the queue before a failure. Once
+        // marking starts, an unverified result requires reconciliation even
+        // if the original item is still attached to its original slot.
+        touched = true;
         item->SetState(ITEM_CHANGED, this);
         if (fromBag)
             fromBag->SetState(ITEM_CHANGED, this);
@@ -620,13 +631,12 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
             toBag->SetState(ITEM_CHANGED, this);
         if (!validQueue(item, true) || (fromBag && !validQueue(fromBag, true)) ||
             (toBag && !validQueue(toBag, true)))
-            return Result::Rejected;
+            return recovery();
 
         // No callbacks, allocation, deletion or yield in the pointer handoff.
         // The destination owns the same object before the source is cleared.
         if (!PB59::RelocateInventoryPointer(from, to, item))
-            return Result::Rejected;
-        linked = true;
+            return recovery();
         item->SetSlot(toSlot);
         item->SetContainer(toBag);
 
@@ -676,7 +686,7 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
                 (fromGuid != itemGuid && fromGuid != ObjectGuid::Empty) ||
                 (toGuid != itemGuid && toGuid != ObjectGuid::Empty) ||
                 (contained != fromContainer && contained != toContainer))
-                return Result::RecoveryRequired;
+                return recovery();
             // A second failure propagates to the outer recovery result.
             writeFields(true);
         }
@@ -686,13 +696,13 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
         if (!fromNow || !toNow || fromNow->item || fromNow->owner != source.owner ||
             fromNow->bag != source.bag || toNow->owner != destination.owner ||
             toNow->bag != destination.bag || !PB59::SameInventoryInstance(source, *toNow))
-            return Result::RecoveryRequired;
+            return recovery();
         // Linked is only a raw custody result, not a finished equipment move.
         return Result::Linked;
     }
     catch (...)
     {
-        return linked ? Result::RecoveryRequired : Result::Rejected;
+        return touched ? recovery() : Result::Rejected;
     }
 }
 
@@ -3288,22 +3298,30 @@ void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
 }
 
 bool Player::ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& before,
-    PB59::InventorySlotFacts const& after)
+    PB59::InventorySlotFacts const& after, PB59::TransactionAdmission::Ticket ticket,
+    PB59::TransactionAdmission::Access access)
 {
     // Private post-link effect step. The caller must hold the same serialized
     // owner scope and reconcile all other effects before save or notification.
     // A false result means recovery is still required, not a completed move.
-    if (!PB59::VisibleTransitionValid(before, after))
+    if (!_pb59Transaction.CanAccess(ticket, access))
         return false;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return false;
+    };
+    if (!PB59::VisibleTransitionValid(before, after))
+        return recovery();
     uint8 const slot = after.position & 255;
     if ((after.position >> 8) != INVENTORY_SLOT_BAG_0 || slot >= EQUIPMENT_SLOT_END ||
         slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD)
-        return false;
+        return recovery();
     try
     {
         auto current = CapturePB59InventorySlot(after.position);
         if (!current || *current != after)
-            return false;
+            return recovery();
         static_assert(PERM_ENCHANTMENT_SLOT == 0 && TEMP_ENCHANTMENT_SLOT == 1);
         auto const old = PB59::VisibleEquipment(before);
         auto const target = PB59::VisibleEquipment(after);
@@ -3315,7 +3333,7 @@ bool Player::ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& befor
                 GetUInt16Value(enchantField, 1)};
         };
         if (!PB59::CanReconcileVisible(old, target, read()))
-            return false;
+            return recovery();
         PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
         SetUInt32Value(entryField, target.entry);
         SetUInt16Value(enchantField, 0, target.permanent);
@@ -3325,11 +3343,13 @@ bool Player::ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& befor
         ForceValuesUpdateAtIndex(entryField);
         ForceValuesUpdateAtIndex(enchantField);
         current = CapturePB59InventorySlot(after.position);
-        return current && *current == after && read() == target;
+        if (current && *current == after && read() == target)
+            return true;
+        return recovery();
     }
     catch (...)
     {
-        return false;
+        return recovery();
     }
 }
 
