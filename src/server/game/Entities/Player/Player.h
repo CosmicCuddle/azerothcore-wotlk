@@ -3020,6 +3020,9 @@ private:
     // effect/notification reconciliation and failure quarantine are proven.
     PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const& source,
         PB59::InventorySlotFacts const& destination);
+    // Stock visible-field reconciliation only; no script notification or stat effects.
+    bool ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& before,
+        PB59::InventorySlotFacts const& after);
     Item* _LoadItem(CharacterDatabaseTransaction trans, uint32 zoneId, uint32 timeDiff, Field* fields);
 
     CinematicMgr _cinematicMgr;

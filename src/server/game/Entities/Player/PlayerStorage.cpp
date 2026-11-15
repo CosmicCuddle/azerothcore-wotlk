@@ -48,6 +48,8 @@
 #include "OutdoorPvP.h"
 #include "Pet.h"
 #include "Player.h"
+#include "PB59VisibleEquipment.h"
+#include <algorithm>
 #include "QueryHolder.h"
 #include "QuestDef.h"
 #include "RBAC.h"
@@ -3283,6 +3285,52 @@ void Player::SetVisibleItemSlot(uint8 slot, Item* pItem)
     }
 
     sScriptMgr->OnPlayerAfterSetVisibleItemSlot(this, slot, pItem);
+}
+
+bool Player::ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& before,
+    PB59::InventorySlotFacts const& after)
+{
+    // Private post-link effect step. The caller must hold the same serialized
+    // owner scope and reconcile all other effects before save or notification.
+    // A false result means recovery is still required, not a completed move.
+    if (!PB59::VisibleTransitionValid(before, after))
+        return false;
+    uint8 const slot = after.position & 255;
+    if ((after.position >> 8) != INVENTORY_SLOT_BAG_0 || slot >= EQUIPMENT_SLOT_END ||
+        slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD)
+        return false;
+    try
+    {
+        auto current = CapturePB59InventorySlot(after.position);
+        if (!current || *current != after)
+            return false;
+        static_assert(PERM_ENCHANTMENT_SLOT == 0 && TEMP_ENCHANTMENT_SLOT == 1);
+        auto const old = PB59::VisibleEquipment(before);
+        auto const target = PB59::VisibleEquipment(after);
+        uint16 const entryField = PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2;
+        uint16 const enchantField = PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + slot * 2;
+        auto read = [&]() -> PB59::VisibleEquipmentFacts
+        {
+            return {GetUInt32Value(entryField), GetUInt16Value(enchantField, 0),
+                GetUInt16Value(enchantField, 1)};
+        };
+        if (!PB59::CanReconcileVisible(old, target, read()))
+            return false;
+        PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+        SetUInt32Value(entryField, target.entry);
+        SetUInt16Value(enchantField, 0, target.permanent);
+        SetUInt16Value(enchantField, 1, target.temporary);
+        // Also enqueue unchanged values after a possible prior interrupted
+        // write. No OnPlayerAfterSetVisibleItemSlot callback in this step.
+        ForceValuesUpdateAtIndex(entryField);
+        ForceValuesUpdateAtIndex(enchantField);
+        current = CapturePB59InventorySlot(after.position);
+        return current && *current == after && read() == target;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 void Player::VisualizeItem(uint8 slot, Item* pItem)
