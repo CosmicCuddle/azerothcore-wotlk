@@ -27,6 +27,9 @@ int main()
     e.level = 0;
     assert(!ReadCoherent(42, rp, re));
     e = expected->equipment;
+    e.revision = 0;
+    assert(!ReadCoherent(42, rp, re));
+    e = expected->equipment;
     e.revision++; // same average, different equipment generation
     assert(!MatchesFinalB(*expected, rp, re));
     e = expected->equipment;
