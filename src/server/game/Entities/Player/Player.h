@@ -1110,6 +1110,14 @@ public:
     {
         return _pb59Transaction.TryAcquireRetirement();
     }
+    [[nodiscard]] bool PB59RetirementRecoveryRequired() const noexcept
+    {
+        return _pb59Transaction.RetirementRecoveryRequired();
+    }
+    [[nodiscard]] bool OwnsPB59Retirement(PB59::TransactionAdmission::RetirementLease const& lease) const noexcept
+    {
+        return _pb59Transaction.OwnsRetirement(lease);
+    }
 
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 
