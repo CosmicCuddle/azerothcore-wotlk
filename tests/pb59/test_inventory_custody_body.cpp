@@ -4,6 +4,7 @@
 #include "PB59InventoryCustody.h"
 #include "EquipmentCaptureState.h"
 #include <cassert>
+#include <functional>
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
@@ -25,13 +26,19 @@ const ObjectGuid ObjectGuid::Empty{};
 struct Faults
 {
     int operation=0, fail=0;
-    bool after=false;
+    bool after=false, persistent=false;
+    unsigned forced=0;
+    std::function<void()> corrupt;
     void Write(auto fn)
     {
         ++operation;
-        if (operation==fail && !after) throw std::runtime_error("before write");
+        if ((operation==fail || (persistent && operation>=fail)) && !after)
+        {
+            if (corrupt) corrupt();
+            throw std::runtime_error("before write");
+        }
         fn();
-        if (operation==fail && after) throw std::runtime_error("after write");
+        if ((operation==fail || (persistent && operation>=fail)) && after) throw std::runtime_error("after write");
     }
 };
 struct Player;
@@ -49,15 +56,18 @@ struct Item
     bool IsInUpdateQueue() const { return queued; }
     void SetSlot(uint8 value) { slot=value; }
     void SetContainer(Bag* value) { container=value; }
+    ObjectGuid GetGuidValue(int field) const { assert(field==ITEM_FIELD_CONTAINED); return contained; }
     void SetGuidValue(int field,ObjectGuid value)
-    { assert(field==ITEM_FIELD_CONTAINED); faults->Write([&]{contained=value;}); }
+    { assert(field==ITEM_FIELD_CONTAINED); if (contained!=value) faults->Write([&]{contained=value;}); }
+    void ForceValuesUpdateAtIndex(unsigned) { faults->Write([&]{++faults->forced;}); }
 };
 struct Bag : Item
 {
     Item* m_bagslot[36]{};
     ObjectGuid fields[36]{};
+    ObjectGuid GetGuidValue(int field) const { return fields[(field-CONTAINER_FIELD_SLOT_1)/2]; }
     void SetGuidValue(int field,ObjectGuid value)
-    { faults->Write([&]{fields[(field-CONTAINER_FIELD_SLOT_1)/2]=value;}); }
+    { auto& current=fields[(field-CONTAINER_FIELD_SLOT_1)/2]; if(current!=value) faults->Write([&]{current=value;}); }
 };
 struct Player
 {
@@ -71,8 +81,10 @@ struct Player
     bool throwCapture=false;
     ObjectGuid GetGUID() const { return {42}; }
     Bag* GetBagByPos(uint8 pos) { return pos==19 ? &bag : nullptr; }
+    ObjectGuid GetGuidValue(int field) const { return fields[(field-PLAYER_FIELD_INV_SLOT_HEAD)/2]; }
     void SetGuidValue(int field,ObjectGuid value)
-    { faults.Write([&]{fields[(field-PLAYER_FIELD_INV_SLOT_HEAD)/2]=value;}); }
+    { auto& current=fields[(field-PLAYER_FIELD_INV_SLOT_HEAD)/2]; if(current!=value) faults.Write([&]{current=value;}); }
+    void ForceValuesUpdateAtIndex(unsigned) { faults.Write([&]{++faults.forced;}); }
     std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos)
     {
         if (++captures==failCapture)
@@ -148,10 +160,41 @@ int main()
             }
             else
             {
-                assert(result==Result::RecoveryRequired && !p.m_items[15] && p.bag.m_bagslot[0]==&p.item);
+                assert(result==Result::Linked && !p.m_items[15] && p.bag.m_bagslot[0]==&p.item);
+                assert(p.faults.forced==6 && p.CapturePB59InventorySlot(bagSlot));
                 assert(p.item.slot==0 && p.item.container==&p.bag);
             }
         }
+    // Persistent write failures cannot be declared repaired. No pointer loss.
+    for (int operation=3;operation<=5;++operation)
+        for (bool after : {false,true})
+        {
+            Player p; p.faults.fail=operation; p.faults.after=after; p.faults.persistent=true;
+            assert(check(p,gear,bagSlot)==Result::RecoveryRequired);
+            assert(!p.m_items[15] && p.bag.m_bagslot[0]==&p.item);
+        }
+    // Unexpected third-party field values are never overwritten by repair.
+    for (int field=0;field<3;++field)
+    {
+        Player p; p.faults.fail=3;
+        p.faults.corrupt=[&]{
+            if (field==0) p.fields[15]={123};
+            if (field==1) p.bag.fields[0]={123};
+            if (field==2) p.item.contained={123};
+        };
+        assert(check(p,gear,bagSlot)==Result::RecoveryRequired && p.faults.forced==0);
+        assert(!p.m_items[15] && p.bag.m_bagslot[0]==&p.item);
+        assert((field==0?p.fields[15]:field==1?p.bag.fields[0]:p.item.contained).value==123);
+    }
+    // Reverse and backpack paths also recover a one-shot field failure.
+    for (auto target : {bagSlot,backpack})
+    {
+        Player p;
+        assert(check(p,gear,target)==Result::Linked);
+        p.faults.operation=0; p.faults.fail=target==bagSlot?3:2; p.faults.after=true;
+        assert(check(p,target,gear)==Result::Linked && p.faults.forced==6);
+        assert(p.m_items[15]==&p.item && p.CapturePB59InventorySlot(gear));
+    }
     for (int capture : {5,6})
         for (bool throws : {false,true})
         {

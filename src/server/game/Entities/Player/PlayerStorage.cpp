@@ -611,18 +611,56 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
         item->SetSlot(toSlot);
         item->SetContainer(toBag);
 
-        // Field setters enqueue object updates and can fail. Even if they do,
-        // the original object remains attached to the destination pointer;
-        // do not destroy or guess a rollback from incomplete field state.
-        if (fromBag)
-            fromBag->SetGuidValue(CONTAINER_FIELD_SLOT_1 + fromSlot * 2, ObjectGuid::Empty);
-        else
-            SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + fromSlot * 2, ObjectGuid::Empty);
-        if (toBag)
-            toBag->SetGuidValue(CONTAINER_FIELD_SLOT_1 + toSlot * 2, item->GetGUID());
-        else
-            SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + toSlot * 2, item->GetGUID());
-        item->SetGuidValue(ITEM_FIELD_CONTAINED, toBag ? toBag->GetGUID() : GetGUID());
+        // A setter may write the GUID and then fail to enqueue its object
+        // update. Retrying SetGuidValue alone would skip an unchanged value.
+        // Only reconcile the three known links, with exact old/new values.
+        auto fromField = fromBag ? CONTAINER_FIELD_SLOT_1 + fromSlot * 2 :
+            PLAYER_FIELD_INV_SLOT_HEAD + fromSlot * 2;
+        auto toField = toBag ? CONTAINER_FIELD_SLOT_1 + toSlot * 2 :
+            PLAYER_FIELD_INV_SLOT_HEAD + toSlot * 2;
+        auto const itemGuid = item->GetGUID();
+        auto const fromContainer = fromBag ? fromBag->GetGUID() : GetGUID();
+        auto const toContainer = toBag ? toBag->GetGUID() : GetGUID();
+        auto writeFields = [&](bool repair)
+        {
+            auto write = [&](auto& object, uint16 field, ObjectGuid value)
+            {
+                object.SetGuidValue(field, value);
+                if (repair)
+                {
+                    object.ForceValuesUpdateAtIndex(field);
+                    object.ForceValuesUpdateAtIndex(field + 1);
+                }
+            };
+            if (fromBag)
+                write(*fromBag, fromField, ObjectGuid::Empty);
+            else
+                write(*this, fromField, ObjectGuid::Empty);
+            if (toBag)
+                write(*toBag, toField, itemGuid);
+            else
+                write(*this, toField, itemGuid);
+            write(*item, ITEM_FIELD_CONTAINED, toContainer);
+        };
+        try
+        {
+            writeFields(false);
+        }
+        catch (...)
+        {
+            // One bounded repair in the same serialized scope. Never rewrite
+            // an unexpected third-party GUID or a changed inventory pointer.
+            auto fromGuid = fromBag ? fromBag->GetGuidValue(fromField) : GetGuidValue(fromField);
+            auto toGuid = toBag ? toBag->GetGuidValue(toField) : GetGuidValue(toField);
+            auto contained = item->GetGuidValue(ITEM_FIELD_CONTAINED);
+            if (from || to != item || item->GetGUID() != itemGuid ||
+                (fromGuid != itemGuid && fromGuid != ObjectGuid::Empty) ||
+                (toGuid != itemGuid && toGuid != ObjectGuid::Empty) ||
+                (contained != fromContainer && contained != toContainer))
+                return Result::RecoveryRequired;
+            // A second failure propagates to the outer recovery result.
+            writeFields(true);
+        }
 
         fromNow = CapturePB59InventorySlot(source.position);
         toNow = CapturePB59InventorySlot(destination.position);
