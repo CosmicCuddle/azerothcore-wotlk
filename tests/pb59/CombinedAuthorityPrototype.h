@@ -10,8 +10,10 @@ struct ProgressionPublication
     std::uint64_t guid = 0;
     std::uint64_t session = 0;
     std::uint64_t revision = 0;
-    std::uint32_t stage = 0;
-    std::uint32_t expansion = 0;
+    std::uint32_t generation = 0;
+    std::uint8_t rawStage = 0;
+    std::uint8_t effectiveStage = 0;
+    bool gatedHuman = false;
     bool known = false;
     bool operator==(ProgressionPublication const&) const = default;
 };
@@ -48,6 +50,8 @@ std::optional<CombinedAuthority> ReadCoherent(std::uint64_t guid,
     auto last = readProgression(guid);
     if (!first.known || !equipment.known || first != last ||
         first.guid != guid || equipment.guid != guid || !first.session ||
+        !first.revision || !first.generation || first.rawStage > 18 ||
+        first.effectiveStage > first.rawStage ||
         first.session != equipment.session || !equipment.level || !equipment.average)
         return std::nullopt;
     return CombinedAuthority{first, equipment};
