@@ -294,7 +294,7 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
     {
         std::shared_ptr<SearchableAuctionEntry const> const& Aentry = pair.second;
         SearchableAuctionEntryItem const& Aitem = Aentry->item;
-        ItemTemplate const* proto = Aitem.itemTemplate;
+        AuctionSearchItemFacts::Facts const* proto = &Aitem.facts;
 
         if (searchRequest.searchInfo.itemClass != 0xffffffff && proto->Class != searchRequest.searchInfo.itemClass)
             continue;
@@ -320,7 +320,7 @@ void AuctionHouseWorkerThread::BuildListAuctionItems(AuctionSearchListRequest co
 
         if (searchRequest.searchInfo.usable != 0x00)
         {
-            if (!searchRequest.playerInfo.usablePlayerInfo.value().PlayerCanUseItem(proto))
+            if (!searchRequest.playerInfo.usablePlayerInfo.value().PlayerCanUseItem(*proto))
                 continue;
         }
 
@@ -401,9 +401,29 @@ void AuctionHouseSearcher::AddAuction(AuctionEntry const* auctionEntry)
     searchableAuctionEntry->item.suffixFactor = item->GetItemSuffixFactor();
     searchableAuctionEntry->item.count = item->GetCount();
     searchableAuctionEntry->item.spellCharges = item->GetSpellCharges();
-    searchableAuctionEntry->item.itemTemplate = item->GetTemplate();
+    ItemTemplate const* proto = item->GetTemplate();
+    auto& facts = searchableAuctionEntry->item.facts;
+    facts.Class = proto->Class;
+    facts.SubClass = proto->SubClass;
+    facts.InventoryType = proto->InventoryType;
+    facts.Quality = proto->Quality;
+    facts.RequiredLevel = proto->RequiredLevel;
+    facts.AllowableClass = proto->AllowableClass;
+    facts.AllowableRace = proto->AllowableRace;
+    facts.RequiredSkill = proto->RequiredSkill;
+    facts.RequiredSkillRank = proto->RequiredSkillRank;
+    facts.RequiredSpell = proto->RequiredSpell;
+    facts.itemSkill = proto->GetSkill();
+    if (proto->Spells[0].SpellId)
+    {
+        SpellEntry const* spellEntry = sSpellStore.LookupEntry(proto->Spells[0].SpellId);
+        if (spellEntry && spellEntry->Effect[0] == SPELL_EFFECT_LEARN_SPELL && spellEntry->EffectTriggerSpell[0])
+            facts.vanillaLearnedSpell = spellEntry->EffectTriggerSpell[0];
+        facts.teachingSpell = proto->Spells[0].SpellId == 483 || proto->Spells[0].SpellId == 55884;
+        facts.taughtSpell = proto->Spells[1].SpellId;
+    }
 
-    searchableAuctionEntry->SetItemNames();
+    searchableAuctionEntry->SetItemNames(proto);
 
     // Let the worker threads know we have a new auction
     NotifyAllWorkers(std::make_shared<AuctionSearchAdd>(searchableAuctionEntry));
@@ -453,9 +473,8 @@ void SearchableAuctionEntry::BuildAuctionInfo(WorldPacket& data) const
     data << uint32(bid);                                            // current bid
 }
 
-void SearchableAuctionEntry::SetItemNames()
+void SearchableAuctionEntry::SetItemNames(ItemTemplate const* proto)
 {
-    ItemTemplate const* proto = item.itemTemplate;
     ItemLocale const* il = sObjectMgr->GetItemLocale(proto->ItemId);
 
     for (uint32 locale = 0; locale < TOTAL_LOCALES; ++locale)
@@ -518,8 +537,8 @@ int SearchableAuctionEntry::CompareAuctionEntry(uint32 column, SearchableAuction
     {
     case AUCTION_SORT_MINLEVEL:                                             // level = 0
     {
-        ItemTemplate const* itemProto1 = item.itemTemplate;
-        ItemTemplate const* itemProto2 = auc.item.itemTemplate;
+        AuctionSearchItemFacts::Facts const* itemProto1 = &item.facts;
+        AuctionSearchItemFacts::Facts const* itemProto2 = &auc.item.facts;
 
         if (itemProto1->RequiredLevel > itemProto2->RequiredLevel)
             return -1;
@@ -529,8 +548,8 @@ int SearchableAuctionEntry::CompareAuctionEntry(uint32 column, SearchableAuction
     }
     case AUCTION_SORT_RARITY:                                             // quality = 1
     {
-        ItemTemplate const* itemProto1 = item.itemTemplate;
-        ItemTemplate const* itemProto2 = auc.item.itemTemplate;
+        AuctionSearchItemFacts::Facts const* itemProto1 = &item.facts;
+        AuctionSearchItemFacts::Facts const* itemProto2 = &auc.item.facts;
 
         if (itemProto1->Quality < itemProto2->Quality)
             return -1;
@@ -655,47 +674,11 @@ bool AuctionSorter::operator()(SearchableAuctionEntry const* auc1, SearchableAuc
 }
 
 // Slightly simplified version of Player::CanUseItem. Only checks relevant to auctionhouse items
-bool AuctionHouseUsablePlayerInfo::PlayerCanUseItem(ItemTemplate const* proto) const
+bool AuctionHouseUsablePlayerInfo::PlayerCanUseItem(AuctionSearchItemFacts::Facts const& facts) const
 {
-    uint32 itemSkill = proto->GetSkill();
-    if (itemSkill != 0)
-    {
-        if (GetSkillValue(itemSkill) == 0)
-            return false;
-    }
-
-    if ((proto->AllowableClass & classMask) == 0 || (proto->AllowableRace & raceMask) == 0)
-        return false;
-
-    if (proto->RequiredSkill != 0)
-    {
-        if (GetSkillValue(proto->RequiredSkill) == 0)
-            return false;
-        else if (GetSkillValue(proto->RequiredSkill) < proto->RequiredSkillRank)
-            return false;
-    }
-
-    if (proto->RequiredSpell != 0 && !HasSpell(proto->RequiredSpell))
-        return false;
-
-    if (level < proto->RequiredLevel)
-        return false;
-
-    if (proto->Spells[0].SpellId)
-    {
-        // this check is for vanilla recipies. Spells are learned through individual learning spells instead of spell 483 and 55884
-        SpellEntry const* spellEntry = sSpellStore.LookupEntry(proto->Spells[0].SpellId);
-        if (spellEntry && spellEntry->Effect[0] == SPELL_EFFECT_LEARN_SPELL && spellEntry->EffectTriggerSpell[0])
-            if (HasSpell(spellEntry->EffectTriggerSpell[0]))
-                return false;
-
-        // this check is for tbc/wotlk recipies. Spells are learned through 483 and 55884, the second spell in the item will be the actual spell learned.
-        if (proto->Spells[0].SpellId == 483 || proto->Spells[0].SpellId == 55884)
-            if (HasSpell(proto->Spells[1].SpellId))
-                return false;
-    }
-
-    return true;
+    return AuctionSearchItemFacts::Usable(facts, classMask, raceMask, level,
+        [this](uint32 skill) { return GetSkillValue(skill); },
+        [this](uint32 spell) { return HasSpell(spell); });
 }
 
 uint16 AuctionHouseUsablePlayerInfo::GetSkillValue(uint32 skill) const

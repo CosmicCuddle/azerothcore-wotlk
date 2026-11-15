@@ -19,6 +19,7 @@
 #define _AUCTION_HOUSE_SEARCHER_H
 
 #include "AuctionHouseMgr.h"
+#include "AuctionSearchItemFacts.h"
 #include "Common.h"
 #include "Item.h"
 #include "LockedQueue.h"
@@ -72,7 +73,7 @@ struct SearchableAuctionEntryItem
     uint32 suffixFactor;
     uint32 count;
     int32 spellCharges;
-    ItemTemplate const* itemTemplate;
+    AuctionSearchItemFacts::Facts facts;
 };
 
 struct SearchableAuctionEntry
@@ -89,7 +90,7 @@ struct SearchableAuctionEntry
     SearchableAuctionEntryItem item;
 
     void BuildAuctionInfo(WorldPacket& data) const;
-    void SetItemNames();
+    void SetItemNames(ItemTemplate const* proto);
 
     int CompareAuctionEntry(uint32 column, SearchableAuctionEntry const& auc, int loc_idx) const;
 };
@@ -122,7 +123,7 @@ struct AuctionHouseUsablePlayerInfo
     AuctionPlayerSkills skills; // active skills only
     AuctionPlayerSpells spells; // active spells only
 
-    bool PlayerCanUseItem(ItemTemplate const* proto) const;
+    bool PlayerCanUseItem(AuctionSearchItemFacts::Facts const& facts) const;
     uint16 GetSkillValue(uint32 skill) const;
     bool HasSpell(uint32 spell) const;
 };
