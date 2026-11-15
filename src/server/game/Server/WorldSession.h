@@ -32,6 +32,7 @@
 #include "GossipDef.h"
 #include "QueryHolder.h"
 #include "Packet.h"
+#include "PB59SessionIdentity.h"
 #include "SharedDefines.h"
 #include "World.h"
 #include <map>
@@ -1233,6 +1234,7 @@ public:                                                 // opcodes handlers
     std::unique_ptr<WorldPacket> NextQueuedPacket();
 
     [[nodiscard]] bool IsHeadless() const { return _headless; }
+    [[nodiscard]] std::uint64_t GetPB59SessionIncarnation() const noexcept { return _pb59SessionIdentity.Get(); }
 
 private:
     QueryCallbackProcessor _queryProcessor;
@@ -1349,6 +1351,7 @@ private:
     uint32 _orderCounter;
 
     bool const _headless;
+    PB59::SessionIdentity const _pb59SessionIdentity;
 
     WorldSession(WorldSession const& right) = delete;
     WorldSession& operator=(WorldSession const& right) = delete;
