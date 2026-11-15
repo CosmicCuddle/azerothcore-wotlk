@@ -25,6 +25,8 @@ struct Player
     uint32 m_nextSave=0,m_additionalSaveTimer=0;
     uint8 m_additionalSaveMask=0;
     Session session;
+    bool farTeleport=false;
+    bool IsBeingTeleportedFar() const{return farTeleport;}
     std::vector<unsigned> trace;
     Achievement achievement{&trace};
     Achievement* m_achievementMgr=&achievement;
@@ -95,6 +97,9 @@ int main()
      assert(p._pb59Transaction.Finish(t,stable));p.onSave=[&]{assert(!p._pb59Transaction.Begin());};
      p.AutoSaveTick(3);assert(p.m_nextSave==1000&&p.trace==std::vector<unsigned>{10});
      assert(!p.m_additionalSaveMask&&!p.m_additionalSaveTimer);}
+    {Player p;p.m_nextSave=1;p.farTeleport=true;p.AutoSaveTick(10);
+     assert(p.m_nextSave==1&&p.trace.empty());p.farTeleport=false;p.AutoSaveTick(1);
+     assert(p.m_nextSave==1000&&p.trace==std::vector<unsigned>{10});}
     {Player p;CharacterDatabase={};p.session.logout=true;p.m_additionalSaveTimer=1;p.m_additionalSaveMask=7;
      p.UpdateAdditionalSaves(100);assert(!CharacterDatabase.begins&&p.m_additionalSaveMask==7&&p.m_additionalSaveTimer==1);}
     {Player p;CharacterDatabase={};auto l=p._pb59Transaction.TryAcquireRetirement();assert(l);
