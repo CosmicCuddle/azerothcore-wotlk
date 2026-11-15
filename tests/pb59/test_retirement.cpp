@@ -3,6 +3,9 @@
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
+#include <barrier>
+#include <thread>
+#include <atomic>
 using A=PB59::TransactionAdmission;
 using W=A::Work;
 using D=A::Decision;
@@ -49,6 +52,26 @@ int main()
         assert(lease);
         state.reset();
         assert(lease);
+    }
+    // Competing producer reservations only (no concurrent native Player or
+    // mutation/Finish access). Exactly one may hold the token at a time.
+    for (int round=0; round<100; ++round)
+    {
+        A shared;
+        std::barrier gate(3);
+        std::atomic<int> winners{0};
+        auto compete=[&]
+        {
+            gate.arrive_and_wait();
+            auto lease=shared.TryAcquireRetirement();
+            if (lease) ++winners;
+            gate.arrive_and_wait(); // winner holds lease until both try
+        };
+        std::thread first(compete), second(compete);
+        gate.arrive_and_wait();
+        gate.arrive_and_wait();
+        first.join(); second.join();
+        assert(winners==1 && shared.CanRetire());
     }
     A c;
     try { auto lease=c.TryAcquireRetirement(); assert(lease); throw std::runtime_error("producer failure"); }
