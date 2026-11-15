@@ -15,6 +15,13 @@ namespace PB59
 class TransactionAdmission final
 {
     enum class RetirementPhase { Reserved, Mutating, Completed, RecoveryRequired, Released };
+    // A scope may unwind after its owner was destroyed by a native callback.
+    // Keep only the counter alive; never dereference a dead Player ledger.
+    struct ExternalState
+    {
+        TransactionAdmission* owner;
+        std::uint64_t depth = 0;
+    };
     struct RetirementTag
     {
         std::atomic<RetirementPhase> phase{RetirementPhase::Reserved};
@@ -38,6 +45,11 @@ public:
     };
 
     TransactionAdmission() = default;
+    ~TransactionAdmission()
+    {
+        if (_external)
+            _external->owner = nullptr;
+    }
     TransactionAdmission(TransactionAdmission const&) = delete;
     TransactionAdmission& operator=(TransactionAdmission const&) = delete;
 
@@ -118,7 +130,7 @@ public:
     }
     [[nodiscard]] bool CanRetire() const noexcept
     {
-        return _phase == Phase::Idle && !_ownerSealed && !_externalDepth &&
+        return _phase == Phase::Idle && !_ownerSealed && !ExternalDepth() &&
             !_pendingSave && !_pendingLogout && !RetirementInProgress();
     }
 
@@ -174,7 +186,7 @@ public:
 
     [[nodiscard]] bool CanAccess(Ticket ticket, Access access) const noexcept
     {
-        if (!ticket || ticket != _last || _externalDepth || _ownerSealed)
+        if (!ticket || ticket != _last || ExternalDepth() || _ownerSealed)
             return false;
         return (access == Access::Forward && _phase == Phase::Active) ||
             (access == Access::Recovery && _phase == Phase::RecoveryRequired);
@@ -194,7 +206,7 @@ public:
     // conjunction. In-memory stability is NOT durable persistence confirmation.
     bool Finish(Ticket ticket, StableProof proof) noexcept
     {
-        if (!ticket || ticket != _last || _phase == Phase::Idle || _externalDepth ||
+        if (!ticket || ticket != _last || _phase == Phase::Idle || ExternalDepth() ||
             !proof.ownerContext || !proof.inventory || !proof.effects || !proof.saveQueue)
             return false;
         _phase = Phase::Idle;
@@ -206,16 +218,17 @@ public:
     [[nodiscard]] Decision Request(Work work) noexcept
     {
         if (_ownerSealed)
-            return work == Work::Destroy && !_externalDepth ? Decision::Admit : Decision::RejectBeforeMutation;
+            return work == Work::Destroy && !ExternalDepth() ? Decision::Admit : Decision::RejectBeforeMutation;
         // An independent retirement request cannot enter an admitted producer.
-        // Ordinary save/economic scopes still use their existing idle rules.
+        // Ordinary save scopes still use their existing idle rules. No new
+        // external economic mutation while retirement is in progress.
         // The admitted producer's native handoff must be distinguished by its
         // own adapter; this generic Request is not that handoff.
         if (RetirementInProgress())
         {
             if (work == Work::Destroy)
                 return Decision::RetainOwner;
-            if (work == Work::Logout || work == Work::Redirect)
+            if (work == Work::Logout || work == Work::Redirect || work == Work::InventoryMutation)
                 return Decision::RejectBeforeMutation;
         }
         if (_phase == Phase::Idle)
@@ -229,17 +242,17 @@ public:
                 case Work::GoldOnly:
                 case Work::InventoryMutation: return Decision::Admit;
                 case Work::Logout:
-                    if (_externalDepth || _pendingSave)
+                    if (ExternalDepth() || _pendingSave)
                     {
                         _pendingLogout = true;
                         return Decision::DeferLogout;
                     }
                     return Decision::Admit;
                 case Work::Redirect:
-                    return (_externalDepth || _pendingSave || _pendingLogout) ?
+                    return (ExternalDepth() || _pendingSave || _pendingLogout) ?
                         Decision::RejectBeforeMutation : Decision::Admit;
                 case Work::Destroy:
-                    return (_externalDepth || _pendingSave || _pendingLogout) ?
+                    return (ExternalDepth() || _pendingSave || _pendingLogout) ?
                         Decision::RetainOwner : Decision::Admit;
             }
             return Decision::RejectBeforeMutation;
@@ -261,58 +274,74 @@ public:
         return Decision::RejectBeforeMutation;
     }
 
-    // External scopes exclude a new PB59 transaction during save/economy
-    // callbacks. Nested ordinary work is supported. The state must outlive
-    // the scope; destroying a Player with live scopes is NOT permitted.
+    // Owner-context only. The counter outlives the ledger if a callback
+    // destroys it, but this is NOT permission to continue native Player work.
     class ExternalScope final
     {
     public:
         ExternalScope(TransactionAdmission& state, Work work) noexcept
-            : _state(state), _work(work), _decision(state.Request(work))
+            : _work(work), _decision(state.Request(work))
         {
-            if (_decision == Decision::Admit)
+            if (_decision != Decision::Admit)
+                return;
+            try
             {
-                if (_state._externalDepth == std::numeric_limits<std::uint64_t>::max())
+                if (!state._external)
+                    state._external = std::make_shared<ExternalState>(ExternalState{&state});
+                if (state._external->depth == std::numeric_limits<std::uint64_t>::max())
+                {
                     _decision = Decision::RejectBeforeMutation;
-                else
-                    ++_state._externalDepth;
+                    return;
+                }
+                _counter = state._external;
+                ++_counter->depth;
+            }
+            catch (std::bad_alloc const&)
+            {
+                _decision = Decision::RejectBeforeMutation;
             }
         }
-        ~ExternalScope() { if (Admitted()) --_state._externalDepth; }
+        ~ExternalScope() { if (_counter) --_counter->depth; }
         ExternalScope(ExternalScope const&) = delete;
         ExternalScope& operator=(ExternalScope const&) = delete;
-        [[nodiscard]] Decision Result() const noexcept { return _decision; }
-        [[nodiscard]] bool Admitted() const noexcept { return _decision == Decision::Admit; }
+        [[nodiscard]] Decision Result() const noexcept
+        {
+            return _decision == Decision::Admit && !Admitted() ?
+                Decision::RejectBeforeMutation : _decision;
+        }
+        [[nodiscard]] bool Admitted() const noexcept
+        {
+            return _decision == Decision::Admit && _counter && _counter->owner;
+        }
         // The outer admitted replay scope alone can acknowledge its own intent.
-        // The adapter calls this only after the real operation accepts it.
         bool CompleteDeferred() noexcept
         {
-            if (!Admitted() || _state._phase != Phase::Idle || _state._externalDepth != 1)
+            if (!Admitted() || _counter->depth != 1)
                 return false;
-            if (_work != Work::StandaloneSave || !_state._pendingSave)
+            auto& state = *_counter->owner;
+            if (state._phase != Phase::Idle || _work != Work::StandaloneSave || !state._pendingSave)
                 return false;
-            _state._pendingSave = false;
+            state._pendingSave = false;
             return true;
         }
-        // Final lifecycle handoff only, after all required save work and
-        // native logout/redirect preparation. No new gear work may start in
-        // the gap between release of this scope and destruction of its owner.
-        // The adapter must keep this state alive until the scope has exited.
+        // Final lifecycle handoff, only after all required save work.
         bool SealOwner() noexcept
         {
-            if (!Admitted() || _state._phase != Phase::Idle || _state._externalDepth != 1 ||
-                _state._pendingSave || _state._ownerSealed ||
-                (_work != Work::Logout && _work != Work::Redirect && _work != Work::Destroy) ||
-                (_state._pendingLogout && _work != Work::Logout))
+            if (!Admitted() || _counter->depth != 1)
                 return false;
-            _state._pendingLogout = false;
-            _state._ownerSealed = true;
+            auto& state = *_counter->owner;
+            if (state._phase != Phase::Idle || state._pendingSave || state._ownerSealed ||
+                (_work != Work::Logout && _work != Work::Redirect && _work != Work::Destroy) ||
+                (state._pendingLogout && _work != Work::Logout))
+                return false;
+            state._pendingLogout = false;
+            state._ownerSealed = true;
             return true;
         }
     private:
-        TransactionAdmission& _state;
         Work _work;
         Decision _decision;
+        std::shared_ptr<ExternalState> _counter;
     };
 
     // Unwinding a native operation without an explicit stable Finish retains
@@ -344,7 +373,11 @@ private:
     inline static std::atomic<Ticket> _lastIssued{0};
     Phase _phase = Phase::Idle;
     Ticket _last = 0;
-    std::uint64_t _externalDepth = 0;
+    std::shared_ptr<ExternalState> _external;
+    [[nodiscard]] std::uint64_t ExternalDepth() const noexcept
+    {
+        return _external ? _external->depth : 0;
+    }
     bool _ownerSealed = false;
     bool _pendingSave = false;
     bool _pendingLogout = false;
