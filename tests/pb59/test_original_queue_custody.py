@@ -13,18 +13,20 @@ root = Path(__file__).resolve().parents[2]
 player = root / "src/server/game/Entities/Player"
 source = (player / "PlayerStorage.cpp").read_text()
 start = source.index("bool Player::SuspendPB59OriginalQueue(")
-queue_end = source.index("PB59::LinkTransferResult Player::HoldPB59OriginalItem(", start)
+queue_end = source.index("PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects(", start)
+pointer_start = source.index("PB59::LinkTransferResult Player::HoldPB59OriginalItem(", queue_end)
 end = source.index("PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(", start)
 visible_start = source.index("bool Player::ReconcilePB59VisibleEquipment(")
 visible_end = source.index("void Player::VisualizeItem(", visible_start)
-methods = source[start:end] + source[visible_start:visible_end]
+methods = source[start:queue_end] + source[pointer_start:end] + source[visible_start:visible_end]
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
     if args.sanitize:
         flags.append("-fsanitize=address,undefined")
     for filename in ["pb59_original_queue_custody.cpp", "pb59_original_queue_native.cpp",
-                     "pb59_original_pointer_custody.cpp", "pb59_original_pointer_native.cpp"]:
+                     "pb59_original_pointer_custody.cpp", "pb59_original_pointer_native.cpp",
+                     "pb59_original_combat_effects.cpp"]:
         (work / "native_methods.inc").write_text(
             source[start:queue_end] if filename == "pb59_original_queue_native.cpp" else methods)
         exe = work / Path(filename).stem
