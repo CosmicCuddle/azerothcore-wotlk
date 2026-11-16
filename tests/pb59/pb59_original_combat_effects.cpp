@@ -57,5 +57,33 @@ int main()
     check(j.Run(2, 42, true, yes, noOp, noOp) == R::Rejected);
     check(j.Run(1, 43, true, yes, noOp, noOp) == R::Rejected);
     check(j.Run(1, 42, true, yes, noOp, noOp) == R::Complete);
+    // Normal completed rollback is reusable only after an independent
+    // stable native proof, never merely because the journal says Restored.
+    check(j.State() == P::Restored);
+    check(!j.RearmAfterVerifiedRestore(2, 42, yes));
+    check(!j.RearmAfterVerifiedRestore(1, 43, yes));
+    check(!j.RearmAfterVerifiedRestore(1, 42, [] { return false; }));
+    check(!j.RearmAfterVerifiedRestore(1, 42, []() -> bool {
+        throw std::runtime_error("not stable");
+    }));
+    check(j.State() == P::Restored);
+    check(j.RearmAfterVerifiedRestore(1, 42, yes));
+    check(j.State() == P::Fresh);
+    check(!j.Matches(1, 42));
+    check(!j.RearmAfterVerifiedRestore(1, 42, yes));
+    check(j.Run(2, 99, false, yes, noOp, noOp) == R::Complete);
+    check(j.Run(2, 99, true, yes, noOp, noOp) == R::Complete);
+    check(j.RearmAfterVerifiedRestore(2, 99, yes));
+    // Removal-only and ambiguous state can never be re-armed by a guess.
+    Journal removed;
+    check(removed.Run(3, 77, false, yes, noOp, noOp) == R::Complete);
+    check(!removed.RearmAfterVerifiedRestore(3, 77, yes));
+    check(removed.State() == P::Removed);
+    Journal uncertain;
+    auto fail = [](bool) { throw std::runtime_error("partial set"); };
+    check(uncertain.Run(4, 88, false, yes, fail, noOp) == R::RecoveryRequired);
+    check(!uncertain.RearmAfterVerifiedRestore(4, 88, yes));
+    check(uncertain.State() == P::Uncertain);
+    check(uncertain.Run(4, 88, true, yes, noOp, noOp) == R::Rejected);
     std::cout << checks << " combat effect journal checks passed\n";
 }
