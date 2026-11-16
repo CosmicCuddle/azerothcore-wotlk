@@ -621,6 +621,134 @@ bool Player::RestorePB59OriginalQueue(PB59::InventorySlotFacts const& original,
     }
 }
 
+PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts const& original,
+    PB59::TransactionAdmission::Ticket ticket)
+{
+    using Result = PB59::LinkTransferResult;
+    if (!_pb59Transaction.CanAccess(ticket, PB59::TransactionAdmission::Access::Forward) ||
+        !original.item || original.bag || (original.position >> 8) != INVENTORY_SLOT_BAG_0 ||
+        (original.position & 255) >= EQUIPMENT_SLOT_END ||
+        (original.position & 255) == EQUIPMENT_SLOT_BODY ||
+        (original.position & 255) == EQUIPMENT_SLOT_TABARD)
+        return Result::Rejected;
+    uint8 const slot = original.position & 255;
+    auto& hold = _pb59OriginalItems[slot];
+    if (hold.item || hold.original || hold.queue.queue.held || hold.queue.ticket)
+        return Result::Rejected;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return Result::RecoveryRequired;
+    };
+    try
+    {
+        Item* item = m_items[slot];
+        auto const now = CapturePB59InventorySlot(original.position);
+        if (!item || !now || *now != original ||
+            std::count(std::begin(m_items), std::end(m_items), item) != 1)
+            return Result::Rejected;
+        // Copy fallible facts before the first queue or pointer mutation.
+        hold.original = original;
+        if (!SuspendPB59OriginalQueue(original, ticket, hold.queue))
+        {
+            hold.original.reset();
+            return Result::Rejected;
+        }
+        PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+        if (!PB59::TakeOriginalPointer(m_items[slot], hold.item, item))
+            return recovery();
+
+        // The original now has an owner-retained lifetime. A field setter
+        // may throw after writing; recovery accepts only original/empty links.
+        item->SetSlot(NULL_SLOT);
+        SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + slot * 2, ObjectGuid::Empty);
+        item->SetGuidValue(ITEM_FIELD_CONTAINED, ObjectGuid::Empty);
+        auto const empty = CapturePB59InventorySlot(original.position);
+        if (!empty || empty->item || empty->owner != original.owner || empty->bag ||
+            hold.item.get() != item || item->GetSlot() != NULL_SLOT || item->GetContainer() ||
+            item->GetOwnerGUID() != GetGUID() ||
+            !item->GetGuidValue(ITEM_FIELD_CONTAINED).IsEmpty() ||
+            item->GetState() != static_cast<ItemUpdateState>(hold.queue.queue.state) ||
+            !PB59::ExactOriginalQueue(m_itemUpdateQueue, item, item->uQueuePos, false))
+            return recovery();
+        return Result::Linked;
+    }
+    catch (...)
+    {
+        if (hold.queue.queue.held || hold.item)
+            return recovery();
+        hold.original.reset();
+        return Result::Rejected;
+    }
+}
+
+PB59::LinkTransferResult Player::RestorePB59OriginalItem(uint8 slot,
+    PB59::TransactionAdmission::Ticket ticket)
+{
+    using Result = PB59::LinkTransferResult;
+    using Access = PB59::TransactionAdmission::Access;
+    if ((!_pb59Transaction.CanAccess(ticket, Access::Forward) &&
+         !_pb59Transaction.CanAccess(ticket, Access::Recovery)) ||
+        slot >= EQUIPMENT_SLOT_END || slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD)
+        return Result::Rejected;
+    auto& hold = _pb59OriginalItems[slot];
+    if (!hold.original || !hold.original->item || hold.queue.ticket != ticket || !hold.queue.queue.held)
+        return Result::Rejected;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return Result::RecoveryRequired;
+    };
+    try
+    {
+        auto const& original = *hold.original;
+        Item* item = hold.queue.queue.item;
+        if (!item || original.owner != GetGUID().GetRawValue() ||
+            original.position != ((uint16(INVENTORY_SLOT_BAG_0) << 8) | slot) ||
+            original.bag || hold.queue.position != original.position || m_itemUpdateQueueBlocked)
+            return recovery();
+        PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+        if (hold.item)
+        {
+            if (m_items[slot] || hold.item.get() != item ||
+                item->GetGUID().GetRawValue() != original.item->guid ||
+                item->GetOwnerGUID() != GetGUID() || item->GetContainer() ||
+                item->GetState() != static_cast<ItemUpdateState>(hold.queue.queue.state) ||
+                !PB59::ExactOriginalQueue(m_itemUpdateQueue, item, item->uQueuePos, false) ||
+                std::count(std::begin(m_items), std::end(m_items), item) != 0)
+                return recovery();
+            uint16 const field = PLAYER_FIELD_INV_SLOT_HEAD + slot * 2;
+            if (!PB59::CanRestoreOriginalLinks(GetGuidValue(field),
+                    item->GetGuidValue(ITEM_FIELD_CONTAINED), item->GetGUID(), GetGUID(),
+                    ObjectGuid::Empty, item->GetSlot(), slot, uint8(NULL_SLOT)))
+                return recovery();
+
+            // Repair fields before returning the sole owning pointer. Force
+            // update bits even if an interrupted setter already wrote a value.
+            item->SetSlot(slot);
+            SetGuidValue(field, item->GetGUID());
+            ForceValuesUpdateAtIndex(field);
+            ForceValuesUpdateAtIndex(field + 1);
+            item->SetGuidValue(ITEM_FIELD_CONTAINED, GetGUID());
+            item->ForceValuesUpdateAtIndex(ITEM_FIELD_CONTAINED);
+            item->ForceValuesUpdateAtIndex(ITEM_FIELD_CONTAINED + 1);
+            if (!PB59::ReturnOriginalPointer(m_items[slot], hold.item, item))
+                return recovery();
+        }
+        // Also handles failure after pointer restoration or before detachment.
+        if (m_items[slot] != item ||
+            std::count(std::begin(m_items), std::end(m_items), item) != 1 ||
+            !RestorePB59OriginalQueue(original, ticket, hold.queue))
+            return recovery();
+        hold.original.reset();
+        return Result::Linked;
+    }
+    catch (...)
+    {
+        return recovery();
+    }
+}
+
 PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
     PB59::InventorySlotFacts const& source, PB59::InventorySlotFacts const& destination,
     PB59::TransactionAdmission::Ticket ticket, PB59::TransactionAdmission::Access access)
