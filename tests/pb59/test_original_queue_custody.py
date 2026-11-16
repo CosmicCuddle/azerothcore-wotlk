@@ -15,7 +15,9 @@ source = (player / "PlayerStorage.cpp").read_text()
 start = source.index("bool Player::SuspendPB59OriginalQueue(")
 queue_end = source.index("PB59::LinkTransferResult Player::HoldPB59OriginalItem(", start)
 end = source.index("PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(", start)
-methods = source[start:end]
+visible_start = source.index("bool Player::ReconcilePB59VisibleEquipment(")
+visible_end = source.index("void Player::VisualizeItem(", visible_start)
+methods = source[start:end] + source[visible_start:visible_end]
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
