@@ -4963,3 +4963,8 @@ Cluster.IsCrossrealm=0
 # CLUSTER SETTINGS END                                                                            #
 #                                                                                                 #
 ###################################################################################################
+
+# PB59.CharacterSaveEvidence.Enable
+#     Diagnostic-only full character save outcome tracking (quests/items/skills).
+#     Default: 0 (disabled). Development testing only; no automatic recovery.
+PB59.CharacterSaveEvidence.Enable = 0
