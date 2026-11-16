@@ -241,6 +241,7 @@ enum PlayerHook
     PLAYERHOOK_ON_BEFORE_RECEIVE_SPELL_LIST_FROM_TRAINER,
     PLAYERHOOK_ON_GET_TRAINER_SPELL_STATE,
     PLAYERHOOK_ON_AFTER_TRAIN_SPELL,
+    PLAYERHOOK_ON_PB59_AUTOGEAR_PROGRESSION,
     PLAYERHOOK_END
 };
 
@@ -392,6 +393,9 @@ public:
 
     // Called when a player is about to be saved.
     virtual void OnPlayerSave(Player* /*player*/) { }
+
+    // Read-only, caller must own the live Player context. False = unavailable.
+    virtual bool OnPlayerPB59AutoGearProgression(Player* /*player*/, uint8& /*raw*/, uint8& /*effective*/) { return false; }
 
     // Called when a player is bound to an instance
     virtual void OnPlayerBindToInstance(Player* /*player*/, Difficulty /*difficulty*/, uint32 /*mapId*/, bool /*permanent*/) { }
