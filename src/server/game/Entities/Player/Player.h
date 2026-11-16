@@ -1134,6 +1134,35 @@ public:
         return _pb59Transaction.OwnsRetirement(lease);
     }
 
+    // Owner-context read only; a journal in Removed/Restored/Uncertain
+    // remains unsettled until an explicit verified finalisation. This is
+    // deliberately stricter than testing only an owning Item pointer.
+    [[nodiscard]] bool HasPB59UnsettledOriginals() const noexcept
+    {
+        if (_pb59Transaction.State() != PB59::TransactionAdmission::Phase::Idle)
+            return true;
+        for (std::size_t slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            auto const& hold = _pb59OriginalItems[slot];
+            if (hold.item || hold.original || hold.queue.queue.held ||
+                hold.queue.ticket || hold.originallyInWorld ||
+                _pb59OriginalCombatEffects[slot].State() != PB59::OriginalCombatEffects::Phase::Fresh)
+                return true;
+        }
+        return false;
+    }
+
+    // Existing WorldSession logout has no safe way to own a mid-transaction
+    // Player. Reject BEFORE its first side effect. The producer still owes a
+    // bounded owner-context retry; this is not a complete shutdown solution.
+    [[nodiscard]] bool RetainPB59OwnerForUnsettledLogout() noexcept
+    {
+        if (!HasPB59UnsettledOriginals())
+            return false;
+        (void)_pb59Transaction.Request(PB59::TransactionAdmission::Work::Logout);
+        return true;
+    }
+
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 
     void AddToWorld() override;
