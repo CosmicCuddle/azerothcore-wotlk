@@ -22,5 +22,8 @@
 
 void LoadRandomEnchantmentsTable();
 uint32 GetItemEnchantMod(int32 entry);
+// Read-only installed group membership; no random roll. Same world-owner
+// context as GetItemEnchantMod and the enchantment table reload.
+bool HasItemEnchantMod(int32 entry, uint32 enchant);
 uint32 GenerateEnchSuffixFactor(uint32 item_id);
 #endif

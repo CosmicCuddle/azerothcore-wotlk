@@ -23,6 +23,7 @@
 #include "ItemTemplate.h"
 #include "LootMgr.h"
 #include "Object.h"
+#include <memory>
 
 class SpellInfo;
 class Bag;
@@ -222,6 +223,11 @@ public:
     static Item* CreateItem(uint32 item, uint32 count, Player const* player = nullptr, bool clone = false, uint32 randomPropertyId = 0);
     Item* CloneItem(uint32 count, Player const* player = nullptr) const;
 
+    // PB59 preparation only: ownerless, unlinked and unqueued. Does not
+    // publish creation hooks or authorize equip, save or old-item disposal.
+#define COSMIC_PB59_DETACHED_ITEM_API 1
+    [[nodiscard]] static std::unique_ptr<Item> CreatePB59Detached(uint32 entry, int32 randomProperty);
+
     Item();
 
     virtual bool Create(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner);
@@ -365,6 +371,7 @@ public:
 
     std::string GetDebugInfo() const override;
 private:
+    bool CreateInternal(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner, bool notify);
     std::string m_text;
     uint8 m_slot;
     Bag* m_container;

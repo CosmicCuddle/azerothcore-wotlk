@@ -81,6 +81,19 @@ void LoadRandomEnchantmentsTable()
     }
 }
 
+bool HasItemEnchantMod(int32 entry, uint32 enchant)
+{
+    if (entry <= 0 || !enchant)
+        return false;
+    auto const tab = RandomItemEnch.find(uint32(entry));
+    if (tab == RandomItemEnch.end())
+        return false;
+    for (auto const& row : tab->second)
+        if (row.ench == enchant)
+            return true;
+    return false;
+}
+
 uint32 GetItemEnchantMod(int32 entry)
 {
     if (!entry)

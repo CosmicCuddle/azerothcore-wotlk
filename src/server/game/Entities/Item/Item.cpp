@@ -29,6 +29,7 @@
 #include "TC9Sidecar.h"
 #include "Tokenize.h"
 #include "WorldPacket.h"
+#include <limits>
 
 void AddItemsSetItem(Player* player, Item* item)
 {
@@ -282,6 +283,11 @@ Item::Item()
 
 bool Item::Create(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner)
 {
+    return CreateInternal(guidlow, itemid, owner, true);
+}
+
+bool Item::CreateInternal(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner, bool notify)
+{
     Object::_Create(guidlow, 0, HighGuid::Item);
 
     SetEntry(itemid);
@@ -303,7 +309,8 @@ bool Item::Create(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owne
 
     SetUInt32Value(ITEM_FIELD_DURATION, itemProto->Duration);
     SetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME, 0);
-    sScriptMgr->OnItemCreate(this, itemProto, owner);
+    if (notify)
+        sScriptMgr->OnItemCreate(this, itemProto, owner);
     return true;
 }
 
@@ -1123,6 +1130,67 @@ Item* Item::CreateItem(uint32 item, uint32 count, Player const* player, bool clo
         pItem->SetItemRandomProperties(randomPropertyId);
 
     return pItem;
+}
+
+std::unique_ptr<Item> Item::CreatePB59Detached(uint32 entry, int32 randomProperty)
+{
+    // This is only the bounded, private-to-the-transaction preparation step.
+    // Normal CreateItem rolls zero and calls the creation hook immediately;
+    // neither is acceptable while the original equipment must stay intact.
+    // A future commit adapter MUST run normal owner-aware creation hooks and
+    // revalidate the item before attachment. Do not equip/save these objects yet.
+    ItemTemplate const* proto = sObjectMgr->GetItemTemplate(entry);
+    if (!proto || !entry || !proto->ItemLevel || proto->GetMaxStackSize() != 1 ||
+        (proto->Class != ITEM_CLASS_ARMOR && proto->Class != ITEM_CLASS_WEAPON) ||
+        proto->InventoryType == INVTYPE_NON_EQUIP || proto->InventoryType == INVTYPE_BODY ||
+        proto->InventoryType == INVTYPE_TABARD || proto->InventoryType == INVTYPE_BAG ||
+        proto->InventoryType == INVTYPE_QUIVER || proto->InventoryType == INVTYPE_AMMO ||
+        proto->InventoryType > INVTYPE_RELIC || proto->Duration ||
+        proto->ScalingStatDistribution || proto->ScalingStatValue ||
+        proto->Quality == ITEM_QUALITY_HEIRLOOM || sToCloud9Sidecar->IsCrossrealm())
+        return {};
+
+    // Validate the exact signed variant against its actual installed group.
+    // A DBC entry existing somewhere is not proof it belongs to this item.
+    if (proto->RandomProperty < 0 || proto->RandomSuffix < 0 ||
+        (proto->RandomProperty && proto->RandomSuffix) ||
+        randomProperty == std::numeric_limits<int32>::min())
+        return {};
+    if (randomProperty > 0)
+    {
+        if (!proto->RandomProperty ||
+            !HasItemEnchantMod(proto->RandomProperty, uint32(randomProperty)) ||
+            !sItemRandomPropertiesStore.LookupEntry(uint32(randomProperty)))
+            return {};
+    }
+    else if (randomProperty < 0)
+    {
+        uint32 const suffix = uint32(-randomProperty);
+        if (!proto->RandomSuffix || !HasItemEnchantMod(proto->RandomSuffix, suffix) ||
+            !sItemRandomSuffixStore.LookupEntry(suffix) || !GenerateEnchSuffixFactor(entry))
+            return {};
+    }
+    else if (proto->RandomProperty || proto->RandomSuffix)
+        return {}; // Zero is an exact variant, never a request to reroll.
+
+    // No owner, live link, update queue or callback. RAII owns the new object
+    // from allocation through every validation; originals are not touched.
+    auto item = std::make_unique<Item>();
+    if (!item->CreateInternal(sObjectMgr->GetGenerator<HighGuid::Item>().Generate(
+            DEFAULT_NON_CROSSREALM_REALM_ID), entry, nullptr, false))
+        return {};
+    item->SetSlot(NULL_SLOT);
+    static_assert(PROP_ENCHANTMENT_SLOT_0 >= MAX_INSPECTED_ENCHANTMENT_SLOT);
+    item->SetItemRandomProperties(randomProperty);
+    if (!item->GetGUID() || item->GetEntry() != entry || item->GetCount() != 1 ||
+        item->GetItemRandomPropertyId() != randomProperty ||
+        !item->GetOwnerGUID().IsEmpty() || !item->GetGuidValue(ITEM_FIELD_CONTAINED).IsEmpty() ||
+        item->GetContainer() || item->GetSlot() != NULL_SLOT ||
+        item->IsInWorld() || item->IsInUpdateQueue() || item->GetState() != ITEM_NEW)
+        return {};
+    if (randomProperty < 0 && item->GetItemSuffixFactor() != GenerateEnchSuffixFactor(entry))
+        return {};
+    return item;
 }
 
 Item* Item::CloneItem(uint32 count, Player const* player) const
