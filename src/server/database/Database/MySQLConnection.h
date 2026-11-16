@@ -113,6 +113,9 @@ protected:
 private:
     int ExecuteTransactionAttempt(std::shared_ptr<TransactionBase> const& transaction, bool& lostBeforeCommit);
     int AbortTransaction(std::size_t queryCount, bool& lostBeforeCommit);
+    // A failed transaction boundary is never eligible for a deadlock retry.
+    static constexpr int TransactionBoundaryFailure = -2;
+    void ResetTransactionConnection();
 
     ProducerConsumerQueue<SQLOperation*>* m_queue;      //! Queue shared with other asynchronous connections.
     std::unique_ptr<DatabaseWorker> m_worker;           //! Core worker task.
