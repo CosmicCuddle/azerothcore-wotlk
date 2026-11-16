@@ -46,6 +46,7 @@
 #include "PB59InventoryCustody.h"
 #include "PB59OriginalQueueCustody.h"
 #include "PB59OriginalPointerCustody.h"
+#include "PB59OriginalCombatEffects.h"
 #include "PB59TransactionAdmission.h"
 #include "WorldSession.h"
 #include <set>
@@ -3064,6 +3065,12 @@ private:
         PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold);
     bool RestorePB59OriginalQueue(PB59::InventorySlotFacts const& original,
         PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold);
+    // Private, experimental non-idempotent effect adapter. Requires the
+    // exact original still attached and a proven serialized owner lifetime.
+    // No caller until lifecycle, duration, world and final stat proof exist.
+    std::array<PB59::OriginalCombatEffects, EQUIPMENT_SLOT_END> _pb59OriginalCombatEffects{};
+    PB59::OriginalCombatEffects::Result ReconcilePB59OriginalCombatEffects(
+        PB59::InventorySlotFacts const& original, PB59::TransactionAdmission::Ticket ticket, bool apply);
     // Owner-retained custody, never a bag slot. Raw links ONLY: no caller
     // until effects, world references, native save/logout/deletion exclusion
     // and final disposition are all reconciled. Keep across recovery attempts.
