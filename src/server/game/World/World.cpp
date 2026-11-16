@@ -1157,6 +1157,7 @@ void World::Update(uint32 diff)
     if (_timers[WUPDATE_5_SECS].Passed())
     {
         _timers[WUPDATE_5_SECS].Reset();
+        Player::DrainPB59CharacterSaveEvidence();
 
         // moved here from HandleCharEnumOpcode
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_EXPIRED_BANS);
