@@ -9,7 +9,9 @@ enum class DatabaseTransactionStatus
     Empty,
     NotStarted,
     Ambiguous,
-    FailedUnverified
+    FailedUnverified,
+    NotEnqueued,
+    CancelledBeforeExecution
 };
 
 struct DatabaseTransactionResult
@@ -27,6 +29,8 @@ struct DatabaseTransactionResult
     static constexpr int NotStartedCode = -3;
     // A later attempt did not start, but earlier statements may have run.
     static constexpr int PriorAttemptFailureCode = -4;
+    static constexpr int NotEnqueuedCode = -5;
+    static constexpr int CancelledBeforeExecutionCode = -6;
 
     static constexpr DatabaseTransactionResult FromExecutionCode(int code) noexcept
     {
@@ -36,6 +40,8 @@ struct DatabaseTransactionResult
             case EmptyCode: return {DatabaseTransactionStatus::Empty, code};
             case NotStartedCode: return {DatabaseTransactionStatus::NotStarted, code};
             case AmbiguousCode: return {DatabaseTransactionStatus::Ambiguous, code};
+            case NotEnqueuedCode: return {DatabaseTransactionStatus::NotEnqueued, code};
+            case CancelledBeforeExecutionCode: return {DatabaseTransactionStatus::CancelledBeforeExecution, code};
             default: return {DatabaseTransactionStatus::FailedUnverified, code};
         }
     }
