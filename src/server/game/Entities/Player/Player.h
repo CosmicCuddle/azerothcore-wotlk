@@ -1152,17 +1152,6 @@ public:
         return false;
     }
 
-    // Existing WorldSession logout has no safe way to own a mid-transaction
-    // Player. Reject BEFORE its first side effect. The producer still owes a
-    // bounded owner-context retry; this is not a complete shutdown solution.
-    [[nodiscard]] bool RetainPB59OwnerForUnsettledLogout() noexcept
-    {
-        if (!HasPB59UnsettledOriginals())
-            return false;
-        (void)_pb59Transaction.Request(PB59::TransactionAdmission::Work::Logout);
-        return true;
-    }
-
     void CleanupsBeforeDelete(bool finalCleanup = true) override;
 
     void AddToWorld() override;
