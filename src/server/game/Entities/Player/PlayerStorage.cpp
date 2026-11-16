@@ -49,6 +49,8 @@
 #include "Pet.h"
 #include "Player.h"
 #include "PB59VisibleEquipment.h"
+#include "PB59CharacterSaveObserver.h"
+#include "WorldSession.h"
 #include <algorithm>
 #include "QueryHolder.h"
 #include "QuestDef.h"
@@ -7617,16 +7619,74 @@ bool Player::_LoadHomeBind(PreparedQueryResult result)
 /***                   SAVE SYSTEM                     ***/
 /*********************************************************/
 
+namespace
+{
+    using SaveObserver = PB59::CharacterSaveObserver<256>;
+    SaveObserver& PB59SaveObserver()
+    {
+        static SaveObserver observer;
+        return observer;
+    }
+}
+
+void Player::DrainPB59CharacterSaveEvidence(bool final)
+{
+    PB59SaveObserver().Drain([](SaveObserver::Record const& record)
+    {
+        if (record.result.IsCommitted() || record.result.status == DatabaseTransactionStatus::Empty)
+            return;
+        auto const& id = record.ticket.identity;
+        auto const& evidence = record.evidence;
+        LOG_ERROR("entities.player", "PB59 character save uncertain/failed: GUID {} player {} session {} sequence {} outcome {} code {}; possible missing deltas; quest IDs {}, item GUIDs {}, skill IDs {}, truncated/incomplete {}. No automatic replay.",
+            id.guid, id.player, id.session, id.sequence, static_cast<int>(record.result.status), record.result.executionCode,
+            evidence.questCount, evidence.itemCount, evidence.skillCount, evidence.incomplete);
+        for (std::size_t i = 0; i < evidence.questCount; ++i)
+            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} quest {} (verify manually; no automatic repair)", id.guid, id.sequence, evidence.quests[i]);
+        for (std::size_t i = 0; i < evidence.itemCount; ++i)
+            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} item {}", id.guid, id.sequence, evidence.items[i]);
+        for (std::size_t i = 0; i < evidence.skillCount; ++i)
+            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} skill {}", id.guid, id.sequence, evidence.skills[i]);
+    }, final);
+}
+
 void Player::SaveToDB(bool create, bool logout)
 {
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
-    SaveToDB(trans, create, logout);
-
+    bool built = false;
+    // Opt-in diagnostics only. Preserve the legacy path for character
+    // creation, external transaction owners and the disabled feature.
+    if (!create && GetSession() && sConfigMgr->GetOption<bool>("PB59.CharacterSaveEvidence.Enable", false))
+    {
+        auto& observer = PB59SaveObserver();
+        auto reservation = observer.Reserve(GetGUID().GetRawValue(), GetPB59OwnerIncarnation(), GetSession()->GetPB59SessionIncarnation());
+        if (reservation.status == SaveObserver::Store::Admission::Accepted)
+        {
+            PB59::SaveEvidence evidence;
+            SaveToDBWithEvidence(trans, create, logout, &evidence);
+            built = true;
+            if (observer.Seal(reservation.ticket, evidence))
+            {
+                auto future = CharacterDatabase.AsyncCommitTransactionWithOutcome(trans);
+                if (!observer.Attach(reservation.ticket, std::move(future)))
+                    LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} outcome attachment failed; do not replay", GetGUID().GetRawValue(), reservation.ticket.identity.sequence);
+                return;
+            }
+            observer.Abandon(reservation.ticket);
+        }
+        LOG_ERROR("entities.player", "PB59 character save GUID {} diagnostic reservation/capture unavailable; continuing native save, possible missing evidence", GetGUID().GetRawValue());
+    }
+    if (!built)
+        SaveToDB(trans, create, logout);
     CharacterDatabase.CommitTransaction(trans);
 }
 
 void Player::SaveToDB(CharacterDatabaseTransaction trans, bool create, bool logout)
+{
+    SaveToDBWithEvidence(std::move(trans), create, logout, nullptr);
+}
+
+void Player::SaveToDBWithEvidence(CharacterDatabaseTransaction trans, bool create, bool logout, PB59::SaveEvidence* evidence)
 {
     // delay auto save at any saves (manual, in code, or autosave)
     m_nextSave = sWorld->getIntConfig(CONFIG_INTERVAL_SAVE);
@@ -7657,8 +7717,8 @@ void Player::SaveToDB(CharacterDatabaseTransaction trans, bool create, bool logo
         _SaveMail(trans);
 
     _SaveEntryPoint(trans);
-    _SaveInventory(trans);
-    _SaveQuestStatus(trans);
+    _SaveInventory(trans, evidence);
+    _SaveQuestStatus(trans, evidence);
     _SaveDailyQuestStatus(trans);
     _SaveWeeklyQuestStatus(trans);
     _SaveSeasonalQuestStatus(trans);
@@ -7668,7 +7728,7 @@ void Player::SaveToDB(CharacterDatabaseTransaction trans, bool create, bool logo
     _SaveSpellCooldowns(trans, logout);
     _SaveActions(trans);
     _SaveAuras(trans, logout);
-    _SaveSkills(trans);
+    _SaveSkills(trans, evidence);
     m_achievementMgr->SaveToDB(trans);
     m_reputationMgr->SaveToDB(trans);
     _SaveEquipmentSets(trans);
@@ -7820,7 +7880,7 @@ void Player::_SaveAuras(CharacterDatabaseTransaction trans, bool logout)
     }
 }
 
-void Player::_SaveInventory(CharacterDatabaseTransaction trans)
+void Player::_SaveInventory(CharacterDatabaseTransaction trans, PB59::SaveEvidence* evidence)
 {
     CharacterDatabasePreparedStatement* stmt = nullptr;
     // force items in buyback slots to new state
@@ -7830,6 +7890,9 @@ void Player::_SaveInventory(CharacterDatabaseTransaction trans)
         Item* item = m_items[i];
         if (!item)
             continue;
+
+        if (evidence)
+            evidence->AddItem(item->GetGUID().GetRawValue());
 
         if (item->GetState() == ITEM_NEW)
         {
@@ -7891,6 +7954,9 @@ void Player::_SaveInventory(CharacterDatabaseTransaction trans)
         Item* item = m_itemUpdateQueue[i];
         if (!item)
             continue;
+
+        if (evidence)
+            evidence->AddItem(item->GetGUID().GetRawValue());
 
         Bag* container = item->GetContainer();
         ObjectGuid::LowType bag_guid = container ? container->GetGUID().GetCounter() : 0;
@@ -8033,8 +8099,19 @@ void Player::_SaveMail(CharacterDatabaseTransaction trans)
     m_mailsUpdated = false;
 }
 
-void Player::_SaveQuestStatus(CharacterDatabaseTransaction trans)
+void Player::_SaveQuestStatus(CharacterDatabaseTransaction trans, PB59::SaveEvidence* evidence)
 {
+    if (evidence)
+    {
+        // Capture IP markers first, so ordinary quest truncation cannot hide them.
+        for (uint32 id = 66001; id <= 66018; ++id)
+            if (m_QuestStatusSave.count(id) || m_RewardedQuestsSave.count(id))
+                evidence->AddQuest(id);
+        for (auto const& entry : m_QuestStatusSave)
+            evidence->AddQuest(entry.first);
+        for (auto const& entry : m_RewardedQuestsSave)
+            evidence->AddQuest(entry.first);
+    }
     bool isTransaction = static_cast<bool>(trans);
     if (!isTransaction)
         trans = CharacterDatabase.BeginTransaction();
@@ -8217,7 +8294,7 @@ void Player::_SaveMonthlyQuestStatus(CharacterDatabaseTransaction trans)
     m_MonthlyQuestChanged = false;
 }
 
-void Player::_SaveSkills(CharacterDatabaseTransaction trans)
+void Player::_SaveSkills(CharacterDatabaseTransaction trans, PB59::SaveEvidence* evidence)
 {
     CharacterDatabasePreparedStatement* stmt = nullptr;
     // we don't need transactions here.
@@ -8228,6 +8305,9 @@ void Player::_SaveSkills(CharacterDatabaseTransaction trans)
             ++itr;
             continue;
         }
+
+        if (evidence)
+            evidence->AddSkill(itr->first);
 
         if (itr->second.uState == SKILL_DELETED)
         {
