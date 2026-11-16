@@ -19,6 +19,7 @@
 #define _TRANSACTION_H
 
 #include "DatabaseEnvFwd.h"
+#include "DatabaseTransactionResult.h"
 #include "Define.h"
 #include "SQLOperation.h"
 #include "StringFormat.h"
@@ -87,6 +88,7 @@ public:
 protected:
     bool Execute() override;
     int TryExecute();
+    int ExecuteWithCode();
     void CleanupOnFailure();
 
     std::shared_ptr<TransactionBase> m_trans;
@@ -104,6 +106,26 @@ protected:
     bool Execute() override;
 
     TransactionPromise m_result;
+};
+
+// Value-only future. No callback or Player pointer is invoked on the DB worker.
+// A queued task destroyed by Cancel() publishes a distinct cancellation result.
+class AC_DATABASE_API TransactionWithOutcomeTask : public TransactionTask
+{
+public:
+    explicit TransactionWithOutcomeTask(std::shared_ptr<TransactionBase> trans) : TransactionTask(std::move(trans)) {}
+    ~TransactionWithOutcomeTask() override;
+    std::future<DatabaseTransactionResult> GetFuture() { return _result.get_future(); }
+    void Reject();
+
+protected:
+    bool Execute() override;
+
+private:
+    void Complete(int code);
+    std::promise<DatabaseTransactionResult> _result;
+    bool _started = false;
+    bool _completed = false;
 };
 
 class AC_DATABASE_API TransactionCallback
