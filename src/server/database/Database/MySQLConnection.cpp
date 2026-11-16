@@ -407,7 +407,11 @@ int MySQLConnection::ExecuteTransaction(std::shared_ptr<TransactionBase> transac
         int errorCode = ExecuteTransactionAttempt(transaction, lostBeforeCommit);
 
         if (!lostBeforeCommit)
+        {
+            if (attempt > 1 && errorCode == TransactionNotStarted)
+                return DatabaseTransactionResult::PriorAttemptFailureCode;
             return errorCode;
+        }
 
         if (attempt == MAX_TRANSACTION_ATTEMPTS)
         {
