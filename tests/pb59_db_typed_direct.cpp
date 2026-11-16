@@ -42,11 +42,12 @@ int main() {
     check({1062}, S::FailedUnverified, 1062, 1);
     check({1213, 0}, S::Committed, 0, 1);
     check({1213, -2}, S::Ambiguous, -2, 1);
+    check({1213, -3}, S::FailedUnverified, -4, 1);
     check({1213, 1062}, S::FailedUnverified, 1062, 1);
     check({1213, 1213, 1213, 1213, 1213, 1213}, S::FailedUnverified, 1213, 1);
     DatabaseWorkerPool<Connection> legacy({1213, -2});
     auto t = std::make_shared<Transaction>();
     legacy.DirectCommitTransaction(t);
     assert(legacy.connection.cursor == 2 && legacy.connection.unlocks == 1 && t->cleaned == 1);
-    std::cout << "PASS: 10 typed direct transaction scenarios\n";
+    std::cout << "PASS: 11 typed direct transaction scenarios\n";
 }
