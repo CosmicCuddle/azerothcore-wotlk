@@ -7660,11 +7660,14 @@ void Player::SaveToDB(bool create, bool logout)
     {
         auto& observer = PB59SaveObserver();
         auto reservation = observer.Reserve(GetGUID().GetRawValue(), GetPB59OwnerIncarnation(), GetSession()->GetPB59SessionIncarnation());
+        // Even if diagnostics are saturated, capture the same bounded evidence
+        // before the native writers consume their dirty maps. In particular
+        // _SaveQuestStatus records IP marker IDs before ordinary quest IDs.
+        PB59::SaveEvidence evidence;
+        SaveToDBWithEvidence(trans, create, logout, &evidence);
+        built = true;
         if (reservation.status == SaveObserver::Store::Admission::Accepted)
         {
-            PB59::SaveEvidence evidence;
-            SaveToDBWithEvidence(trans, create, logout, &evidence);
-            built = true;
             if (observer.Seal(reservation.ticket, evidence))
             {
                 auto future = CharacterDatabase.AsyncCommitTransactionWithOutcome(trans);
@@ -7675,6 +7678,12 @@ void Player::SaveToDB(bool create, bool logout)
             observer.Abandon(reservation.ticket);
         }
         LOG_ERROR("entities.player", "PB59 character save GUID {} diagnostic reservation/capture unavailable; continuing native save, possible missing evidence", GetGUID().GetRawValue());
+        // This is evidence of a native write attempt, not a commit outcome.
+        // Do not retry or infer that any logged marker was persisted.
+        for (std::size_t i = 0; i < evidence.questCount; ++i)
+            if (evidence.quests[i] >= 66001 && evidence.quests[i] <= 66018)
+                LOG_ERROR("entities.player", "PB59 unobserved save GUID {} carries progression marker quest {}; verify outcome manually",
+                    GetGUID().GetRawValue(), evidence.quests[i]);
     }
     if (!built)
         SaveToDB(trans, create, logout);

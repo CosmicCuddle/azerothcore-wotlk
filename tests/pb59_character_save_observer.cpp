@@ -41,5 +41,41 @@ int main()
     observer.Drain(report,true);
     assert(reports.size()==5 && reports[3].result.status==Status::Ambiguous && reports[4].evidence.incomplete);
     assert(observer.Reserve(1,2,3).status==A::Accepted);
-    std::cout << "PASS: bounded capture, capacity, delayed/out-of-order completion, broken future, final drain, slot reuse\n";
+    // On saturation only, ready successes can be reclaimed without waiting
+    // for periodic Drain; every uncertain record must survive to reporting.
+    {
+        Observer full;
+        auto x=full.Reserve(10,11,12), y=full.Reserve(20,21,22);
+        assert(x.status==A::Accepted && y.status==A::Accepted);
+        assert(full.Seal(x.ticket,evidence) && full.Seal(y.ticket,evidence));
+        std::promise<DatabaseTransactionResult> success, uncertain;
+        assert(full.Attach(x.ticket,success.get_future()) && full.Attach(y.ticket,uncertain.get_future()));
+        success.set_value(DatabaseTransactionResult::FromExecutionCode(0));
+        uncertain.set_value(DatabaseTransactionResult::FromExecutionCode(-2));
+        auto z=full.Reserve(30,31,32);
+        assert(z.status==A::Accepted && z.ticket.slot==x.ticket.slot && z.ticket.serial!=x.ticket.serial);
+        assert(!full.Seal(x.ticket,evidence) && !full.Attach(x.ticket,{}));
+        assert(full.Reserve(40,41,42).status==A::Full);
+        unsigned failed=0;
+        full.Drain([&](Observer::Record const& r){
+            assert(r.ticket==y.ticket && r.result.status==Status::Ambiguous && r.evidence.quests[0]==66001);
+            ++failed;
+        });
+        assert(failed==1 && full.Reserve(40,41,42).status==A::Accepted);
+    }
+    {
+        Observer full;
+        auto x=full.Reserve(10,11,12), y=full.Reserve(20,21,22);
+        assert(full.Seal(x.ticket,evidence) && full.Seal(y.ticket,evidence));
+        std::promise<DatabaseTransactionResult> empty;
+        assert(full.Attach(x.ticket,empty.get_future()));
+        { std::promise<DatabaseTransactionResult> broken; assert(full.Attach(y.ticket,broken.get_future())); }
+        empty.set_value(DatabaseTransactionResult::FromExecutionCode(DatabaseTransactionResult::EmptyCode));
+        auto z=full.Reserve(30,31,32);
+        assert(z.status==A::Accepted && z.ticket.slot==x.ticket.slot);
+        unsigned failed=0;
+        full.Drain([&](Observer::Record const& r){assert(r.ticket==y.ticket && r.result.status==Status::Ambiguous);++failed;});
+        assert(failed==1);
+    }
+    std::cout << "PASS: bounded capture, capacity, delayed/out-of-order completion, broken future, final drain, slot reuse, saturation reclamation\n";
 }

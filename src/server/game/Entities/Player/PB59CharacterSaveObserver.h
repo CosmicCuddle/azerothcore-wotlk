@@ -23,7 +23,17 @@ public:
         std::lock_guard lock(_mutex);
         if (_sequence == std::numeric_limits<std::uint64_t>::max())
             return {Store::Admission::Exhausted, {}};
-        return _store.Reserve({guid, player, session, ++_sequence});
+        SaveIdentity const identity{guid, player, session, ++_sequence};
+        auto reservation = _store.Reserve(identity);
+        if (reservation.status == Store::Admission::Full)
+        {
+            // The production report sink deliberately ignores successful/empty
+            // saves. Reclaim ONLY those already terminal (or ready now) when
+            // capacity is needed; keep all uncertain records for Drain().
+            ReclaimSuccessful();
+            reservation = _store.Reserve(identity);
+        }
+        return reservation;
     }
 
     bool Seal(Ticket const& ticket, SaveEvidence const& evidence)
@@ -86,6 +96,32 @@ public:
     }
 
 private:
+    void ReclaimSuccessful()
+    {
+        // Caller holds _mutex. Bounded, nonblocking, no reporting callback.
+        for (std::size_t i = 0; i < Capacity; ++i)
+        {
+            auto record = _store.InspectSlot(i);
+            if (!record)
+                continue;
+            if (record->state == Store::State::Pending)
+            {
+                auto& future = _futures[i];
+                if (future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+                {
+                    auto result = DatabaseTransactionResult::FromExecutionCode(DatabaseTransactionResult::AmbiguousCode);
+                    try { result = future.get(); }
+                    catch (...) {} // missing result is uncertain, never a success
+                    _store.Complete(record->ticket, result);
+                    record = _store.InspectSlot(i);
+                }
+            }
+            if (record && record->state == Store::State::Terminal &&
+                (record->result.IsCommitted() || record->result.status == DatabaseTransactionStatus::Empty))
+                _store.Acknowledge(record->ticket);
+        }
+    }
+
     std::mutex _mutex;
     Store _store;
     std::array<std::future<DatabaseTransactionResult>, Capacity> _futures;
