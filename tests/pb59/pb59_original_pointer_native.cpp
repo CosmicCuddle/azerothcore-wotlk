@@ -21,9 +21,10 @@ enum ItemUpdateState { ITEM_UNCHANGED, ITEM_CHANGED, ITEM_NEW, ITEM_REMOVED };
 struct Fault { int remaining = -1; void hit() { if (remaining == 0) { remaining = -1; throw std::runtime_error("field write"); } if (remaining > 0) --remaining; } };
 struct Item {
     Fault* fault{}; ObjectGuid guid{42}, owner{7}, contained{7}; uint8 slot{}; ItemUpdateState state = ITEM_CHANGED; int uQueuePos = 0;
-    bool world = true, updated = true;
+    bool world = true, updated = true, partialWorldFailure = false;
     bool IsInWorld() const { return world; }
-    void RemoveFromWorld() { world=false; updated=false; fault->hit(); }
+    bool PB59HasObjectUpdatePending() const { return updated; }
+    void RemoveFromWorld() { world=false; if (!partialWorldFailure) updated=false; fault->hit(); }
     void AddToWorld() { assert(!updated); world=true; fault->hit(); }
     ObjectGuid GetGUID() const { return guid; } ObjectGuid GetOwnerGUID() const { return owner; }
     ObjectGuid GetGuidValue(uint16) const { return contained; } void SetGuidValue(uint16, ObjectGuid g) { contained = g; fault->hit(); }
@@ -39,6 +40,9 @@ struct Player {
     struct PB59OriginalQueueHold { PB59::OriginalQueueCustody<Item> queue; unsigned ticket{}; uint16 position{}; };
     struct PB59OriginalItemHold { std::unique_ptr<Item> item; std::optional<PB59::InventorySlotFacts> original; PB59OriginalQueueHold queue; bool originallyInWorld=false; };
     Fault fault; PB59::TransactionAdmission _pb59Transaction; PB59::EquipmentCaptureState _pb59Equipment;
+    bool teleportFar = false, teleportNear = false;
+    bool IsBeingTeleportedFar() const { return teleportFar; }
+    bool IsBeingTeleportedNear() const { return teleportNear; }
     std::array<Item*,23> m_items{}; std::array<ObjectGuid,19> fields{}; std::array<PB59OriginalItemHold,19> _pb59OriginalItems{};
     std::vector<Item*> m_itemUpdateQueue; bool m_itemUpdateQueueBlocked{};
     std::list<Item*> m_itemDuration;
@@ -94,6 +98,28 @@ int main() {
       p.m_enchantDuration.clear();
       check(p.HoldPB59OriginalItem(original,1)==R::Linked);
       check(p.RestorePB59OriginalItem(0,1)==R::Linked); restored(p,i);
+    }
+    { Player p; Item* i=p.m_items[0]; auto original=snapshot(p);
+      p.teleportFar=true;
+      check(p.HoldPB59OriginalItem(original,1)==R::Rejected);
+      check(p.m_items[0]==i && i->IsInWorld() && p.m_itemUpdateQueue[0]==i);
+      p.teleportFar=false; p.teleportNear=true;
+      check(p.HoldPB59OriginalItem(original,1)==R::Rejected);
+      p.teleportNear=false;
+      check(p.HoldPB59OriginalItem(original,1)==R::Linked);
+      p.teleportFar=true;
+      check(p.RestorePB59OriginalItem(0,1)==R::RecoveryRequired);
+      check(p._pb59OriginalItems[0].item.get()==i);
+      p.teleportFar=false;
+      check(p.RestorePB59OriginalItem(0,1)==R::Linked); restored(p,i);
+    }
+    { Player p; Item* i=p.m_items[0]; auto original=snapshot(p);
+      i->partialWorldFailure=true;
+      check(p.HoldPB59OriginalItem(original,1)==R::RecoveryRequired);
+      check(p.m_items[0]==i && !i->IsInWorld() && i->PB59HasObjectUpdatePending());
+      check(p._pb59OriginalItems[0].queue.queue.held && p._pb59Transaction.recovery);
+      check(p.RestorePB59OriginalItem(0,1)==R::RecoveryRequired);
+      check(p.m_items[0]==i && !i->IsInWorld() && i->PB59HasObjectUpdatePending());
     }
     std::cout << checks << " native pointer custody checks passed\n";
 }
