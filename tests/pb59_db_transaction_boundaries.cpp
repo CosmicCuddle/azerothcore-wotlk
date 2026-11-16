@@ -1,3 +1,4 @@
+#include "DatabaseTransactionResult.h"
 #include <cassert>
 #include <cstdlib>
 #include <cstdint>
@@ -54,6 +55,7 @@ int main(){
     };
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",true},{"COMMIT",true}},0,0);
     check({{"START TRANSACTION",false,123}},-3,1);
+    check({{"START TRANSACTION",true},{"BODY",false,2006,true},{"START TRANSACTION",false,123}},-4,1,1);
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",true},{"COMMIT",false,1213}},-2,1);
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",true},{"COMMIT",false,2006,true}},-2,0,1);
     check({{"START TRANSACTION",true},{"BODY",false,1213},{"ROLLBACK",true}},1213,0);
@@ -63,5 +65,5 @@ int main(){
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",false,0},{"ROLLBACK",true}},-2,0);
     check({{"START TRANSACTION",true},{"BODY",false,2006,true},{"START TRANSACTION",true},{"BODY",false,2006,true},{"START TRANSACTION",true},{"BODY",false,2006,true}},2006,0,3);
     MySQLConnection empty({}); assert(empty.ExecuteTransaction(std::make_shared<TransactionBase>())==-1);
-    std::cout<<"PASS: 11 transaction boundary scenarios (mocked connection)\n";
+    std::cout<<"PASS: 12 transaction boundary scenarios (mocked connection)\n";
 }
