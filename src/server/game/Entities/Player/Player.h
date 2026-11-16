@@ -645,6 +645,8 @@ struct SkillStatusData
 
 typedef std::unordered_map<uint32, SkillStatusData> SkillStatusMap;
 
+namespace PB59 { struct SaveEvidence; }
+
 class Quest;
 class Spell;
 class Item;
@@ -1641,7 +1643,8 @@ public:
     void SaveToDB(CharacterDatabaseTransaction trans, bool create, bool logout);
     void SaveInventoryAndGoldToDB(CharacterDatabaseTransaction trans);                    // fast save function for item/money cheating preventing
     void SaveGoldToDB(CharacterDatabaseTransaction trans);
-    void _SaveSkills(CharacterDatabaseTransaction trans);
+    void _SaveSkills(CharacterDatabaseTransaction trans, PB59::SaveEvidence* evidence = nullptr);
+    static void DrainPB59CharacterSaveEvidence(bool final = false);
 
     static void Customize(CharacterCustomizeInfo const* customizeInfo, CharacterDatabaseTransaction trans);
     static void SavePositionInDB(uint32 mapid, float x, float y, float z, float o, uint32 zone, ObjectGuid guid);
@@ -2842,9 +2845,10 @@ protected:
 
     void _SaveActions(CharacterDatabaseTransaction trans);
     void _SaveAuras(CharacterDatabaseTransaction trans, bool logout);
-    void _SaveInventory(CharacterDatabaseTransaction trans);
+    void SaveToDBWithEvidence(CharacterDatabaseTransaction trans, bool create, bool logout, PB59::SaveEvidence* evidence);
+    void _SaveInventory(CharacterDatabaseTransaction trans, PB59::SaveEvidence* evidence = nullptr);
     void _SaveMail(CharacterDatabaseTransaction trans);
-    void _SaveQuestStatus(CharacterDatabaseTransaction trans);
+    void _SaveQuestStatus(CharacterDatabaseTransaction trans, PB59::SaveEvidence* evidence = nullptr);
     void _SaveDailyQuestStatus(CharacterDatabaseTransaction trans);
     void _SaveWeeklyQuestStatus(CharacterDatabaseTransaction trans);
     void _SaveMonthlyQuestStatus(CharacterDatabaseTransaction trans);
