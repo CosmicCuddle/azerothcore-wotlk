@@ -18,6 +18,8 @@
 #ifndef SC_SCRIPTMGR_H
 #define SC_SCRIPTMGR_H
 
+#define COSMIC_PB59_AUTOGEAR_PROGRESSION_API 1
+
 #include "AchievementMgr.h"
 #include "ArenaTeam.h"
 #include "AuctionHouseMgr.h"
@@ -348,6 +350,8 @@ public: /* PlayerScript */
     bool OnPlayerCanMarkAccountOffline(ObjectGuid guid, uint32 accountId);
     void OnPlayerCreate(Player* player);
     void OnPlayerSave(Player* player);
+    // Owner/world context only; no provider or conflicting provider is unknown.
+    [[nodiscard]] bool TryReadPB59AutoGearProgression(Player* player, uint8& raw, uint8& effective);
     void OnPlayerDelete(ObjectGuid guid, uint32 accountId);
     void OnPlayerFailedDelete(ObjectGuid guid, uint32 accountId);
     void OnPlayerBindToInstance(Player* player, Difficulty difficulty, uint32 mapid, bool permanent);
