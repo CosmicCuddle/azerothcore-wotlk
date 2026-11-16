@@ -647,6 +647,14 @@ PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts c
         if (!item || !now || *now != original ||
             std::count(std::begin(m_items), std::end(m_items), item) != 1)
             return Result::Rejected;
+        // Refuse custom or inconsistent visible fields before changing any
+        // links. Do not overwrite a module's presentation on a guess.
+        auto const visible = PB59::VisibleEquipment(original);
+        uint16 const entryField = PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2;
+        uint16 const enchantField = PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + slot * 2;
+        if (PB59::VisibleEquipmentFacts{GetUInt32Value(entryField),
+                GetUInt16Value(enchantField, 0), GetUInt16Value(enchantField, 1)} != visible)
+            return Result::Rejected;
         // Copy fallible facts before the first queue or pointer mutation.
         hold.original = original;
         if (!SuspendPB59OriginalQueue(original, ticket, hold.queue))
@@ -670,6 +678,11 @@ PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts c
             !item->GetGuidValue(ITEM_FIELD_CONTAINED).IsEmpty() ||
             item->GetState() != static_cast<ItemUpdateState>(hold.queue.queue.state) ||
             !PB59::ExactOriginalQueue(m_itemUpdateQueue, item, item->uQueuePos, false))
+            return recovery();
+        // This reconciles only stock display fields, not item mods, set
+        // bonuses, auras, world references or notifications.
+        if (!ReconcilePB59VisibleEquipment(original, *empty, ticket,
+                PB59::TransactionAdmission::Access::Forward))
             return recovery();
         return Result::Linked;
     }
@@ -737,7 +750,14 @@ PB59::LinkTransferResult Player::RestorePB59OriginalItem(uint8 slot,
         }
         // Also handles failure after pointer restoration or before detachment.
         if (m_items[slot] != item ||
-            std::count(std::begin(m_items), std::end(m_items), item) != 1 ||
+            std::count(std::begin(m_items), std::end(m_items), item) != 1)
+            return recovery();
+        PB59::InventorySlotFacts const empty{original.owner, 0, original.position, std::nullopt};
+        auto const access = _pb59Transaction.CanAccess(ticket, Access::Forward) ?
+            Access::Forward : Access::Recovery;
+        // Keep the queue token until display reconciliation succeeds. A
+        // partial display failure can retry without losing the recovery record.
+        if (!ReconcilePB59VisibleEquipment(empty, original, ticket, access) ||
             !RestorePB59OriginalQueue(original, ticket, hold.queue))
             return recovery();
         hold.original.reset();
