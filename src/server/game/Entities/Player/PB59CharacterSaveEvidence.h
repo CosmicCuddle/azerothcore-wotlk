@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DatabaseTransactionResult.h"
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -24,18 +25,35 @@ struct SaveEvidence
     static constexpr std::size_t Limit = 64;
     std::array<std::uint32_t, Limit> quests{};
     std::array<std::uint64_t, Limit> items{};
-    std::size_t questCount = 0, itemCount = 0;
+    std::array<std::uint32_t, Limit> skills{};
+    std::size_t questCount = 0, itemCount = 0, skillCount = 0;
     bool incomplete = false;
+
+    template<typename T>
+    void Add(std::array<T, Limit>& values, std::size_t& count, T value)
+    {
+        if (!value || count > Limit) { incomplete = true; return; }
+        if (std::find(values.begin(), values.begin() + count, value) != values.begin() + count)
+            return;
+        if (count == Limit) { incomplete = true; return; }
+        values[count++] = value;
+    }
+    void AddQuest(std::uint32_t id) { Add(quests, questCount, id); }
+    void AddItem(std::uint64_t id) { Add(items, itemCount, id); }
+    void AddSkill(std::uint32_t id) { Add(skills, skillCount, id); }
 
     bool Valid() const
     {
-        if (questCount > Limit || itemCount > Limit)
+        if (questCount > Limit || itemCount > Limit || skillCount > Limit)
             return false;
         for (std::size_t i = 0; i < questCount; ++i)
             if (!quests[i])
                 return false;
         for (std::size_t i = 0; i < itemCount; ++i)
             if (!items[i])
+                return false;
+        for (std::size_t i = 0; i < skillCount; ++i)
+            if (!skills[i])
                 return false;
         return true;
     }
