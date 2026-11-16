@@ -645,6 +645,13 @@ PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects(
     Item* item = GetItemByPos(original.position);
     if (!item || item->GetGUID().GetRawValue() != original.item->guid || !item->GetTemplate())
         return Result::Rejected;
+    // Refuse timed originals BEFORE any set, spell or stat callback. The
+    // subsequent physical custody must make the same no-timer check.
+    if (std::find(m_itemDuration.begin(), m_itemDuration.end(), item) != m_itemDuration.end())
+        return Result::Rejected;
+    for (auto const& duration : m_enchantDuration)
+        if (duration.item == item)
+            return Result::Rejected;
     ItemTemplate const* proto = item->GetTemplate();
     uint32 const setId = proto->ItemSet;
     if (setId)
