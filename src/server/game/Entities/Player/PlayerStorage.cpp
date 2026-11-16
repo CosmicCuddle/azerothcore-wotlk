@@ -555,6 +555,72 @@ std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 
     return facts;
 }
 
+bool Player::SuspendPB59OriginalQueue(PB59::InventorySlotFacts const& original,
+    PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold)
+{
+    if (!_pb59Transaction.CanAccess(ticket, PB59::TransactionAdmission::Access::Forward) ||
+        hold.ticket || hold.queue.held || !original.item || original.bag ||
+        (original.position >> 8) != INVENTORY_SLOT_BAG_0 ||
+        (original.position & 255) >= EQUIPMENT_SLOT_END ||
+        (original.position & 255) == EQUIPMENT_SLOT_BODY ||
+        (original.position & 255) == EQUIPMENT_SLOT_TABARD || m_itemUpdateQueueBlocked)
+        return false;
+    // Capture verifies owner, exact native item identity and unsupported
+    // special states. No callbacks or stock RemoveItem in this queue step.
+    auto const now = CapturePB59InventorySlot(original.position);
+    if (!now || *now != original)
+        return false;
+    Item* item = GetItemByPos(original.position);
+    if (!item || item->GetGUID().GetRawValue() != original.item->guid)
+        return false;
+    auto const state = item->GetState();
+    if (state != ITEM_NEW && state != ITEM_CHANGED && state != ITEM_UNCHANGED)
+        return false;
+    if (!PB59::SuspendOriginalQueue(m_itemUpdateQueue, item, item->uQueuePos,
+            static_cast<std::uint32_t>(state), state != ITEM_UNCHANGED, hold.queue))
+        return false;
+    hold.ticket = ticket;
+    hold.position = original.position;
+    return true;
+}
+
+bool Player::RestorePB59OriginalQueue(PB59::InventorySlotFacts const& original,
+    PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold)
+{
+    // Restoration is allowed during normal rollback or quarantined recovery,
+    // but only in the original transaction and at the exact original slot.
+    using Access = PB59::TransactionAdmission::Access;
+    if (!_pb59Transaction.CanAccess(ticket, Access::Forward) &&
+        !_pb59Transaction.CanAccess(ticket, Access::Recovery))
+        return false;
+    if (!hold.queue.held || hold.ticket != ticket)
+        return false;
+    auto recovery = [&]()
+    {
+        _pb59Transaction.RequireRecovery(ticket);
+        return false;
+    };
+    try
+    {
+        if (!original.item || hold.position != original.position || m_itemUpdateQueueBlocked)
+            return recovery();
+        auto const now = CapturePB59InventorySlot(original.position);
+        Item* item = GetItemByPos(original.position);
+        if (!now || *now != original || !item || item != hold.queue.item ||
+            item->GetGUID().GetRawValue() != original.item->guid ||
+            !PB59::RestoreOriginalQueue(m_itemUpdateQueue, item, item->uQueuePos,
+                static_cast<std::uint32_t>(item->GetState()), hold.queue))
+            return recovery();
+        hold.ticket = 0;
+        hold.position = 0;
+        return true;
+    }
+    catch (...)
+    {
+        return recovery();
+    }
+}
+
 PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
     PB59::InventorySlotFacts const& source, PB59::InventorySlotFacts const& destination,
     PB59::TransactionAdmission::Ticket ticket, PB59::TransactionAdmission::Access access)
