@@ -45,6 +45,20 @@ public:
         _condition.notify_one();
     }
 
+    // Opt-in admission for producers that need an explicit rejection result.
+    // The caller retains ownership on false. Legacy Push semantics are unchanged.
+    bool TryPush(T const& value)
+    {
+        {
+            std::lock_guard<std::mutex> lock(_queueLock);
+            if (_cancel || _shutdown)
+                return false;
+            _queue.push(value);
+        }
+        _condition.notify_one();
+        return true;
+    }
+
     bool Empty() const
     {
         std::lock_guard<std::mutex> lock(_queueLock);
@@ -98,7 +112,10 @@ public:
     // Graceful stop: waits for the queue to become empty before stopping consumers.
     void Shutdown()
     {
-        _shutdown = true;
+        {
+            std::lock_guard<std::mutex> lock(_queueLock);
+            _shutdown = true;
+        }
         _condition.notify_all();
     }
 
