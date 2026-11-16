@@ -270,6 +270,30 @@ void ScriptMgr::OnPlayerSave(Player* player)
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_SAVE, script->OnPlayerSave(player));
 }
 
+bool ScriptMgr::TryReadPB59AutoGearProgression(Player* player, uint8& raw, uint8& effective)
+{
+    raw = effective = 0;
+    if (!player)
+        return false;
+    bool found = false;
+    for (auto const& script : ScriptRegistry<PlayerScript>::EnabledHooks[PLAYERHOOK_ON_PB59_AUTOGEAR_PROGRESSION])
+    {
+        uint8 candidateRaw = 0, candidateEffective = 0;
+        if (!script->OnPlayerPB59AutoGearProgression(player, candidateRaw, candidateEffective))
+            continue;
+        // Exactly one provider. A missing provider is never stage zero.
+        if (found || candidateRaw > 18 || candidateEffective > candidateRaw)
+        {
+            raw = effective = 0;
+            return false;
+        }
+        found = true;
+        raw = candidateRaw;
+        effective = candidateEffective;
+    }
+    return found;
+}
+
 void ScriptMgr::OnPlayerDelete(ObjectGuid guid, uint32 accountId)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_DELETE, script->OnPlayerDelete(guid, accountId));
