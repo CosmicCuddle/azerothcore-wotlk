@@ -23,6 +23,7 @@ struct TransactionBase { std::vector<SQLElementData> m_queries; };
 struct Step { std::string sql; bool ok; int error=0; bool lost=false; };
 struct MySQLConnection {
     static constexpr int TransactionBoundaryFailure=-2;
+    static constexpr int TransactionNotStarted=-3;
     bool m_inTransaction=false;
     int m_lostTransactionError=0, error=0, resets=0, reconnects=0;
     std::size_t cursor=0;
@@ -52,7 +53,7 @@ int main(){
         MySQLConnection c(s); assert(c.ExecuteTransaction(t)==result); assert(c.cursor==c.steps.size()); assert(c.resets==resets); assert(c.reconnects==reconnects); assert(!c.m_inTransaction && !c.m_lostTransactionError);
     };
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",true},{"COMMIT",true}},0,0);
-    check({{"START TRANSACTION",false,123}},-2,1);
+    check({{"START TRANSACTION",false,123}},-3,1);
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",true},{"COMMIT",false,1213}},-2,1);
     check({{"START TRANSACTION",true},{"BODY",true},{"PREPARED",true},{"COMMIT",false,2006,true}},-2,0,1);
     check({{"START TRANSACTION",true},{"BODY",false,1213},{"ROLLBACK",true}},1213,0);
