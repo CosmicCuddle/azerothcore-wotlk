@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory() as directory:
     d = Path(directory)
     (d / "native.inc").write_text(native[start:end].rstrip() + "\n")
     shutil.copyfile(root / "tests/pb59_db_transaction_boundaries.cpp", d / "fixture.cpp")
+    shutil.copyfile(root / "src/server/database/Database/DatabaseTransactionResult.h", d / "DatabaseTransactionResult.h")
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror"]
     if args.sanitize:
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
