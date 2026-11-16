@@ -430,7 +430,7 @@ int MySQLConnection::ExecuteTransactionAttempt(std::shared_ptr<TransactionBase> 
     {
         LOG_ERROR("sql.sql", "START TRANSACTION failed; transaction body not executed.");
         ResetTransactionConnection();
-        return TransactionBoundaryFailure;
+        return TransactionNotStarted;
     }
     m_inTransaction = true;
 
