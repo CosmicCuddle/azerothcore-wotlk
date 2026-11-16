@@ -21,12 +21,13 @@ visible_end = source.index("void Player::VisualizeItem(", visible_start)
 methods = source[start:queue_end] + source[pointer_start:end] + source[visible_start:visible_end]
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
+    (work / "native_effects.inc").write_text(source[queue_end:pointer_start])
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
     if args.sanitize:
         flags.append("-fsanitize=address,undefined")
     for filename in ["pb59_original_queue_custody.cpp", "pb59_original_queue_native.cpp",
                      "pb59_original_pointer_custody.cpp", "pb59_original_pointer_native.cpp",
-                     "pb59_original_combat_effects.cpp"]:
+                     "pb59_original_combat_effects.cpp", "pb59_original_combat_effects_native.cpp"]:
         (work / "native_methods.inc").write_text(
             source[start:queue_end] if filename == "pb59_original_queue_native.cpp" else methods)
         exe = work / Path(filename).stem
