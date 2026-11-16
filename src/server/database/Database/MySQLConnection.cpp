@@ -661,74 +661,63 @@ bool MySQLConnection::_HandleMySQLErrno(uint32 errNo, char const* err, uint8 att
         case CR_SERVER_GONE_ERROR:
         case CR_SERVER_LOST:
         case CR_SERVER_LOST_EXTENDED:
+        case CR_CONN_HOST_ERROR:
+        case CR_CONNECTION_ERROR:
+        case CR_UNKNOWN_HOST:
         {
+            // Retain the original transaction error and diagnostic across all
+            // attempts. Open() closes a failed temporary handle; m_Mysql is
+            // null on failure and must never be passed to mysql_error().
             if (m_Mysql)
             {
                 LOG_ERROR("sql.sql", "Lost the connection to the MySQL server!");
-
-                // Destroy statement handles while their old MYSQL handle is
-                // still valid. Keep vector size for DoPrepareStatements().
                 for (auto& statement : m_stmts)
                     statement.reset();
                 mysql_close(m_Mysql);
                 m_Mysql = nullptr;
             }
-            [[fallthrough]];
-        }
-        case CR_CONN_HOST_ERROR:
-        {
-            LOG_INFO("sql.sql", "Attempting to reconnect to the MySQL server...");
 
             m_reconnecting = true;
-
-            uint32 const lErrno = Open();
-            if (!lErrno)
+            for (uint8 remaining = attempts; remaining > 0; --remaining)
             {
-                // Don't remove 'this' pointer unless you want to skip loading all prepared statements...
-                if (!this->PrepareStatements())
+                LOG_INFO("sql.sql", "Attempting to reconnect to the MySQL server...");
+                uint32 const openError = Open();
+                if (!openError)
                 {
-                    str = "Could not re-prepare statements!";
-                    LOG_FATAL("sql.sql", "{}", str);
-                    std::this_thread::sleep_for(10s);
-                    ABORT("{}\n\n[{}] {}", str, errNo, errorText);
-                }
+                    if (!this->PrepareStatements())
+                    {
+                        str = "Could not re-prepare statements!";
+                        LOG_FATAL("sql.sql", "{}", str);
+                        std::this_thread::sleep_for(10s);
+                        ABORT("{}\n\n[{}] {}", str, errNo, errorText);
+                    }
 
-                LOG_INFO("sql.sql", "Successfully reconnected to {} @{}:{} ({}).",
-                    m_connectionInfo.database, m_connectionInfo.host, m_connectionInfo.port_or_socket,
+                    LOG_INFO("sql.sql", "Successfully reconnected to {} @{}:{} ({}).",
+                        m_connectionInfo.database, m_connectionInfo.host, m_connectionInfo.port_or_socket,
                         (m_connectionFlags & CONNECTION_ASYNC) ? "asynchronous" : "synchronous");
-
-                m_reconnecting = false;
-
-                // The server rolled back the open transaction, so its next statements must not run in autocommit
-                if (m_inTransaction)
-                {
-                    m_inTransaction = false;
-                    m_lostTransactionError = errNo;
-                    return false;
+                    m_reconnecting = false;
+                    if (m_inTransaction)
+                    {
+                        m_inTransaction = false;
+                        m_lostTransactionError = errNo;
+                        return false;
+                    }
+                    return true;
                 }
 
-                return true;
+                LOG_WARN("sql.sql", "Database reconnect failed with errno {}; {} attempts remaining.",
+                    openError, remaining - 1);
+                if (remaining > 1)
+                    std::this_thread::sleep_for(3s);
             }
 
-            if ((--attempts) == 0)
-            {
-                // Shut down the server when the mysql server isn't
-                // reachable for some time
-                str = "Failed to reconnect to the MySQL server, terminating the server to prevent data corruption!";
-                LOG_FATAL("sql.sql", "{}", str);
-
-                // We could also initiate a shutdown through using std::raise(SIGTERM)
-                std::this_thread::sleep_for(10s);
-                ABORT("{}\n\n[{}] {}", str, errNo, errorText);
-            }
-            else
-            {
-                // It's possible this attempted reconnect throws 2006 at us.
-                // To prevent crazy recursive calls, sleep here.
-                std::this_thread::sleep_for(3s); // Sleep 3 seconds
-                return _HandleMySQLErrno(lErrno, mysql_error(m_Mysql), attempts); // Call self (recursive)
-            }
-            [[fallthrough]];
+            // Preserve the existing fail-stop policy; never resume SQL on
+            // an unavailable connection or replay an uncertain transaction.
+            str = "Failed to reconnect to the MySQL server, terminating the server to prevent data corruption!";
+            LOG_FATAL("sql.sql", "{}", str);
+            std::this_thread::sleep_for(10s);
+            ABORT("{}\n\n[{}] {}", str, errNo, errorText);
+            return false;
         }
 
         case ER_LOCK_DEADLOCK:
