@@ -44,6 +44,7 @@
 #include "ExactStorageGate.h"
 #include "PB59InventorySlotFacts.h"
 #include "PB59InventoryCustody.h"
+#include "PB59OriginalQueueCustody.h"
 #include "PB59TransactionAdmission.h"
 #include "WorldSession.h"
 #include <set>
@@ -3047,6 +3048,21 @@ private:
         PB59::ExactStorageReservation const* exact = nullptr);
     // Private exact restoration insertion; no runtime caller until ownership is proven.
     Item* _EquipItem(uint16 pos, Item* pItem, bool update, PB59::ExactStorageReservation const* exact);
+    // Private queue-only handoff. The enclosing transaction must own the
+    // original Item, forbid saves/retirement and reconcile links/effects.
+    struct PB59OriginalQueueHold
+    {
+        PB59::OriginalQueueCustody<Item> queue;
+        PB59::TransactionAdmission::Ticket ticket = 0;
+        uint16 position = 0;
+        PB59OriginalQueueHold() = default;
+        PB59OriginalQueueHold(PB59OriginalQueueHold const&) = delete;
+        PB59OriginalQueueHold& operator=(PB59OriginalQueueHold const&) = delete;
+    };
+    bool SuspendPB59OriginalQueue(PB59::InventorySlotFacts const& original,
+        PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold);
+    bool RestorePB59OriginalQueue(PB59::InventorySlotFacts const& original,
+        PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold);
     // Raw link relocation only; NOT an equip/unequip API. No caller until
     // effect/notification reconciliation and failure quarantine are proven.
     PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const& source,
