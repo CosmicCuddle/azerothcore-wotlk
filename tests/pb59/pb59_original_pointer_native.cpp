@@ -5,6 +5,7 @@
 #include <cassert>
 #include <iostream>
 #include <iterator>
+#include <list>
 #include <optional>
 #include <stdexcept>
 using uint8 = std::uint8_t;
@@ -40,6 +41,9 @@ struct Player {
     Fault fault; PB59::TransactionAdmission _pb59Transaction; PB59::EquipmentCaptureState _pb59Equipment;
     std::array<Item*,23> m_items{}; std::array<ObjectGuid,19> fields{}; std::array<PB59OriginalItemHold,19> _pb59OriginalItems{};
     std::vector<Item*> m_itemUpdateQueue; bool m_itemUpdateQueueBlocked{};
+    std::list<Item*> m_itemDuration;
+    struct TimedEnchant { Item* item; };
+    std::list<TimedEnchant> m_enchantDuration;
     std::array<PB59::VisibleEquipmentFacts,19> visible{};
     Player() { m_items[0] = new Item{&fault}; fields[0] = {42}; m_itemUpdateQueue.push_back(m_items[0]); visible[0] = {123,7,8}; }
     uint32 GetUInt32Value(uint16 f) const { return visible.at((f-PLAYER_VISIBLE_ITEM_1_ENTRYID)/2).entry; }
@@ -80,5 +84,16 @@ int main() {
     { Player p; auto* i=p.m_items[0]; auto s=snapshot(p); p.visible[0].entry=999; check(p.HoldPB59OriginalItem(s,1)==R::Rejected); check(p.m_items[0]==i && p.m_itemUpdateQueue[0]==i && p.visible[0].entry==999); }
     { Player p; auto* i=p.m_items[0]; check(p.HoldPB59OriginalItem(snapshot(p),1)==R::Linked); p.visible[0].temporary=999; check(p.RestorePB59OriginalItem(0,1)==R::RecoveryRequired); check(p.m_items[0]==i && p._pb59OriginalItems[0].original && p.visible[0].temporary==999 && !p.m_itemUpdateQueue[0]); p.visible[0].temporary=0; check(p.RestorePB59OriginalItem(0,1)==R::Linked); restored(p,i); }
     { Player p; auto* i=p.m_items[0]; i->world=false; i->updated=false; check(p.HoldPB59OriginalItem(snapshot(p),1)==R::Rejected); check(p.m_items[0]==i && !p._pb59OriginalItems[0].original); }
+    { Player p; auto* i=p.m_items[0]; auto original=snapshot(p);
+      p.m_itemDuration.push_back(i);
+      check(p.HoldPB59OriginalItem(original,1)==R::Rejected);
+      check(p.m_items[0]==i && i->IsInWorld() && p.m_itemUpdateQueue[0]==i && !p._pb59OriginalItems[0].original);
+      p.m_itemDuration.clear(); p.m_enchantDuration.push_back({i});
+      check(p.HoldPB59OriginalItem(original,1)==R::Rejected);
+      check(p.m_items[0]==i && i->IsInWorld() && p.m_itemUpdateQueue[0]==i && !p._pb59OriginalItems[0].original);
+      p.m_enchantDuration.clear();
+      check(p.HoldPB59OriginalItem(original,1)==R::Linked);
+      check(p.RestorePB59OriginalItem(0,1)==R::Linked); restored(p,i);
+    }
     std::cout << checks << " native pointer custody checks passed\n";
 }
