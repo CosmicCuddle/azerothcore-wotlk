@@ -45,6 +45,7 @@
 #include "PB59InventorySlotFacts.h"
 #include "PB59InventoryCustody.h"
 #include "PB59OriginalQueueCustody.h"
+#include "PB59OriginalPointerCustody.h"
 #include "PB59TransactionAdmission.h"
 #include "WorldSession.h"
 #include <set>
@@ -3063,6 +3064,20 @@ private:
         PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold);
     bool RestorePB59OriginalQueue(PB59::InventorySlotFacts const& original,
         PB59::TransactionAdmission::Ticket ticket, PB59OriginalQueueHold& hold);
+    // Owner-retained custody, never a bag slot. Raw links ONLY: no caller
+    // until effects, world references, native save/logout/deletion exclusion
+    // and final disposition are all reconciled. Keep across recovery attempts.
+    struct PB59OriginalItemHold
+    {
+        std::unique_ptr<Item> item;
+        std::optional<PB59::InventorySlotFacts> original;
+        PB59OriginalQueueHold queue;
+    };
+    std::array<PB59OriginalItemHold, EQUIPMENT_SLOT_END> _pb59OriginalItems{};
+    PB59::LinkTransferResult HoldPB59OriginalItem(PB59::InventorySlotFacts const& original,
+        PB59::TransactionAdmission::Ticket ticket);
+    PB59::LinkTransferResult RestorePB59OriginalItem(uint8 slot,
+        PB59::TransactionAdmission::Ticket ticket);
     // Raw link relocation only; NOT an equip/unequip API. No caller until
     // effect/notification reconciliation and failure quarantine are proven.
     PB59::LinkTransferResult RelocatePB59InventoryLinks(PB59::InventorySlotFacts const& source,
