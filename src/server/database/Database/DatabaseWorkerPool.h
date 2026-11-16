@@ -23,6 +23,7 @@
 #include "Define.h"
 #include "StringFormat.h"
 #include <array>
+#include <atomic>
 #include <vector>
 
 /** @file DatabaseWorkerPool.h */
@@ -178,6 +179,10 @@ public:
     //! were appended to the transaction will be respected during execution.
     TransactionCallback AsyncCommitTransaction(SQLTransaction<T> transaction);
 
+    //! Opt-in result; submit only during an open, prepared pool lifetime.
+    //! Future is ready on rejection, queue cancellation or worker completion.
+    [[nodiscard]] std::future<DatabaseTransactionResult> AsyncCommitTransactionWithOutcome(SQLTransaction<T> transaction);
+
     //! Directly executes a collection of one-way SQL operations (can be both adhoc and prepared). The order in which these operations
     //! were appended to the transaction will be respected during execution.
     void DirectCommitTransaction(SQLTransaction<T>& transaction);
@@ -239,6 +244,7 @@ private:
     std::unique_ptr<MySQLConnectionInfo> _connectionInfo;
     std::vector<uint8> _preparedStatementSize;
     uint8 _async_threads, _synch_threads;
+    std::atomic<bool> _typedTransactionsReady{false};
 #ifdef ACORE_DEBUG
     static inline thread_local bool _warnSyncQueries = false;
 #endif
