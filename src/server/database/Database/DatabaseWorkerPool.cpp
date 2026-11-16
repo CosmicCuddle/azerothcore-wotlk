@@ -314,8 +314,9 @@ void DatabaseWorkerPool<T>::DirectCommitTransaction(SQLTransaction<T>& transacti
 
         for (uint8 i = 0; i < loopBreaker; ++i)
         {
-            if (!connection->ExecuteTransaction(transaction))
-                break;
+            errorCode = connection->ExecuteTransaction(transaction);
+            if (errorCode != ER_LOCK_DEADLOCK)
+                break; // success or non-deadlock failure: no further replay
         }
     }
 
