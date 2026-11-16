@@ -462,36 +462,39 @@ void ModuleDatabasePool::DirectCommitTransaction(std::shared_ptr<TransactionBase
 
 bool ModuleDatabasePool::TryDirectCommitTransaction(std::shared_ptr<TransactionBase> transaction)
 {
-    if (_connections[IDX_SYNCH].empty())
-        return false;
+    return DirectCommitTransactionWithResult(std::move(transaction)).IsCommitted();
+}
+
+DatabaseTransactionResult ModuleDatabasePool::DirectCommitTransactionWithResult(std::shared_ptr<TransactionBase> transaction)
+{
+    if (!transaction || _connections[IDX_SYNCH].empty())
+        return DatabaseTransactionResult::FromExecutionCode(DatabaseTransactionResult::NotEnqueuedCode);
 
     MySQLConnection* conn = GetFreeConnection();
     int errorCode = conn->ExecuteTransaction(transaction);
     if (!errorCode)
     {
         conn->Unlock();
-        return true;
+        return DatabaseTransactionResult::FromExecutionCode(errorCode);
     }
 
-    bool committed = false;
-
-    //! Handle MySQL Errno 1213 without extending deadlock to the core itself
+    //! Retry only a confirmed deadlock; never replay an uncertain COMMIT.
     if (errorCode == ER_LOCK_DEADLOCK)
     {
         uint8 constexpr loopBreaker = 5;
         for (uint8 i = 0; i < loopBreaker; ++i)
         {
-            if (!conn->ExecuteTransaction(transaction))
-            {
-                committed = true;
+            errorCode = conn->ExecuteTransaction(transaction);
+            if (errorCode == DatabaseTransactionResult::NotStartedCode)
+                errorCode = DatabaseTransactionResult::PriorAttemptFailureCode;
+            if (errorCode != ER_LOCK_DEADLOCK)
                 break;
-            }
         }
     }
 
     transaction->Cleanup();
     conn->Unlock();
-    return committed;
+    return DatabaseTransactionResult::FromExecutionCode(errorCode);
 }
 
 void ModuleDatabasePool::KeepAlive()
