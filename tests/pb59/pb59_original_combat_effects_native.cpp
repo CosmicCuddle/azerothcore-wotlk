@@ -2,6 +2,7 @@
 #include <array>
 #include <cassert>
 #include <iostream>
+#include <list>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -27,6 +28,9 @@ struct Player {
  PB59::TransactionAdmission _pb59Transaction; PB59::EquipmentCaptureState _pb59Equipment;
  std::array<PB59::OriginalCombatEffects,19> _pb59OriginalCombatEffects{};
  Item item; Effect effect; std::vector<Effect*> ItemSetEff{&effect};
+ std::list<Item*> m_itemDuration;
+ struct TimedEnchant { Item* item; };
+ std::list<TimedEnchant> m_enchantDuration;
  PB59::InventorySlotFacts facts; bool combat=false,missing=false,skipSet=false,failMods=false,changed=false; unsigned skill=10; int stat=30,modsCalls=0,setCalls=0;
  bool IsInCombat() const{return combat;} unsigned GetSkillValue(unsigned) const{return skill;}
  Item* GetItemByPos(unsigned p){return p==facts.position&&!missing?&item:nullptr;}
@@ -45,4 +49,14 @@ int main(){using R=PB59::OriginalCombatEffects::Result;unsigned n=0;auto check=[
  {Player p;p.failMods=true;check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,false)==R::RecoveryRequired);check(p.effect.item_count==1&&p.stat==20&&p._pb59Transaction.recovery);check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,true)==R::Rejected);check(p.modsCalls==1);}
  {Player p;p.item.proto.ItemSet=0;check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,false)==R::Complete);check(p.setCalls==0&&p.stat==20);check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,true)==R::Complete);check(p.stat==30&&p.setCalls==0);}
  {Player p;p.changed=true;check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,false)==R::Rejected);check(p.setCalls==0&&p.modsCalls==0);}
+ {Player p;p.m_itemDuration.push_back(&p.item);
+  check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,false)==R::Rejected);
+  check(p.setCalls==0&&p.modsCalls==0&&p.effect.item_count==2&&p.stat==30);
+  p.m_itemDuration.clear();p.m_enchantDuration.push_back({&p.item});
+  check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,false)==R::Rejected);
+  check(p.setCalls==0&&p.modsCalls==0&&p.effect.item_count==2&&p.stat==30);
+  p.m_enchantDuration.clear();
+  check(p.ReconcilePB59OriginalCombatEffects(p.facts,1,false)==R::Complete);
+  check(p.effect.item_count==1&&p.stat==20);
+ }
  std::cout<<n<<" native combat effect adapter mock checks passed\n";}
