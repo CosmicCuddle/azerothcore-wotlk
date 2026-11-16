@@ -61,6 +61,7 @@ DatabaseWorkerPool<T>::DatabaseWorkerPool() :
 template <class T>
 DatabaseWorkerPool<T>::~DatabaseWorkerPool()
 {
+    _typedTransactionsReady = false;
     _queue->Cancel();
 }
 
@@ -76,6 +77,7 @@ void DatabaseWorkerPool<T>::SetConnectionInfo(std::string_view infoString, uint8
 template <class T>
 uint32 DatabaseWorkerPool<T>::Open()
 {
+    _typedTransactionsReady = false;
     WPFatal(_connectionInfo.get(), "Connection info was not set!");
 
     LOG_INFO("sql.driver", "Opening DatabasePool '{}'. Asynchronous connections: {}, synchronous connections: {}.",
@@ -107,6 +109,7 @@ uint32 DatabaseWorkerPool<T>::Open()
 template <class T>
 void DatabaseWorkerPool<T>::Close()
 {
+    _typedTransactionsReady = false;
     LOG_INFO("sql.driver", "Closing down DatabasePool '{}'. Waiting for {} queries to finish...", GetDatabaseName(), _queue->Size());
 
     // Gracefully close async query queue, worker threads will block when the destructor
@@ -169,6 +172,7 @@ bool DatabaseWorkerPool<T>::PrepareStatements()
         }
     }
 
+    _typedTransactionsReady = !_connections[IDX_ASYNC].empty();
     return true;
 }
 
@@ -291,6 +295,18 @@ TransactionCallback DatabaseWorkerPool<T>::AsyncCommitTransaction(SQLTransaction
     TransactionFuture result = task->GetFuture();
     Enqueue(task);
     return TransactionCallback(std::move(result));
+}
+
+template <class T>
+std::future<DatabaseTransactionResult> DatabaseWorkerPool<T>::AsyncCommitTransactionWithOutcome(SQLTransaction<T> transaction)
+{
+    auto task = std::make_unique<TransactionWithOutcomeTask>(std::move(transaction));
+    auto result = task->GetFuture();
+    if (_typedTransactionsReady && _queue->TryPush(task.get()))
+        (void)task.release(); // queue/worker owns it after successful admission
+    else
+        task->Reject();
+    return result;
 }
 
 template <class T>
