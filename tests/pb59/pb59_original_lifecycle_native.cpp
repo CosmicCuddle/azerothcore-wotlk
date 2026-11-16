@@ -48,15 +48,12 @@ int main()
     {
         Player p;
         check(!p.HasPB59UnsettledOriginals());
-        check(!p.RetainPB59OwnerForUnsettledLogout());
         check(p._pb59Transaction.requests == 0);
         for (Phase state : {Phase::Active, Phase::RecoveryRequired})
         {
             p._pb59Transaction.phase = state;
             check(p.HasPB59UnsettledOriginals());
-            check(p.RetainPB59OwnerForUnsettledLogout());
-            check(p._pb59Transaction.pendingLogout);
-            p._pb59Transaction.pendingLogout = false;
+            check(p._pb59Transaction.requests == 0); // observation cannot mutate admission
         }
         p._pb59Transaction.phase = Phase::Idle;
         check(!p.HasPB59UnsettledOriginals());
@@ -68,7 +65,7 @@ int main()
             auto& hold = p._pb59OriginalItems[slot];
             hold.item = std::make_unique<Item>();
             check(p.HasPB59UnsettledOriginals());
-            check(p.RetainPB59OwnerForUnsettledLogout());
+            check(p._pb59Transaction.requests == 0);
             hold.item.reset();
             hold.original = 42;
             check(p.HasPB59UnsettledOriginals());
@@ -101,8 +98,7 @@ int main()
         check(journal.Run(2, 43, false, yes, fails, unchanged) == Result::RecoveryRequired);
         check(journal.State() == Journal::Phase::Uncertain);
         check(p.HasPB59UnsettledOriginals());
-        check(p.RetainPB59OwnerForUnsettledLogout());
-        check(p._pb59Transaction.requests == 1);
+        check(p._pb59Transaction.requests == 0);
     }
-    std::cout << checks << " native lifecycle custody admission checks passed\n";
+    std::cout << checks << " native lifecycle outstanding-state checks passed\n";
 }
