@@ -115,6 +115,7 @@ public:
     void CommitTransaction(std::shared_ptr<TransactionBase> transaction);
     TransactionCallback AsyncCommitTransaction(std::shared_ptr<TransactionBase> transaction);
     void DirectCommitTransaction(std::shared_ptr<TransactionBase> transaction);
+    [[nodiscard]] DatabaseTransactionResult DirectCommitTransactionWithResult(std::shared_ptr<TransactionBase> transaction);
 
     void KeepAlive();
     [[nodiscard]] std::size_t QueueSize() const;
