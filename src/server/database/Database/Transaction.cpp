@@ -95,10 +95,15 @@ void TransactionBase::Cleanup()
 
 bool TransactionTask::Execute()
 {
+    return ExecuteWithCode() == 0;
+}
+
+int TransactionTask::ExecuteWithCode()
+{
     int errorCode = TryExecute();
 
     if (!errorCode)
-        return true;
+        return 0;
 
     if (errorCode == ER_LOCK_DEADLOCK)
     {
@@ -113,8 +118,10 @@ bool TransactionTask::Execute()
             for (Milliseconds loopDuration{}, startMSTime = GetTimeMS(); loopDuration <= DEADLOCK_MAX_RETRY_TIME_MS; loopDuration = GetMSTimeDiffToNow(startMSTime))
             {
                 errorCode = TryExecute();
+                if (errorCode == DatabaseTransactionResult::NotStartedCode)
+                    errorCode = DatabaseTransactionResult::PriorAttemptFailureCode;
                 if (!errorCode)
-                    return true;
+                    return 0;
                 if (errorCode != ER_LOCK_DEADLOCK)
                     break; // uncertain COMMIT or other failure must not be replayed
 
@@ -129,7 +136,7 @@ bool TransactionTask::Execute()
     // Clean up now.
     CleanupOnFailure();
 
-    return false;
+    return errorCode;
 }
 
 int TransactionTask::TryExecute()
@@ -144,47 +151,35 @@ void TransactionTask::CleanupOnFailure()
 
 bool TransactionWithResultTask::Execute()
 {
-    int errorCode = TryExecute();
-    if (!errorCode)
-    {
-        m_result.set_value(true);
-        return true;
-    }
+    bool const success = ExecuteWithCode() == 0;
+    m_result.set_value(success);
+    return success;
+}
 
-    if (errorCode == ER_LOCK_DEADLOCK)
-    {
-        std::ostringstream threadIdStream;
-        threadIdStream << std::this_thread::get_id();
-        std::string threadId = threadIdStream.str();
+TransactionWithOutcomeTask::~TransactionWithOutcomeTask()
+{
+    if (!_completed)
+        Complete(_started ? DatabaseTransactionResult::AmbiguousCode :
+            DatabaseTransactionResult::CancelledBeforeExecutionCode);
+}
 
-        {
-            // Make sure only 1 async thread retries a transaction so they don't keep dead-locking each other
-            std::lock_guard<std::mutex> lock(_deadlockLock);
+void TransactionWithOutcomeTask::Complete(int code)
+{
+    _result.set_value(DatabaseTransactionResult::FromExecutionCode(code));
+    _completed = true;
+}
 
-            for (Milliseconds loopDuration{}, startMSTime = GetTimeMS(); loopDuration <= DEADLOCK_MAX_RETRY_TIME_MS; loopDuration = GetMSTimeDiffToNow(startMSTime))
-            {
-                errorCode = TryExecute();
-                if (!errorCode)
-                {
-                    m_result.set_value(true);
-                    return true;
-                }
-                if (errorCode != ER_LOCK_DEADLOCK)
-                    break;
+void TransactionWithOutcomeTask::Reject()
+{
+    Complete(DatabaseTransactionResult::NotEnqueuedCode);
+}
 
-                LOG_WARN("sql.sql", "Deadlocked SQL Transaction, retrying. Loop timer: {} ms, Thread Id: {}", loopDuration.count(), threadId);
-            }
-        }
-
-        if (errorCode == ER_LOCK_DEADLOCK)
-            LOG_ERROR("sql.sql", "Fatal deadlocked SQL Transaction, it will not be retried anymore. Thread Id: {}", threadId);
-    }
-
-    // Clean up now.
-    CleanupOnFailure();
-    m_result.set_value(false);
-
-    return false;
+bool TransactionWithOutcomeTask::Execute()
+{
+    _started = true;
+    int const code = ExecuteWithCode();
+    Complete(code);
+    return code == 0;
 }
 
 bool TransactionCallback::InvokeIfReady()
