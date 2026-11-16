@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile exact Player lifecycle methods and verify early save/logout gates."""
+"""Compile exact Player unsettled-state observer; check conservative save scope."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -20,11 +20,13 @@ methods = header[start:end]
 save_start = storage.index("void Player::SaveToDB(bool create, bool logout)")
 save_end = storage.index("void Player::SaveToDB(CharacterDatabaseTransaction trans", save_start)
 save = storage[save_start:save_end]
-assert save.index("HasPB59UnsettledOriginals()") < save.index("CharacterDatabase.BeginTransaction()")
+assert save.index("!create && !logout && HasPB59UnsettledOriginals()") < save.index("CharacterDatabase.BeginTransaction()")
 assert save.index("ScheduleDelayedOperation(DELAYED_SAVE_PLAYER)") < save.index("CharacterDatabase.BeginTransaction()")
 logout_start = session.index("void WorldSession::LogoutPlayer(bool save, bool redirecting)")
 logout = session[logout_start:session.index("m_playerLogout = true;", logout_start)]
-assert logout.index("RetainPB59OwnerForUnsettledLogout()") < logout.index("HandleMoveWorldportAck()")
+assert "RetainPB59OwnerForUnsettledLogout" not in logout
+assert "LogoutPlayer(true)" in session[session.index("WorldSession::~WorldSession()"):]
+# Destructor-invoked logout and caller-owned DB writes remain unprotected release blockers.
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     (work / "native_lifecycle.inc").write_text(methods)
@@ -35,4 +37,4 @@ with tempfile.TemporaryDirectory() as directory:
     subprocess.run([args.cxx, *flags, "-I", str(player), "-I", str(work),
         str(Path(__file__).with_name("pb59_original_lifecycle_native.cpp")), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
-    print("early standalone-save and normal-logout source gates: PASS")
+    print("non-logout standalone save source gate: PASS; destructor logout intentionally not claimed safe")
