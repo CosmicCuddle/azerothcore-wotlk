@@ -425,7 +425,13 @@ int MySQLConnection::ExecuteTransactionAttempt(std::shared_ptr<TransactionBase> 
 {
     std::vector<SQLElementData> const& queries = transaction->m_queries;
 
-    BeginTransaction();
+    // Never execute a transaction body after START TRANSACTION failed.
+    if (!Execute("START TRANSACTION"))
+    {
+        LOG_ERROR("sql.sql", "START TRANSACTION failed; transaction body not executed.");
+        ResetTransactionConnection();
+        return TransactionBoundaryFailure;
+    }
     m_inTransaction = true;
 
     for (auto const& data : queries)
@@ -480,14 +486,20 @@ int MySQLConnection::ExecuteTransactionAttempt(std::shared_ptr<TransactionBase> 
     // This is done in calling functions DatabaseWorkerPool<T>::DirectCommitTransaction and TransactionTask::Execute,
     // and not while iterating over every element.
 
-    CommitTransaction();
+    bool const committed = Execute("COMMIT");
     m_inTransaction = false;
 
-    if (m_lostTransactionError)
+    if (!committed || m_lostTransactionError)
     {
-        LOG_ERROR("sql.sql", "Lost the connection during COMMIT. The transaction may or may not have been written, "
-            "so it is not run again.");
-        return std::exchange(m_lostTransactionError, 0);
+        // Reconnect on a lost COMMIT already replaced the connection. For
+        // other errors, discard the connection to prevent leftover state
+        // from being committed by the next task. Never retry an uncertain
+        // COMMIT, even if its error number was a deadlock.
+        bool const alreadyReconnected = std::exchange(m_lostTransactionError, 0) != 0;
+        LOG_ERROR("sql.sql", "COMMIT failed; transaction outcome uncertain, not retrying.");
+        if (!alreadyReconnected)
+            ResetTransactionConnection();
+        return TransactionBoundaryFailure;
     }
 
     return 0;
@@ -504,9 +516,30 @@ int MySQLConnection::AbortTransaction(std::size_t queryCount, bool& lostBeforeCo
 
     LOG_WARN("sql.sql", "Transaction aborted. {} queries not executed.", queryCount);
     int errorCode = GetLastError();
+    // Keep the transaction flag set during ROLLBACK so a reconnect does
+    // not replay the boundary on a new connection.
+    bool const rolledBack = Execute("ROLLBACK");
     m_inTransaction = false;
-    RollbackTransaction();
-    return errorCode;
+    if (!rolledBack || m_lostTransactionError)
+    {
+        bool const alreadyReconnected = std::exchange(m_lostTransactionError, 0) != 0;
+        LOG_ERROR("sql.sql", "ROLLBACK failed; transaction outcome uncertain, not retrying.");
+        if (!alreadyReconnected)
+            ResetTransactionConnection();
+        return TransactionBoundaryFailure;
+    }
+    return errorCode ? errorCode : TransactionBoundaryFailure;
+}
+
+void MySQLConnection::ResetTransactionConnection()
+{
+    // Close() joins the async worker; never call it on that worker.
+    // The existing reconnect path retains the statement vector layout,
+    // reopens the handle and prepares all statements for this connection.
+    m_inTransaction = false;
+    m_lostTransactionError = 0;
+    if (!_HandleMySQLErrno(CR_SERVER_GONE_ERROR, "Failed transaction boundary"))
+        ABORT("Failed to reset database connection after transaction boundary error");
 }
 
 std::size_t MySQLConnection::EscapeString(char* to, char const* from, std::size_t length)
@@ -616,6 +649,8 @@ PreparedResultSet* MySQLConnection::Query(PreparedStatementBase* stmt)
 
 bool MySQLConnection::_HandleMySQLErrno(uint32 errNo, char const* err, uint8 attempts /*= 5*/)
 {
+    // The error text may point into a connection/statement destroyed below.
+    std::string const errorText = err ? err : "";
     std::string str = "";
     switch (errNo)
     {
@@ -627,6 +662,10 @@ bool MySQLConnection::_HandleMySQLErrno(uint32 errNo, char const* err, uint8 att
             {
                 LOG_ERROR("sql.sql", "Lost the connection to the MySQL server!");
 
+                // Destroy statement handles while their old MYSQL handle is
+                // still valid. Keep vector size for DoPrepareStatements().
+                for (auto& statement : m_stmts)
+                    statement.reset();
                 mysql_close(m_Mysql);
                 m_Mysql = nullptr;
             }
@@ -647,7 +686,7 @@ bool MySQLConnection::_HandleMySQLErrno(uint32 errNo, char const* err, uint8 att
                     str = "Could not re-prepare statements!";
                     LOG_FATAL("sql.sql", "{}", str);
                     std::this_thread::sleep_for(10s);
-                    ABORT("{}\n\n[{}] {}", str, errNo, err);
+                    ABORT("{}\n\n[{}] {}", str, errNo, errorText);
                 }
 
                 LOG_INFO("sql.sql", "Successfully reconnected to {} @{}:{} ({}).",
@@ -676,7 +715,7 @@ bool MySQLConnection::_HandleMySQLErrno(uint32 errNo, char const* err, uint8 att
 
                 // We could also initiate a shutdown through using std::raise(SIGTERM)
                 std::this_thread::sleep_for(10s);
-                ABORT("{}\n\n[{}] {}", str, errNo, err);
+                ABORT("{}\n\n[{}] {}", str, errNo, errorText);
             }
             else
             {
@@ -702,13 +741,13 @@ bool MySQLConnection::_HandleMySQLErrno(uint32 errNo, char const* err, uint8 att
             str = "Your database structure is not up to date. Please make sure you've executed all queries in the sql/updates folders.";
             LOG_FATAL("sql.sql", "{}", str);
             std::this_thread::sleep_for(10s);
-            ABORT("{}\n\n[{}] {}", str, errNo, err);
+            ABORT("{}\n\n[{}] {}", str, errNo, errorText);
             return false;
         case ER_PARSE_ERROR:
             str = "Error while parsing SQL. Core fix required.";
             LOG_FATAL("sql.sql", "{}", str);
             std::this_thread::sleep_for(10s);
-            ABORT("{}\n\n[{}] {}", str, errNo, err);
+            ABORT("{}\n\n[{}] {}", str, errNo, errorText);
             return false;
         default:
             LOG_ERROR("sql.sql", "Unhandled MySQL errno {}. Unexpected behaviour possible.", errNo);
