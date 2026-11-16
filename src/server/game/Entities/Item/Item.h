@@ -372,6 +372,10 @@ public:
     std::string GetDebugInfo() const override;
 private:
     friend class Player; // Private PB59 original queue handoff.
+    // Native Object update registration is distinct from the item-save
+    // queue. An interrupted RemoveFromWorld may leave this bit set, and
+    // AddToWorld would ASSERT rather than restore safely.
+    [[nodiscard]] bool PB59HasObjectUpdatePending() const noexcept { return m_objectUpdated; }
     bool CreateInternal(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner, bool notify);
     std::string m_text;
     uint8 m_slot;
