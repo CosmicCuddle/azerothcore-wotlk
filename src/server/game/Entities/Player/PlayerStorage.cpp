@@ -729,6 +729,16 @@ PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts c
         if (!item || !now || *now != original || !IsInWorld() || !item->IsInWorld() ||
             std::count(std::begin(m_items), std::end(m_items), item) != 1)
             return Result::Rejected;
+        // Duration registries hold native Item* references. Removing an
+        // enchant duration mutates the item state/save queue, so the exact
+        // no-bag custody path cannot yet safely suspend or resume a timed
+        // item. Reject before the first queue/world mutation instead of
+        // leaving dangling timer references or silently resetting a timer.
+        if (std::find(m_itemDuration.begin(), m_itemDuration.end(), item) != m_itemDuration.end())
+            return Result::Rejected;
+        for (auto const& duration : m_enchantDuration)
+            if (duration.item == item)
+                return Result::Rejected;
         // Refuse custom or inconsistent visible fields before changing any
         // links. Do not overwrite a module's presentation on a guess.
         auto const visible = PB59::VisibleEquipment(original);
