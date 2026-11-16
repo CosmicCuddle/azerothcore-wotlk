@@ -59,7 +59,7 @@ public:
         Ticket ticket;
         State state = State::Free;
         SaveEvidence evidence;
-        DatabaseTransactionResult result{DatabaseTransactionStatus::FailedUnverified, 0};
+        DatabaseTransactionResult result{DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::PriorAttemptFailureCode};
     };
     enum class Admission { Accepted, Invalid, Duplicate, Full, Exhausted };
     struct Reservation
@@ -91,7 +91,7 @@ public:
         if (_serial == std::numeric_limits<std::uint64_t>::max())
             return {Admission::Exhausted, {}};
         Ticket ticket{free, ++_serial, id};
-        _records[free] = Record{ticket, State::Reserved, {}, {DatabaseTransactionStatus::FailedUnverified, 0}};
+        _records[free] = Record{ticket, State::Reserved, {}, {DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::PriorAttemptFailureCode}};
         return {Admission::Accepted, ticket};
     }
 
@@ -116,7 +116,7 @@ public:
         if (!record || record->state != State::Reserved)
             return false;
         record->evidence.incomplete = true;
-        record->result = {DatabaseTransactionStatus::FailedUnverified, 0};
+        record->result = {DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::PriorAttemptFailureCode};
         record->state = State::Terminal;
         return true;
     }
@@ -149,6 +149,16 @@ public:
             return false;
         *record = Record{};
         return true;
+    }
+
+    // Diagnostic drains can enumerate slots even after the original caller
+    // disappears. The returned ticket must still match when acknowledging.
+    std::optional<Record> InspectSlot(std::size_t slot)
+    {
+        std::lock_guard lock(_mutex);
+        if (slot >= Capacity || _records[slot].state == State::Free)
+            return std::nullopt;
+        return _records[slot];
     }
 
     std::array<std::size_t, 4> Counts()
