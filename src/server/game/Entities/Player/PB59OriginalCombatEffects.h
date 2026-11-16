@@ -17,6 +17,31 @@ public:
     {
         return ticket && guid && _ticket == ticket && _guid == guid;
     }
+    // C1: normal Restored state is not permanent. Only a native owner
+    // after transaction Finish and independent equipment/effect/save-queue
+    // validation may re-arm a settled slot. Never reset Uncertain or Removed.
+    // No runtime caller is wired until that stronger native proof exists.
+    template<class Verify>
+    bool RearmAfterVerifiedRestore(std::uint64_t ticket, std::uint64_t guid,
+        Verify&& verifiedStable) noexcept
+    {
+        if (_phase != Phase::Restored || !Matches(ticket, guid))
+            return false;
+        try
+        {
+            if (!verifiedStable())
+                return false;
+        }
+        catch (...)
+        {
+            return false;
+        }
+        _phase = Phase::Fresh;
+        _ticket = 0;
+        _guid = 0;
+        return true;
+    }
+
     template<class Verify, class Set, class Mods>
     Result Run(std::uint64_t ticket, std::uint64_t guid, bool apply,
         Verify&& verify, Set&& set, Mods&& mods)
