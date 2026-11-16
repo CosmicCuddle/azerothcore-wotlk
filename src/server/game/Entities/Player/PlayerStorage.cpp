@@ -718,7 +718,8 @@ PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts c
         !original.item || original.bag || (original.position >> 8) != INVENTORY_SLOT_BAG_0 ||
         (original.position & 255) >= EQUIPMENT_SLOT_END ||
         (original.position & 255) == EQUIPMENT_SLOT_BODY ||
-        (original.position & 255) == EQUIPMENT_SLOT_TABARD)
+        (original.position & 255) == EQUIPMENT_SLOT_TABARD ||
+        IsBeingTeleportedFar() || IsBeingTeleportedNear())
         return Result::Rejected;
     uint8 const slot = original.position & 255;
     auto& hold = _pb59OriginalItems[slot];
@@ -769,7 +770,7 @@ PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts c
         // through its original equipment pointer and owner context.
         // This MUST precede transfer into unique_ptr custody.
         item->RemoveFromWorld();
-        if (item->IsInWorld())
+        if (item->IsInWorld() || item->PB59HasObjectUpdatePending())
             return recovery();
         if (!PB59::TakeOriginalPointer(m_items[slot], hold.item, item))
             return recovery();
@@ -822,6 +823,8 @@ PB59::LinkTransferResult Player::RestorePB59OriginalItem(uint8 slot,
         _pb59Transaction.RequireRecovery(ticket);
         return Result::RecoveryRequired;
     };
+    if (IsBeingTeleportedFar() || IsBeingTeleportedNear())
+        return recovery();
     try
     {
         auto const& original = *hold.original;
@@ -872,7 +875,14 @@ PB59::LinkTransferResult Player::RestorePB59OriginalItem(uint8 slot,
         if (!ReconcilePB59VisibleEquipment(empty, original, ticket, access))
             return recovery();
         if (!item->IsInWorld())
+        {
+            // A partial native RemoveFromWorld may have cleared in-world
+            // before unhooking the object's map update list. Never call
+            // AddToWorld into its ASSERT(!m_objectUpdated) in that state.
+            if (item->PB59HasObjectUpdatePending())
+                return recovery();
             item->AddToWorld();
+        }
         if (!item->IsInWorld() ||
             !RestorePB59OriginalQueue(original, ticket, hold.queue))
             return recovery();
