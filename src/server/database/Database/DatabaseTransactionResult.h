@@ -25,6 +25,8 @@ struct DatabaseTransactionResult
     static constexpr int EmptyCode = -1;
     static constexpr int AmbiguousCode = -2;
     static constexpr int NotStartedCode = -3;
+    // A later attempt did not start, but earlier statements may have run.
+    static constexpr int PriorAttemptFailureCode = -4;
 
     static constexpr DatabaseTransactionResult FromExecutionCode(int code) noexcept
     {
