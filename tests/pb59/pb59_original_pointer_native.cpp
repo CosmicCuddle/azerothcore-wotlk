@@ -79,6 +79,6 @@ int main() {
     { Player p; auto* i=p.m_items[0]; i->state=ITEM_UNCHANGED; i->uQueuePos=-1; p.m_itemUpdateQueue.clear(); check(p.HoldPB59OriginalItem(snapshot(p),1)==R::Linked); check(p.RestorePB59OriginalItem(0,1)==R::Linked); check(p.m_items[0]==i && p.m_itemUpdateQueue.empty() && i->uQueuePos==-1 && i->IsInWorld()); }
     { Player p; auto* i=p.m_items[0]; auto s=snapshot(p); p.visible[0].entry=999; check(p.HoldPB59OriginalItem(s,1)==R::Rejected); check(p.m_items[0]==i && p.m_itemUpdateQueue[0]==i && p.visible[0].entry==999); }
     { Player p; auto* i=p.m_items[0]; check(p.HoldPB59OriginalItem(snapshot(p),1)==R::Linked); p.visible[0].temporary=999; check(p.RestorePB59OriginalItem(0,1)==R::RecoveryRequired); check(p.m_items[0]==i && p._pb59OriginalItems[0].original && p.visible[0].temporary==999 && !p.m_itemUpdateQueue[0]); p.visible[0].temporary=0; check(p.RestorePB59OriginalItem(0,1)==R::Linked); restored(p,i); }
-    { Player p; auto* i=p.m_items[0]; i->world=false; check(p.HoldPB59OriginalItem(snapshot(p),1)==R::Rejected); check(p.m_items[0]==i && !p._pb59OriginalItems[0].original); }
+    { Player p; auto* i=p.m_items[0]; i->world=false; i->updated=false; check(p.HoldPB59OriginalItem(snapshot(p),1)==R::Rejected); check(p.m_items[0]==i && !p._pb59OriginalItems[0].original); }
     std::cout << checks << " native pointer custody checks passed\n";
 }
