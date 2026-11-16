@@ -321,6 +321,8 @@ DatabaseTransactionResult DatabaseWorkerPool<T>::DirectCommitTransactionWithResu
         for (uint8 i = 0; i < loopBreaker; ++i)
         {
             errorCode = connection->ExecuteTransaction(transaction);
+            if (errorCode == DatabaseTransactionResult::NotStartedCode)
+                errorCode = DatabaseTransactionResult::PriorAttemptFailureCode;
             if (errorCode != ER_LOCK_DEADLOCK)
                 break; // success or non-deadlock failure: no further replay
         }
