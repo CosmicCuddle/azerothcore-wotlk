@@ -39,6 +39,7 @@
 #include "MySQLThreading.h"
 #include "OpenSSLCrypto.h"
 #include "OutdoorPvPMgr.h"
+#include "Player.h"
 #include "ProcessPriority.h"
 #include "RASession.h"
 #include "RealmList.h"
@@ -502,6 +503,7 @@ bool StartDB()
 void StopDB()
 {
     CharacterDatabase.Close();
+    Player::DrainPB59CharacterSaveEvidence(true);
     WorldDatabase.Close();
     LoginDatabase.Close();
 
