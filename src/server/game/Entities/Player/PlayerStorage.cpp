@@ -52,6 +52,7 @@
 #include "PB59CharacterSaveObserver.h"
 #include "WorldSession.h"
 #include <algorithm>
+#include <limits>
 #include "QueryHolder.h"
 #include "QuestDef.h"
 #include "RBAC.h"
@@ -619,6 +620,87 @@ bool Player::RestorePB59OriginalQueue(PB59::InventorySlotFacts const& original,
     {
         return recovery();
     }
+}
+
+PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects(
+    PB59::InventorySlotFacts const& original, PB59::TransactionAdmission::Ticket ticket, bool apply)
+{
+    using Journal = PB59::OriginalCombatEffects;
+    using Result = Journal::Result;
+    using Access = PB59::TransactionAdmission::Access;
+    auto const access = _pb59Transaction.CanAccess(ticket, Access::Forward) ?
+        Access::Forward : Access::Recovery;
+    if (!_pb59Transaction.CanAccess(ticket, access) || (!apply && access != Access::Forward) ||
+        !original.item || original.bag || (original.position >> 8) != INVENTORY_SLOT_BAG_0 ||
+        (original.position & 255) >= EQUIPMENT_SLOT_END ||
+        (original.position & 255) == EQUIPMENT_SLOT_BODY ||
+        (original.position & 255) == EQUIPMENT_SLOT_TABARD || IsInCombat())
+        return Result::Rejected;
+    uint8 const slot = original.position & 255;
+    auto& journal = _pb59OriginalCombatEffects[slot];
+    if (apply ? journal.State() != Journal::Phase::Removed || !journal.Matches(ticket, original.item->guid)
+              : journal.State() != Journal::Phase::Fresh)
+        return Result::Rejected;
+
+    Item* item = GetItemByPos(original.position);
+    if (!item || item->GetGUID().GetRawValue() != original.item->guid || !item->GetTemplate())
+        return Result::Rejected;
+    ItemTemplate const* proto = item->GetTemplate();
+    uint32 const setId = proto->ItemSet;
+    if (setId)
+    {
+        ItemSetEntry const* set = sItemSetStore.LookupEntry(setId);
+        // A skill-ineligible original or missing set cannot be safely
+        // inverted by stock AddItemsSetItem. Do not guess at its history.
+        if (!set || (set->required_skill_id &&
+                GetSkillValue(set->required_skill_id) < set->required_skill_value))
+            return Result::Rejected;
+    }
+    auto count = [&]() -> std::optional<uint32>
+    {
+        uint32 value = 0;
+        bool found = false;
+        for (auto const* effect : ItemSetEff)
+            if (effect && effect->setid == setId)
+            {
+                if (found || !effect->item_count)
+                    return std::nullopt;
+                found = true;
+                value = effect->item_count;
+            }
+        return value;
+    };
+    auto expected = setId ? count() : std::optional<uint32>{0};
+    if (!expected || (setId && (!apply ? !*expected : *expected == std::numeric_limits<uint32>::max())))
+        return Result::Rejected;
+
+    // Stock set and item-mod routines run module hooks/spells and are
+    // non-idempotent. Call only while still exactly attached (before hold,
+    // or after pointer rollback). The enclosing executor must guarantee
+    // owner lifetime across callbacks; this private method is not that pin.
+    auto verify = [&]()
+    {
+        auto now = CapturePB59InventorySlot(original.position);
+        return _pb59Transaction.CanAccess(ticket, access) && !IsInCombat() &&
+            now && *now == original && GetItemByPos(original.position) == item &&
+            (!setId || count() == expected);
+    };
+    PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+    auto const result = journal.Run(ticket, original.item->guid, apply, verify,
+        [&](bool add)
+        {
+            if (!setId)
+                return;
+            *expected = add ? *expected + 1 : *expected - 1;
+            if (add)
+                AddItemsSetItem(this, item);
+            else
+                RemoveItemsSetItem(this, proto);
+        },
+        [&](bool add) { _ApplyItemMods(item, slot, add); });
+    if (result == Result::RecoveryRequired)
+        _pb59Transaction.RequireRecovery(ticket);
+    return result;
 }
 
 PB59::LinkTransferResult Player::HoldPB59OriginalItem(PB59::InventorySlotFacts const& original,
