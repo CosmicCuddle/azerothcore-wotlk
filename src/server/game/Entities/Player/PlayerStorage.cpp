@@ -7982,6 +7982,24 @@ void Player::DrainPB59CharacterSaveEvidence(bool final)
 
 void Player::SaveToDB(bool create, bool logout)
 {
+    // Fail closed before opening a transaction or running OnPlayerSave.
+    // A held original and an unfinished combat journal cannot produce a
+    // coherent character equipment cache and inventory row together.
+    // Ordinary autosaves will retry through the existing save timer.
+    // Logout and caller-owned DB transactions still require their own
+    // native owner/lifetime adapters before this feature can be enabled.
+    if (HasPB59UnsettledOriginals())
+    {
+        (void)_pb59Transaction.Request(PB59::TransactionAdmission::Work::StandaloneSave);
+        if (!logout)
+        {
+            ScheduleDelayedOperation(DELAYED_SAVE_PLAYER);
+            m_nextSave = 1;
+        }
+        LOG_ERROR("entities.player", "PB59 original custody: full character save refused before DB transaction; pending original/effects recovery; owner must be retained until reconciled.");
+        return;
+    }
+
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
     bool built = false;
