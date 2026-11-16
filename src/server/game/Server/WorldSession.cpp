@@ -691,6 +691,16 @@ void WorldSession::SendPlayTimeWarning(PlayTimeFlag flag, int32 playTimeRemainin
 /// %Log the player out
 void WorldSession::LogoutPlayer(bool save, bool redirecting)
 {
+    // A normal logout must not advance into save, RemoveFromWorld or player
+    // destruction while an original item/effect is in PB59 custody.
+    // This early check retains the owner on the ordinary logout path, not
+    // every forced producer/destructor path. No automatic retry is implied.
+    if (_player && _player->RetainPB59OwnerForUnsettledLogout())
+    {
+        LOG_ERROR("network", "PB59 original custody: normal logout deferred before side effects; owner recovery and bounded retry required.");
+        return;
+    }
+
     // finish pending transfers before starting the logout
     while (_player && _player->IsBeingTeleportedFar())
         HandleMoveWorldportAck();
