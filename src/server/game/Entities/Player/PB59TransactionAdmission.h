@@ -228,12 +228,12 @@ public:
                 Decision::Admit : Decision::RejectBeforeMutation;
         if (_ownerSealed)
             return work == Work::Destroy && !ExternalDepth() ? Decision::Admit : Decision::RejectBeforeMutation;
-        // A previously deferred logout stays owned by the native lifecycle
-        // adapter. Once that intent exists, do not admit a *new* external
-        // economic mutation even after the previous scope has unwound.
-        // Standalone/scheduled saves remain available to settle prior work;
-        // this is not a logout replay, lifetime pin or DB rollback.
-        if (_pendingLogout && newEconomic)
+        // Deferred standalone-save and logout intents remain owned by native
+        // replay. Do not admit another *independent* economic mutation until
+        // its earlier save has been settled or the logout decision replayed.
+        // The already-owned economic producer's final save needs a separate
+        // native handoff, not another generic Request.
+        if ((_pendingLogout || _pendingSave) && newEconomic)
             return Decision::RejectBeforeMutation;
         // A scheduled tick or standalone save is a NEW producer, not the
         // already-owned save append of an admitted economic operation.
