@@ -1,11 +1,12 @@
-# Isolated test-only PR45 workflow. Does not interact with servers or databases.
-name: PB59 admission and lifetime regression fixtures
+# Isolated PB59 review-branch regression workflow. Does not interact with servers or databases.
+name: PB59 transaction admission regression fixtures
 
 on:
   pull_request:
     branches:
       - feature/cs01-pb59-pending-logout-admission-20261117
       - feature/cs01-pb59-trade-logout-admission-fixture-20261117
+      - feature/cs01-pb59-mutation-scope-lifetime-20261117
     paths:
       - tests/pb59/**
       - src/server/game/Entities/Player/PB59TransactionAdmission.h
@@ -14,11 +15,14 @@ on:
     branches:
       - feature/cs01-pb59-trade-logout-admission-fixture-20261117
       - feature/cs01-pb59-mutation-scope-lifetime-20261117
+      - feature/cs01-pb59-economic-scope-admission-20261117
     paths:
       - tests/pb59/pb59_trade_logout_owned_scope.cpp
       - tests/pb59/test_trade_logout_owned_scope.py
       - tests/pb59/pb59_mutation_scope_lifetime.cpp
       - tests/pb59/test_mutation_scope_lifetime.py
+      - tests/pb59/pb59_economic_scope_admission.cpp
+      - tests/pb59/test_economic_scope_admission.py
       - tests/pb59/pb59_pending_logout_admission.cpp
       - tests/pb59/test_pending_logout_admission.py
       - src/server/game/Entities/Player/PB59TransactionAdmission.h
@@ -60,8 +64,10 @@ jobs:
             python3 tests/pb59/test_trade_logout_owned_scope.py --cxx "$CXX" --sanitize
             python3 tests/pb59/test_pending_logout_admission.py --cxx "$CXX" --sanitize
             python3 tests/pb59/test_mutation_scope_lifetime.py --cxx "$CXX" --sanitize
+            python3 tests/pb59/test_economic_scope_admission.py --cxx "$CXX" --sanitize
           else
             python3 tests/pb59/test_trade_logout_owned_scope.py --cxx "$CXX"
             python3 tests/pb59/test_pending_logout_admission.py --cxx "$CXX"
             python3 tests/pb59/test_mutation_scope_lifetime.py --cxx "$CXX"
+            python3 tests/pb59/test_economic_scope_admission.py --cxx "$CXX"
           fi

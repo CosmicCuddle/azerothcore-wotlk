@@ -220,6 +220,8 @@ public:
     // appended. The caller must reject BEFORE any of its own side effects.
     [[nodiscard]] Decision Request(Work work) noexcept
     {
+        bool const newEconomic = work == Work::CallerOwnedSave || work == Work::InventoryAndGold ||
+                                 work == Work::GoldOnly || work == Work::InventoryMutation;
         if (work == Work::Callback)
             return _ownerIncarnation && !_ownerSealed && _phase == Phase::Idle &&
                 !RetirementInProgress() && !_pendingSave && !_pendingLogout ?
@@ -231,9 +233,13 @@ public:
         // economic mutation even after the previous scope has unwound.
         // Standalone/scheduled saves remain available to settle prior work;
         // this is not a logout replay, lifetime pin or DB rollback.
-        if (_pendingLogout &&
-            (work == Work::CallerOwnedSave || work == Work::InventoryAndGold ||
-             work == Work::GoldOnly || work == Work::InventoryMutation))
+        if (_pendingLogout && newEconomic)
+            return Decision::RejectBeforeMutation;
+        // An admitted external producer may invoke callbacks, but may not
+        // independently re-enter an economic scope before its own unwind.
+        // Completing an already-owned transaction needs a distinct native
+        // handoff, never a second generic Request.
+        if (newEconomic && ExternalDepth())
             return Decision::RejectBeforeMutation;
         // An independent retirement request cannot enter an admitted producer.
         // Ordinary save scopes still use their existing idle rules. No new
@@ -244,7 +250,7 @@ public:
         {
             if (work == Work::Destroy)
                 return Decision::RetainOwner;
-            if (work == Work::Logout || work == Work::Redirect || work == Work::InventoryMutation)
+            if (work == Work::Logout || work == Work::Redirect || newEconomic)
                 return Decision::RejectBeforeMutation;
         }
         if (_phase == Phase::Idle)
