@@ -235,6 +235,20 @@ public:
         // this is not a logout replay, lifetime pin or DB rollback.
         if (_pendingLogout && newEconomic)
             return Decision::RejectBeforeMutation;
+        // A scheduled tick or standalone save is a NEW producer, not the
+        // already-owned save append of an admitted economic operation.
+        // Defer it until the external scope or retirement lease is released;
+        // only standalone saves manufacture a persistent replay intent.
+        if (ExternalDepth() || RetirementInProgress())
+        {
+            if (work == Work::ScheduledSave)
+                return Decision::DeferScheduledSave;
+            if (work == Work::StandaloneSave)
+            {
+                _pendingSave = true;
+                return Decision::DeferStandaloneSave;
+            }
+        }
         // An admitted external producer may invoke callbacks, but may not
         // independently re-enter an economic scope before its own unwind.
         // Completing an already-owned transaction needs a distinct native
@@ -242,8 +256,8 @@ public:
         if (newEconomic && ExternalDepth())
             return Decision::RejectBeforeMutation;
         // An independent retirement request cannot enter an admitted producer.
-        // Ordinary save scopes still use their existing idle rules. No new
-        // external economic mutation while retirement is in progress.
+        // Independent save scopes also defer while the retirement lease is
+        // held. No new external economic mutation may enter retirement.
         // The admitted producer's native handoff must be distinguished by its
         // own adapter; this generic Request is not that handoff.
         if (RetirementInProgress())
