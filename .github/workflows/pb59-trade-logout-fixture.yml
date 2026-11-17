@@ -2,6 +2,13 @@
 name: PB59 two-party logout fixture
 
 on:
+  pull_request:
+    branches:
+      - feature/cs01-pb59-pending-logout-admission-20261117
+    paths:
+      - tests/pb59/**
+      - src/server/game/Entities/Player/PB59TransactionAdmission.h
+      - .github/workflows/pb59-trade-logout-fixture.yml
   push:
     branches:
       - feature/cs01-pb59-trade-logout-admission-fixture-20261117
