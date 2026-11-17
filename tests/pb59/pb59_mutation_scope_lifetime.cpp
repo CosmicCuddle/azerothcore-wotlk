@@ -29,6 +29,14 @@ int main()
         test(true, "scope cleanup after owner deletion returned safely");
     }
     {
+        auto owner = std::make_unique<Ledger>();
+        auto mutation = std::make_unique<Ledger::MutationScope>(*owner);
+        test(mutation->GetTicket() != 0, "independent destruction-only case admitted");
+        owner.reset();
+        mutation.reset(); // no Finish: destructor must not touch freed owner
+        test(true, "scope destructor alone survives deleted ledger");
+    }
+    {
         Ledger owner;
         Ledger::Ticket ticket = 0;
         {
