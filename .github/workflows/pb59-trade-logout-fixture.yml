@@ -1,0 +1,54 @@
+# Isolated test-only PR45 workflow. Does not interact with servers or databases.
+name: PB59 two-party logout fixture
+
+on:
+  push:
+    branches:
+      - feature/cs01-pb59-trade-logout-admission-fixture-20261117
+    paths:
+      - tests/pb59/pb59_trade_logout_owned_scope.cpp
+      - tests/pb59/test_trade_logout_owned_scope.py
+      - tests/pb59/pb59_pending_logout_admission.cpp
+      - tests/pb59/test_pending_logout_admission.py
+      - src/server/game/Entities/Player/PB59TransactionAdmission.h
+      - .github/workflows/pb59-trade-logout-fixture.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pb59-owned-scope-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-header-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+        sanitize: [false, true]
+    steps:
+      - name: Check out exact PR45 revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Show compiler and pinned source revision
+        run: |
+          git rev-parse HEAD
+          ${{ matrix.cxx }} --version | head -n 1
+          git hash-object src/server/game/Entities/Player/PB59TransactionAdmission.h
+      - name: Execute two-party admission interleavings
+        env:
+          CXX: ${{ matrix.cxx }}
+          SANITIZE: ${{ matrix.sanitize }}
+        run: |
+          if [ "$SANITIZE" = "true" ]; then
+            python3 tests/pb59/test_trade_logout_owned_scope.py --cxx "$CXX" --sanitize
+            python3 tests/pb59/test_pending_logout_admission.py --cxx "$CXX" --sanitize
+          else
+            python3 tests/pb59/test_trade_logout_owned_scope.py --cxx "$CXX"
+            python3 tests/pb59/test_pending_logout_admission.py --cxx "$CXX"
+          fi
