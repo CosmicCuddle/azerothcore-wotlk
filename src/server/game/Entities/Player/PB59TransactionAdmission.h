@@ -226,6 +226,15 @@ public:
                 Decision::Admit : Decision::RejectBeforeMutation;
         if (_ownerSealed)
             return work == Work::Destroy && !ExternalDepth() ? Decision::Admit : Decision::RejectBeforeMutation;
+        // A previously deferred logout stays owned by the native lifecycle
+        // adapter. Once that intent exists, do not admit a *new* external
+        // economic mutation even after the previous scope has unwound.
+        // Standalone/scheduled saves remain available to settle prior work;
+        // this is not a logout replay, lifetime pin or DB rollback.
+        if (_pendingLogout &&
+            (work == Work::CallerOwnedSave || work == Work::InventoryAndGold ||
+             work == Work::GoldOnly || work == Work::InventoryMutation))
+            return Decision::RejectBeforeMutation;
         // An independent retirement request cannot enter an admitted producer.
         // Ordinary save scopes still use their existing idle rules. No new
         // external economic mutation while retirement is in progress.
