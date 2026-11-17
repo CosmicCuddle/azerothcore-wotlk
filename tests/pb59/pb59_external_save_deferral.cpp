@@ -135,6 +135,12 @@ int main()
              "independent save deferred before retirement token release");
     }
     test(!retiring.RetirementInProgress(), "retirement lease released");
+    test(retiring.PendingSave() && !retiring.PendingLogout(),
+         "retirement unwind leaves standalone replay pending without logout");
+    test(retiring.Request(Work::InventoryMutation) == Decision::RejectBeforeMutation,
+         "retirement pending save blocks fresh inventory mutation");
+    test(retiring.Request(Work::CallerOwnedSave) == Decision::RejectBeforeMutation,
+         "retirement pending save blocks fresh caller-owned append");
     {
         Scope settle(retiring, Work::StandaloneSave);
         test(settle.Admitted(), "retirement save replay admitted after token release");
