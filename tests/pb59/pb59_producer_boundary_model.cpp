@@ -118,8 +118,9 @@ ActionReport Trade(Owner& a, Owner& b, Transaction& trans)
 }
 ActionReport SendMail(Owner& sender, Owner& receiver, Transaction& trans)
 {
-    if (!sender.alive || !receiver.alive || sender.holdActive || sender.quarantined ||
-        receiver.holdActive || receiver.quarantined)
+    // Sending mail changes sender inventory/money, not recipient inventory.
+    // Recipient metadata updates do not require recipient PB59 inventory admission.
+    if (!sender.alive || !receiver.alive || sender.holdActive || sender.quarantined)
         return {false, true, false};
     sender.money -= 3;
     trans.Append();
@@ -221,8 +222,8 @@ int main()
         receiver.holdActive = (caseId & 2) != 0;
         Transaction tx;
         auto result = SendMail(sender, receiver, tx);
-        bool const allowed = caseId == 0;
-        check(result.admitted == allowed && result.returnedError == !allowed, "mail participant admission");
+        bool const allowed = (caseId & 1) == 0;
+        check(result.admitted == allowed && result.returnedError == !allowed, "sender-only mail inventory admission");
         check(tx.appends == (allowed ? 1 : 0), "mail transaction cannot partially append");
         check(sender.money == (allowed ? 97 : 100), "mail cash unchanged on refusal");
         check(sender.gear == 10 && receiver.gear == 10, "mail equipment unchanged on refusal");
