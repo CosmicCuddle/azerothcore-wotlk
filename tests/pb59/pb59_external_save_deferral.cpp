@@ -81,6 +81,42 @@ int main()
     test(ongoing.Request(Work::ScheduledSave) == Decision::RejectBeforeMutation,
          "sealed owner rejects even scheduled save");
 
+    // Critical replay boundary: after an external producer unwinds, a pending
+    // standalone save cannot be leapfrogged by a *new* economic request.
+    // This is ledger-only: native lifetime, DB durability and retry ownership
+    // still require separate integration proof before a real trade is guarded.
+    Ledger awaitingSave;
+    {
+        Scope first(awaitingSave, Work::InventoryAndGold);
+        test(first.Admitted(), "save-boundary initial economic scope admitted");
+        test(awaitingSave.Request(Work::StandaloneSave) == Decision::DeferStandaloneSave,
+             "save-boundary independent save deferred while first owns scope");
+    }
+    test(awaitingSave.PendingSave() && !awaitingSave.PendingLogout(),
+         "save-boundary standalone save pending without logout");
+    test(awaitingSave.Request(Work::CallerOwnedSave) == Decision::RejectBeforeMutation,
+         "pending standalone save blocks new caller-owned DB append");
+    test(awaitingSave.Request(Work::InventoryAndGold) == Decision::RejectBeforeMutation,
+         "pending standalone save blocks new combined inventory/money mutation");
+    test(awaitingSave.Request(Work::GoldOnly) == Decision::RejectBeforeMutation,
+         "pending standalone save blocks new money-only mutation");
+    test(awaitingSave.Request(Work::InventoryMutation) == Decision::RejectBeforeMutation,
+         "pending standalone save blocks new inventory-only mutation");
+    {
+        Scope second(awaitingSave, Work::InventoryAndGold);
+        test(!second.Admitted() && second.Result() == Decision::RejectBeforeMutation,
+             "a new economic ExternalScope cannot bypass a deferred save");
+    }
+    {
+        Scope replay(awaitingSave, Work::StandaloneSave);
+        test(replay.Admitted(), "matching standalone save replay can enter");
+        test(replay.CompleteDeferred(), "only completed replay clears save intent");
+    }
+    test(!awaitingSave.PendingSave() && !awaitingSave.PendingLogout(),
+         "replay clears deferred save without fabricating logout");
+    test(awaitingSave.Request(Work::InventoryMutation) == Decision::Admit,
+         "ordinary idle economic request restores after completed replay");
+
     // All retirement phases disallow an independently starting save.
     Ledger retiring;
     {
