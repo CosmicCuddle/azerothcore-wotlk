@@ -3,6 +3,7 @@
 // exercise WorldSession, DB, Player lifetime, gameplay or item disposal.
 #include "PB59TransactionAdmission.h"
 #include <iostream>
+#include <initializer_list>
 
 using PB59::TransactionAdmission;
 using Work = TransactionAdmission::Work;
