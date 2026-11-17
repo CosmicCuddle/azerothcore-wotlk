@@ -8,6 +8,7 @@ on:
       - feature/cs01-pb59-trade-logout-admission-fixture-20261117
       - feature/cs01-pb59-mutation-scope-lifetime-20261117
       - feature/cs01-pb59-economic-scope-admission-20261117
+      - feature/cs01-pb59-external-save-deferral-20261117
     paths:
       - tests/pb59/**
       - src/server/game/Entities/Player/PB59TransactionAdmission.h
@@ -18,6 +19,7 @@ on:
       - feature/cs01-pb59-mutation-scope-lifetime-20261117
       - feature/cs01-pb59-economic-scope-admission-20261117
       - feature/cs01-pb59-external-save-deferral-20261117
+      - review/cs01-pb59-pending-save-economic-fence-20261117
     paths:
       - tests/pb59/pb59_trade_logout_owned_scope.cpp
       - tests/pb59/test_trade_logout_owned_scope.py
