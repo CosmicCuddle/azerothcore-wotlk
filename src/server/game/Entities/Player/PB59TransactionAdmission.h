@@ -363,25 +363,47 @@ public:
     };
 
     // Unwinding a native operation without an explicit stable Finish retains
-    // quarantine. It must not release the owner or replay pending work itself.
+    // quarantine if its owner is still alive. A callback can delete the owner:
+    // the shared external counter detects that event without dereferencing a
+    // dangling Player ledger. This does NOT pin Player or authorize continuing
+    // any native mutation after the owner has gone away.
     class MutationScope final
     {
     public:
-        explicit MutationScope(TransactionAdmission& state) noexcept : _state(state), _ticket(state.Begin()) { }
-        ~MutationScope() { if (_ticket) _state.RequireRecovery(_ticket); }
+        explicit MutationScope(TransactionAdmission& state) noexcept
+        {
+            try
+            {
+                // Acquire the small lifetime sentinel BEFORE opening a ticket.
+                // Allocation failure cannot leave an active, untracked scope.
+                if (!state._external)
+                    state._external = std::make_shared<ExternalState>(ExternalState{&state});
+                _owner = state._external;
+                _ticket = state.Begin();
+            }
+            catch (std::bad_alloc const&)
+            {
+                _owner.reset();
+            }
+        }
+        ~MutationScope()
+        {
+            if (_ticket && _owner && _owner->owner)
+                _owner->owner->RequireRecovery(_ticket);
+        }
         MutationScope(MutationScope const&) = delete;
         MutationScope& operator=(MutationScope const&) = delete;
         [[nodiscard]] Ticket GetTicket() const noexcept { return _ticket; }
         bool Finish(StableProof proof) noexcept
         {
-            if (!_state.Finish(_ticket, proof))
+            if (!_owner || !_owner->owner || !_owner->owner->Finish(_ticket, proof))
                 return false;
             _ticket = 0;
             return true;
         }
     private:
-        TransactionAdmission& _state;
-        Ticket _ticket;
+        std::shared_ptr<ExternalState> _owner;
+        Ticket _ticket = 0;
     };
 
     // Pending intent is coalesced, not a retained caller transaction or a
