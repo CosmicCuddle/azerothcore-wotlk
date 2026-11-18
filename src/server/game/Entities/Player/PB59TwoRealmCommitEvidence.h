@@ -25,16 +25,42 @@ enum class TradeRealm : std::uint8_t
     Second = 1
 };
 
+// Each pair of callback results must belong to exactly the same proposed
+// trade and live owner incarnations. The source of this token must be a
+// future trusted world-thread adapter, not a client packet or DB worker.
+struct TwoRealmTradeIdentity
+{
+    std::uint64_t tradeGeneration = 0;
+    std::uint64_t firstOwnerIncarnation = 0;
+    std::uint64_t secondOwnerIncarnation = 0;
+
+    [[nodiscard]] constexpr bool Valid() const noexcept
+    {
+        return tradeGeneration != 0 && firstOwnerIncarnation != 0 &&
+               secondOwnerIncarnation != 0 && firstOwnerIncarnation != secondOwnerIncarnation;
+    }
+
+    constexpr bool operator==(TwoRealmTradeIdentity const&) const noexcept = default;
+};
+
 class TwoRealmCommitEvidence final
 {
 public:
+    explicit TwoRealmCommitEvidence(TwoRealmTradeIdentity identity) noexcept :
+        _identity(identity), _poisoned(!identity.Valid()) {}
     // Duplicate or fabricated observations cannot be replaced later to erase
     // an uncertain outcome. Only a trusted, owner-thread delivery may call
     // this method after retrieving the database worker's value-only future.
-    bool Observe(TradeRealm realm, DatabaseTransactionResult outcome) noexcept
+    bool Observe(TwoRealmTradeIdentity identity, TradeRealm realm, DatabaseTransactionResult outcome) noexcept
     {
         auto const index = static_cast<std::size_t>(realm);
-        if (index >= _outcomes.size() || _poisoned || _outcomes[index].has_value())
+        // Do not co-mingle results from a stale trade or a recycled Player
+        // incarnation. The typed status must also agree with its real driver
+        // code: a caller-fabricated {Committed, errorCode} never counts.
+        bool const validResult =
+            DatabaseTransactionResult::FromExecutionCode(outcome.executionCode).status == outcome.status;
+        if (identity != _identity || !identity.Valid() || !validResult ||
+            index >= _outcomes.size() || _poisoned || _outcomes[index].has_value())
         {
             _poisoned = true;
             return false;
@@ -65,6 +91,7 @@ public:
     }
 
 private:
+    TwoRealmTradeIdentity _identity{};
     std::array<std::optional<DatabaseTransactionResult>, 2> _outcomes{};
     bool _poisoned = false;
 };
