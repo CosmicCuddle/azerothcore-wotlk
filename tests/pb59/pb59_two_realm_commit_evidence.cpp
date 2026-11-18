@@ -8,6 +8,7 @@
 #include <type_traits>
 
 using PB59::TradeRealm;
+using PB59::TradeWritePhase;
 using PB59::TwoRealmCommitEvidence;
 using PB59::TwoRealmCommitReview;
 using PB59::TwoRealmTradeIdentity;
@@ -74,19 +75,28 @@ int main()
             TwoRealmCommitEvidence evidence(identity);
             check(evidence.Review() == TwoRealmCommitReview::AwaitingResults,
                   "new pair waits for both results");
-            check(!evidence.HasBothOutcomes(), "empty pair has no two results");
-            check(evidence.Observe(identity, TradeRealm::First, result(first)), "first outcome accepted");
+            check(!evidence.HasAllOutcomes(), "empty pair has no two results");
+            check(evidence.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion, result(first)), "first outcome accepted");
             check(evidence.Review() == (first == Status::Committed
                     ? TwoRealmCommitReview::AwaitingResults
                     : TwoRealmCommitReview::RecoveryReviewRequired),
                   "partial pair never authorizes completion");
-            check(evidence.Observe(identity, TradeRealm::Second, result(second)), "second outcome accepted");
-            check(evidence.HasBothOutcomes(), "pair tracks both result values");
+            check(evidence.Observe(identity, TradeRealm::Second, TradeWritePhase::SourceDeletion, result(second)), "second outcome accepted");
+            check(!evidence.HasAllOutcomes(), "both source deletions are not all four DB transactions");
+            check(evidence.Review() == ((first == Status::Committed && second == Status::Committed)
+                    ? TwoRealmCommitReview::AwaitingResults
+                    : TwoRealmCommitReview::RecoveryReviewRequired),
+                  "source deletions alone never establish four committed outcomes");
+            check(evidence.Observe(identity, TradeRealm::First, TradeWritePhase::FinalInventoryAndGold,
+                                   Result::FromExecutionCode(0)), "first realm final save accepted");
+            check(evidence.Observe(identity, TradeRealm::Second, TradeWritePhase::FinalInventoryAndGold,
+                                   Result::FromExecutionCode(0)), "second realm final save accepted");
+            check(evidence.HasAllOutcomes(), "all four independent transaction outcomes tracked");
             check(evidence.Review() == ((first == Status::Committed && second == Status::Committed)
                     ? TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired
                     : TwoRealmCommitReview::RecoveryReviewRequired),
-                  "only two acknowledged commits reach reconciliation-required state");
-            check(!evidence.Observe(identity, TradeRealm::First, Result::FromExecutionCode(0)),
+                  "even four acknowledgements require reconciliation, never settlement");
+            check(!evidence.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
                   "duplicate first outcome rejected");
             check(evidence.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
                   "duplicate observation poisons pair, never upgrades failure");
@@ -96,24 +106,32 @@ int main()
     for (Status second : statuses)
     {
         TwoRealmCommitEvidence outOfOrder(identity);
-        check(outOfOrder.Observe(identity, TradeRealm::Second, result(second)),
+        check(outOfOrder.Observe(identity, TradeRealm::Second, TradeWritePhase::SourceDeletion, result(second)),
               "second-first callback delivery accepted");
         check(outOfOrder.Review() != TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired,
               "second-only outcome cannot finalize");
-        check(outOfOrder.Observe(identity, TradeRealm::First, Result::FromExecutionCode(0)),
+        check(outOfOrder.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
               "late first outcome accepted");
+        check(outOfOrder.Review() == (second == Status::Committed
+                ? TwoRealmCommitReview::AwaitingResults
+                : TwoRealmCommitReview::RecoveryReviewRequired),
+              "out-of-order source deletions still need final-save outcomes");
+        check(outOfOrder.Observe(identity, TradeRealm::Second, TradeWritePhase::FinalInventoryAndGold,
+                                 Result::FromExecutionCode(0)), "second realm final-save result accepted");
+        check(outOfOrder.Observe(identity, TradeRealm::First, TradeWritePhase::FinalInventoryAndGold,
+                                 Result::FromExecutionCode(0)), "first realm late final-save result accepted");
         check(outOfOrder.Review() == (second == Status::Committed
                 ? TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired
                 : TwoRealmCommitReview::RecoveryReviewRequired),
-              "out-of-order delivery still requires reconciliation or recovery");
+              "out-of-order final results retain conservative decision");
     }
 
     TwoRealmCommitEvidence invalid(identity);
-    check(!invalid.Observe(identity, static_cast<TradeRealm>(2), Result::FromExecutionCode(0)),
+    check(!invalid.Observe(identity, static_cast<TradeRealm>(2), TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
           "unknown realm index refused");
     check(invalid.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
           "invalid realm cannot be erased by later acknowledgements");
-    check(!invalid.Observe(identity, TradeRealm::First, Result::FromExecutionCode(0)),
+    check(!invalid.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
           "poisoned evidence rejects later positives");
 
     // Negative replay/identity cases must never be recoverable by a late
@@ -124,7 +142,7 @@ int main()
     {
         TwoRealmCommitEvidence pair(bad);
         check(!bad.Valid(), "bad trade/owner identity rejected structurally");
-        check(!pair.Observe(bad, TradeRealm::First, Result::FromExecutionCode(0)),
+        check(!pair.Observe(bad, TradeRealm::First, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
               "invalid identity cannot commit first realm");
         check(pair.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
               "invalid identity cannot be cleared by any future callback");
@@ -134,9 +152,9 @@ int main()
         {18, 1207, 1209}, {17, 1208, 1209}, {17, 1207, 1210}, {17, 1209, 1207}}})
     {
         TwoRealmCommitEvidence pair(identity);
-        check(!pair.Observe(stale, TradeRealm::First, Result::FromExecutionCode(0)),
+        check(!pair.Observe(stale, TradeRealm::First, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
               "cross-trade/stale owner callback cannot claim first realm");
-        check(!pair.Observe(identity, TradeRealm::Second, Result::FromExecutionCode(0)),
+        check(!pair.Observe(identity, TradeRealm::Second, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
               "late valid second realm cannot erase poison from stale first");
         check(pair.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
               "cross-trade result mixing always requires manual recovery");
@@ -146,20 +164,71 @@ int main()
         {Status::Committed, 1213}, {Status::Empty, 0}, {Status::CancelledBeforeExecution, Result::NotEnqueuedCode}}})
     {
         TwoRealmCommitEvidence pair(identity);
-        check(!pair.Observe(identity, TradeRealm::First, malformed),
+        check(!pair.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion, malformed),
               "forged/mismatched typed result cannot pass receipt");
         check(pair.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
               "mismatched typed result permanently poisons pair");
     }
 
     TwoRealmCommitEvidence crossed(identity);
-    check(crossed.Observe(identity, TradeRealm::First, Result::FromExecutionCode(0)),
+    check(crossed.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
           "valid original first realm receives committed driver result");
-    check(!crossed.Observe(TwoRealmTradeIdentity{18,1207,1209}, TradeRealm::Second,
+    check(!crossed.Observe(TwoRealmTradeIdentity{18,1207,1209}, TradeRealm::Second, TradeWritePhase::SourceDeletion,
                            Result::FromExecutionCode(0)),
           "second realm result from another trade cannot finish first trade");
     check(crossed.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
           "cross-identity pair rejects completed appearance");
+
+    // All 49 destination-save outcome combinations with both source deletions
+    // confirmed; no failed/ambiguous destination saves may be upgraded.
+    for (Status first : statuses)
+    {
+        for (Status second : statuses)
+        {
+            TwoRealmCommitEvidence pair(identity);
+            check(pair.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion,
+                               Result::FromExecutionCode(0)), "source deletion A received");
+            check(pair.Observe(identity, TradeRealm::Second, TradeWritePhase::SourceDeletion,
+                               Result::FromExecutionCode(0)), "source deletion B received");
+            check(pair.Review() == TwoRealmCommitReview::AwaitingResults,
+                  "only deletion commits cannot masquerade as final saves");
+            check(pair.Observe(identity, TradeRealm::First, TradeWritePhase::FinalInventoryAndGold,
+                               result(first)), "final inventory save A received");
+            check(pair.Observe(identity, TradeRealm::Second, TradeWritePhase::FinalInventoryAndGold,
+                               result(second)), "final inventory save B received");
+            check(pair.HasAllOutcomes(), "all two-realm two-phase statuses are stored");
+            check(pair.Review() == ((first == Status::Committed && second == Status::Committed)
+                    ? TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired
+                    : TwoRealmCommitReview::RecoveryReviewRequired),
+                  "final-save failure never becomes reconciliation-acknowledged");
+        }
+    }
+    TwoRealmCommitEvidence wrongPhase(identity);
+    check(!wrongPhase.Observe(identity, TradeRealm::First, static_cast<TradeWritePhase>(2),
+                              Result::FromExecutionCode(0)), "invalid phase fails closed");
+    check(wrongPhase.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+          "invalid phase permanently poisons evidence");
+    TwoRealmCommitEvidence finalOnly(identity);
+    check(finalOnly.Observe(identity, TradeRealm::First, TradeWritePhase::FinalInventoryAndGold,
+                            Result::FromExecutionCode(0)), "first final save alone may be recorded");
+    check(finalOnly.Observe(identity, TradeRealm::Second, TradeWritePhase::FinalInventoryAndGold,
+                            Result::FromExecutionCode(0)), "second final save alone may be recorded");
+    check(finalOnly.Review() == TwoRealmCommitReview::AwaitingResults,
+          "both final saves with no source deletions never count as full evidence");
+    check(!finalOnly.HasAllOutcomes(), "two unobserved source deletion phases remain");
+    check(finalOnly.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion,
+                            Result::FromExecutionCode(0)), "late source deletion A accepted");
+    check(finalOnly.Observe(identity, TradeRealm::Second, TradeWritePhase::SourceDeletion,
+                            Result::FromExecutionCode(0)), "late source deletion B accepted");
+    check(finalOnly.Review() == TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired,
+          "four successful driver results still explicitly require reconciliation");
+    TwoRealmCommitEvidence duplicatePhase(identity);
+    check(duplicatePhase.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion,
+                                 Result::FromExecutionCode(0)), "original phase receipt accepted");
+    check(!duplicatePhase.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion,
+                                  Result::FromExecutionCode(0)), "duplicate phase result rejected");
+    check(duplicatePhase.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+          "duplicate source-deletion result never upgrades the pair");
 
     std::cout << "checks=" << checks << " status=" << (passed ? "PASS" : "FAIL") << '\n';
     return passed ? 0 : 1;
