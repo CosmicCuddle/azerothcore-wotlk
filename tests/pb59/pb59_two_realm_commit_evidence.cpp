@@ -230,6 +230,61 @@ int main()
     check(duplicatePhase.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
           "duplicate source-deletion result never upgrades the pair");
 
+    // Sealing is a trusted explicit owner-exit/shutdown action, never a
+    // spontaneous timer or a DB worker mutating native Player state.
+    for (TradeRealm realm : std::array<TradeRealm, 2>{TradeRealm::First, TradeRealm::Second})
+    {
+        for (TradeWritePhase phase : std::array<TradeWritePhase, 2>{
+                 TradeWritePhase::SourceDeletion, TradeWritePhase::FinalInventoryAndGold})
+        {
+            TwoRealmCommitEvidence dropped(identity);
+            check(!dropped.IsSealed(), "new evidence is not sealed");
+            check(dropped.Observe(identity, realm, phase, Result::FromExecutionCode(0)),
+                  "one of four driver outcomes can arrive");
+            check(dropped.Review() == TwoRealmCommitReview::AwaitingResults,
+                  "one committed driver result never settles missing phases");
+            dropped.SealOutstanding();
+            check(dropped.IsSealed(), "owner shutdown seals stale callback context");
+            check(dropped.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                  "any unobserved transaction is a hard recovery hold on seal");
+            check(!dropped.Observe(identity, TradeRealm::First,
+                                   TradeWritePhase::SourceDeletion, Result::FromExecutionCode(0)),
+                  "late DB result cannot re-enter a sealed owner context");
+            dropped.SealOutstanding();
+            check(dropped.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                  "repeated seal cannot erase recovery state");
+        }
+    }
+
+    TwoRealmCommitEvidence noFuture(identity);
+    noFuture.SealOutstanding();
+    check(noFuture.IsSealed(), "missing-all-outcomes close is observable");
+    check(noFuture.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+          "missing-all-outcomes close cannot remain awaiting forever");
+    check(!noFuture.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion,
+                            Result::FromExecutionCode(0)), "late source result rejected after close");
+
+    TwoRealmCommitEvidence allReceived(identity);
+    for (TradeRealm realm : std::array<TradeRealm, 2>{TradeRealm::First, TradeRealm::Second})
+    {
+        for (TradeWritePhase phase : std::array<TradeWritePhase, 2>{
+                 TradeWritePhase::SourceDeletion, TradeWritePhase::FinalInventoryAndGold})
+        {
+            check(allReceived.Observe(identity, realm, phase, Result::FromExecutionCode(0)),
+                  "all four callbacks received before close");
+        }
+    }
+    check(allReceived.Review() == TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired,
+          "all driver acknowledgements still do not certify durable trade");
+    allReceived.SealOutstanding();
+    check(allReceived.IsSealed(), "complete evidence is sealed against further callback processing");
+    check(allReceived.Review() == TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired,
+          "sealing all-acknowledged evidence does not manufacture durable success");
+    check(!allReceived.Observe(identity, TradeRealm::First, TradeWritePhase::SourceDeletion,
+                               Result::FromExecutionCode(0)), "sealed complete receipt rejects duplicate");
+    check(allReceived.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+          "any post-seal callback is a conservative recovery anomaly");
+
     std::cout << "checks=" << checks << " status=" << (passed ? "PASS" : "FAIL") << '\n';
     return passed ? 0 : 1;
 }
