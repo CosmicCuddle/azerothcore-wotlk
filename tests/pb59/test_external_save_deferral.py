@@ -33,6 +33,6 @@ with tempfile.TemporaryDirectory(prefix="pb59-external-save-") as temp:
         raise SystemExit(f"FAIL ledger fixture returned {ran.returncode}")
     # The current native-header fixture deliberately runs 56 real assertions.
     # Never treat a shortened or substituted executable as a test pass.
-    counts = re.findall(r"(?m)^checks=(\\d+) status=(PASS|FAIL)\\s*$", ran.stdout)
+    counts = re.findall(r"(?m)^checks=(\d+) status=(PASS|FAIL)\s*$", ran.stdout)
     if len(counts) != 1 or counts[0][1] != "PASS" or int(counts[0][0]) < 56:
         raise SystemExit("FAIL ledger fixture missing/ambiguous/low check counter (minimum 56)")
