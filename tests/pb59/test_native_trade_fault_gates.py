@@ -89,6 +89,20 @@ def check(source: str, storage: str) -> list[str]:
     if status >= 0 and "CommitTransaction(trans);" in method and "verifiedTradeDurability" not in method:
         reasons.append("TRADE_COMPLETE has no recognised verified durability/reconciliation condition")
 
+    # Legacy void commits and two separate owner saves cannot establish a
+    # globally acknowledged crossrealm trade, even after clone fixes.
+    final_saves = method.split("// We can't use single transaction with different databases.", 1)
+    if len(final_saves) == 2:
+        split = final_saves[1].split("else", 1)[0]
+        if (split.count("SaveInventoryAndGoldToDB(trans);") >= 2
+                and split.count("CharacterDatabase.CommitTransaction(trans);") >= 2):
+            reasons.append("crossrealm final owner saves use separate unacknowledged DB commits")
+    if "CharacterDatabase.CommitTransaction(trans);" in method and not (
+        "AsyncCommitTransactionWithOutcome(" in method
+        or "DirectCommitTransactionWithResult(" in method
+    ):
+        reasons.append("native trade uses void DB commits without a typed transaction outcome")
+
     # This known API drains dirty inventory state *before* external transaction
     # commit; checking its return value (void) cannot supply durability evidence.
     save = storage.split("void Player::_SaveInventory", 1)[1]
@@ -115,14 +129,22 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket&) {
     CharacterDatabase.CommitTransaction(trans);
   }
   moveItems(myItems, hisItems);
-  CharacterDatabase.CommitTransaction(trans);
+  // We can't use single transaction with different databases.
+  if (needsCrossrealmHandling) {
+    _player->SaveInventoryAndGoldToDB(trans);
+    CharacterDatabase.CommitTransaction(trans);
+    trader->SaveInventoryAndGoldToDB(trans);
+    CharacterDatabase.CommitTransaction(trans);
+  } else {
+    CharacterDatabase.CommitTransaction(trans);
+  }
   info.Status = TRADE_STATUS_TRADE_COMPLETE;
 }
 void WorldSession::HandleUnacceptTradeOpcode(WorldPacket&) { }
 '''
     storage = 'void Player::_SaveInventory(CharacterDatabaseTransaction trans) { m_itemUpdateQueue.clear(); }\nvoid Player::_SaveMail() {}'
     reasons = check(trade, storage)
-    required = ["clone #1", "clone #2", "deletion DB commit", "TRADE_COMPLETE", "_SaveInventory", "two-owner preflight"]
+    required = ["clone #1", "clone #2", "deletion DB commit", "TRADE_COMPLETE", "_SaveInventory", "two-owner preflight", "void DB commits", "separate unacknowledged DB commits"]
     for part in required:
         if not any(part in r for r in reasons):
             print(f"FAIL self-test: did not detect {part}", file=sys.stderr)
@@ -137,7 +159,7 @@ void WorldSession::HandleUnacceptTradeOpcode(WorldPacket&) { }
     if match is None or block_at(body, match) != '{ if (a) { foo(); } continue; }':
         print("FAIL self-test: nested block parser", file=sys.stderr)
         return False
-    print("PASS self-test: 9 source-gate/parser assertions (synthetic only)")
+    print("PASS self-test: 11 source-gate/parser assertions (synthetic only)")
     return True
 
 
