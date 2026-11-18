@@ -72,7 +72,7 @@ public:
             DatabaseTransactionResult::FromExecutionCode(outcome.executionCode).status == outcome.status;
         if (identity != _identity || !identity.Valid() || !validResult ||
             realmIndex >= _outcomes.size() || phaseIndex >= _outcomes[0].size() ||
-            _poisoned || _outcomes[realmIndex][phaseIndex].has_value())
+            (_poisoned || _sealed) || _outcomes[realmIndex][phaseIndex].has_value())
         {
             _poisoned = true;
             return false;
@@ -112,9 +112,25 @@ public:
         return true;
     }
 
+    // Explicit owner-thread close when the future result producer disappears,
+    // a player is ending its native lifetime, or shutdown cannot wait for a
+    // missing value. No clock, callback, Player* or DB side effect lives here.
+    // An incomplete pair closes permanently into recovery; even a fully
+    // acknowledged pair still requires external durable reconciliation.
+    // Only a future lifetime-safe native adapter may decide when to invoke it.
+    void SealOutstanding() noexcept
+    {
+        _sealed = true;
+        if (!HasAllOutcomes())
+            _poisoned = true;
+    }
+
+    [[nodiscard]] bool IsSealed() const noexcept { return _sealed; }
+
 private:
     TwoRealmTradeIdentity _identity{};
     std::array<std::array<std::optional<DatabaseTransactionResult>, 2>, 2> _outcomes{};
     bool _poisoned = false;
+    bool _sealed = false;
 };
 }
