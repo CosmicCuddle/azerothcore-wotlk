@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "pb59" / "pb59_two_realm_commit_evidence.cpp"
 PLAYER_HEADERS = ROOT / "src" / "server" / "game" / "Entities" / "Player"
 DATABASE_HEADERS = ROOT / "src" / "server" / "database" / "Database"
-EXPECTED_CHECKS = 1111
+EXPECTED_CHECKS = 1151
 
 
 def main() -> int:
