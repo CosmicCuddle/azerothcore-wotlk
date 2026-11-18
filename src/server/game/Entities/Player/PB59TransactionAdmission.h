@@ -235,6 +235,12 @@ public:
         // native handoff, not another generic Request.
         if ((_pendingLogout || _pendingSave) && newEconomic)
             return Decision::RejectBeforeMutation;
+        // A timer-owned save must not leapfrog an earlier deferred standalone
+        // save or lifecycle logout while the original producer has unwound.
+        // The scheduled tick itself owns its retry/dirty flags; this ledger
+        // does not manufacture a separate full-save or logout intent.
+        if ((_pendingSave || _pendingLogout) && work == Work::ScheduledSave)
+            return Decision::DeferScheduledSave;
         // A scheduled tick or standalone save is a NEW producer, not the
         // already-owned save append of an admitted economic operation.
         // Defer it until the external scope or retirement lease is released;
