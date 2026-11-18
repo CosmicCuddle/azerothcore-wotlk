@@ -76,6 +76,31 @@ int main()
     } while (std::next_permutation(order.begin(), order.end()));
     t.Check(permutations == 24, "all twenty-four phase arrival orders executed");
 
+    // Each uncertain write position in every arrival order must remain RED,
+    // even if the other three phases report success afterwards. This covers
+    // late-success masking under all 24 permutations, without native DB work.
+    for (int uncertain = 0; uncertain < 4; ++uncertain)
+    {
+        std::array<int, 4> arrival{0, 1, 2, 3};
+        do
+        {
+            TwoRealmCommitFutureBridge bridge(id);
+            std::array<std::promise<Result>, 4> promises;
+            for (int i = 0; i < 4; ++i)
+                (void)bridge.Attach(id, realms[i], phases[i], promises[i].get_future());
+            for (int i = 0; i < 4; ++i)
+            {
+                int const phase = arrival[i];
+                promises[phase].set_value(Result::FromExecutionCode(
+                    phase == uncertain ? Result::AmbiguousCode : 0));
+                (void)bridge.PollReady();
+            }
+            t.Check(bridge.HasAllOutcomes() &&
+                    bridge.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                    "ambiguous write remains recovery after every later success order");
+        } while (std::next_permutation(arrival.begin(), arrival.end()));
+    }
+
     // Every actual DB status family is tested in each of the four write phases.
     constexpr std::array<int, 7> statuses{
         0, Result::EmptyCode, Result::NotStartedCode, Result::AmbiguousCode,
