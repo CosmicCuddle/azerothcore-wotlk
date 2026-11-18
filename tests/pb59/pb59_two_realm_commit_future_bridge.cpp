@@ -210,6 +210,64 @@ int main()
                 "no default-ready acceptance for invalid trade identity");
     }
 
+    // DB task promises may outlive the owning Player and the bridge. Destroy
+    // the bridge while four producer promises remain pending, then deliver
+    // values afterwards. This tests consumer-lifetime independence only;
+    // it is not native Player lifetime, crash recovery or a timing benchmark.
+    {
+        std::array<std::promise<Result>, 4> producers;
+        {
+            TwoRealmCommitFutureBridge bridge(id);
+            for (int i = 0; i < 4; ++i)
+                t.Check(bridge.Attach(id, realms[i], phases[i],
+                                      producers[i].get_future()),
+                        "promise future attached before bridge destruction");
+            t.Check(bridge.PollReady() == 0, "pending producer cannot be consumed");
+            bridge.SealOutstanding();
+            t.Check(bridge.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                    "owner exit with four pending futures requires recovery");
+        }
+        for (auto& producer : producers)
+            producer.set_value(Result::FromExecutionCode(0));
+        t.Check(true, "late producer values accepted without a live consumer");
+    }
+    // An owner-incarnation mismatch must not attach a stale completion even
+    // if the trade generation matches; the bridge permanently fails closed.
+    for (int owner = 0; owner < 2; ++owner)
+    {
+        TwoRealmCommitFutureBridge bridge(id);
+        std::promise<Result> producer;
+        auto stale = owner == 0 ? TwoRealmTradeIdentity{9201, 44, 43}
+                                : TwoRealmTradeIdentity{9201, 42, 44};
+        t.Check(!bridge.Attach(stale, TradeRealm::First,
+                               TradeWritePhase::SourceDeletion, producer.get_future()),
+                "recycled owner incarnation rejected");
+        t.Check(bridge.IsSealed(), "owner identity mismatch seals all evidence");
+        t.Check(bridge.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                "stale owner result requires recovery");
+    }
+    // A result observed as an uncertain DB execution is sticky: subsequent
+    // successful phases cannot overwrite the review into a safe settlement.
+    for (int failedPhase = 0; failedPhase < 4; ++failedPhase)
+    {
+        TwoRealmCommitFutureBridge bridge(id);
+        std::array<std::promise<Result>, 4> producers;
+        for (int i = 0; i < 4; ++i)
+            t.Check(bridge.Attach(id, realms[i], phases[i],
+                                  producers[i].get_future()),
+                    "mixed execution-status phase attached");
+        producers[failedPhase].set_value(Result::FromExecutionCode(Result::AmbiguousCode));
+        t.Check(bridge.PollReady() == 1, "ambiguous result consumed exactly once");
+        t.Check(bridge.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                "ambiguous execution cannot be classified committed");
+        for (int i = 0; i < 4; ++i)
+            if (i != failedPhase)
+                producers[i].set_value(Result::FromExecutionCode(0));
+        t.Check(bridge.PollReady() == 3, "later successful phases remain observable");
+        t.Check(bridge.Review() == TwoRealmCommitReview::RecoveryReviewRequired,
+                "later successes cannot clear an earlier uncertain result");
+    }
+
     std::cout << "checks=" << t.checks << " status=" << (t.passed ? "PASS" : "FAIL") << '\n';
     return t.passed ? 0 : 1;
 }
