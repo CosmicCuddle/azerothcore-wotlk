@@ -25,6 +25,15 @@ enum class TradeRealm : std::uint8_t
     Second = 1
 };
 
+// The current native crossrealm flow writes two distinct transactions per
+// realm: early source-item deletions and later inventory/gold saves. A final
+// save's driver acknowledgement must never be substituted for deletion proof.
+enum class TradeWritePhase : std::uint8_t
+{
+    SourceDeletion = 0,
+    FinalInventoryAndGold = 1
+};
+
 // Each pair of callback results must belong to exactly the same proposed
 // trade and live owner incarnations. The source of this token must be a
 // future trusted world-thread adapter, not a client packet or DB worker.
@@ -51,21 +60,24 @@ public:
     // Duplicate or fabricated observations cannot be replaced later to erase
     // an uncertain outcome. Only a trusted, owner-thread delivery may call
     // this method after retrieving the database worker's value-only future.
-    bool Observe(TwoRealmTradeIdentity identity, TradeRealm realm, DatabaseTransactionResult outcome) noexcept
+    bool Observe(TwoRealmTradeIdentity identity, TradeRealm realm, TradeWritePhase phase,
+                 DatabaseTransactionResult outcome) noexcept
     {
-        auto const index = static_cast<std::size_t>(realm);
+        auto const realmIndex = static_cast<std::size_t>(realm);
+        auto const phaseIndex = static_cast<std::size_t>(phase);
         // Do not co-mingle results from a stale trade or a recycled Player
         // incarnation. The typed status must also agree with its real driver
         // code: a caller-fabricated {Committed, errorCode} never counts.
         bool const validResult =
             DatabaseTransactionResult::FromExecutionCode(outcome.executionCode).status == outcome.status;
         if (identity != _identity || !identity.Valid() || !validResult ||
-            index >= _outcomes.size() || _poisoned || _outcomes[index].has_value())
+            realmIndex >= _outcomes.size() || phaseIndex >= _outcomes[0].size() ||
+            _poisoned || _outcomes[realmIndex][phaseIndex].has_value())
         {
             _poisoned = true;
             return false;
         }
-        _outcomes[index] = outcome;
+        _outcomes[realmIndex][phaseIndex] = outcome;
         return true;
     }
 
@@ -73,26 +85,36 @@ public:
     {
         if (_poisoned)
             return TwoRealmCommitReview::RecoveryReviewRequired;
-        for (auto const& outcome : _outcomes)
+        bool allObserved = true;
+        for (auto const& realm : _outcomes)
         {
-            if (outcome.has_value() && !outcome->IsCommitted())
-                return TwoRealmCommitReview::RecoveryReviewRequired;
+            for (auto const& outcome : realm)
+            {
+                if (outcome && !outcome->IsCommitted())
+                    return TwoRealmCommitReview::RecoveryReviewRequired;
+                if (!outcome)
+                    allObserved = false;
+            }
         }
-        if (!_outcomes[0] || !_outcomes[1])
+        if (!allObserved)
             return TwoRealmCommitReview::AwaitingResults;
-        // Even two committed driver acknowledgements cannot establish an
-        // atomic two-database transaction, crash durability, or item custody.
+        // Four driver acknowledgements across separate transactions are still
+        // not an atomic two-database settlement or crash durability proof.
         return TwoRealmCommitReview::BothDriverAcknowledgedButReconciliationRequired;
     }
 
-    [[nodiscard]] bool HasBothOutcomes() const noexcept
+    [[nodiscard]] bool HasAllOutcomes() const noexcept
     {
-        return _outcomes[0].has_value() && _outcomes[1].has_value();
+        for (auto const& realm : _outcomes)
+            for (auto const& outcome : realm)
+                if (!outcome)
+                    return false;
+        return true;
     }
 
 private:
     TwoRealmTradeIdentity _identity{};
-    std::array<std::optional<DatabaseTransactionResult>, 2> _outcomes{};
+    std::array<std::array<std::optional<DatabaseTransactionResult>, 2>, 2> _outcomes{};
     bool _poisoned = false;
 };
 }
