@@ -33,6 +33,19 @@ def run():
     schedules = [p for p in permutations(range(4))
                  if p.index(0) < p.index(2) and p.index(1) < p.index(3)]
     assert len(schedules) == 6
+    # The native CommitTransaction API enqueues a one-way task; it does NOT
+    # promise that independently enqueued transactions finish in submit order.
+    # If multiple workers consume the same queue, even same-realm save-before-
+    # delete completion must be treated as a *candidate* until ruled out by
+    # the actual pool/realm connection routing. Do not treat these as legal
+    # successful trades: INSERT may collide, and outcome is unobserved.
+    all_completions = list(permutations(range(4)))
+    not_ordered_per_realm = [p for p in all_completions
+                             if p.index(0) > p.index(2) or p.index(1) > p.index(3)]
+    assert len(all_completions) == 24
+    assert len(not_ordered_per_realm) == 18
+    assert set(schedules).isdisjoint(not_ordered_per_realm)
+    assert set(schedules) | set(not_ordered_per_realm) == set(all_completions)
     observed = {signature(p[:k]) for p in schedules for k in range(5)}
     ordered = {signature(tuple(range(k))) for k in range(5)}
     assert len(observed) == 9 and len(ordered) == 5
@@ -54,7 +67,8 @@ def run():
     for p in schedules:
         assert signature(p) == ( (B_ITEM,), (A_ITEM,), 80, 220 )
     print("PB59 independent-realm schedule oracle: PASS "
-          "schedules=6 prefixes=30 unique=9 ordered=5 unmodeled=4")
+          "schedules=6 prefixes=30 unique=9 ordered=5 unmodeled=4 "
+          "unproven_worker_orders=18 total_permutations=24")
 
 if __name__ == "__main__":
     run()
