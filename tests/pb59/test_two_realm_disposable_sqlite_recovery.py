@@ -118,6 +118,22 @@ def journal_state(root):
         return None if row is None else row[0]
 
 
+def journal_intent_valid(root):
+    """Check the persisted fixture intent before any compensation or commit.
+
+    A production implementation must use trusted immutable journal values,
+    real identities and durable integrity rather than these sample constants.
+    """
+    with connect(paths(root)[2]) as db:
+        row = db.execute(
+            "SELECT trade_key, owner_a, owner_b, incarnation_a, incarnation_b, "
+            "item_a, item_b, gold_a_before, gold_b_before, gold_a_after, gold_b_after "
+            "FROM journal WHERE trade_key=?", (TRADE,)
+        ).fetchone()
+    return row == (TRADE, 42, 43, 242, 243, A_ITEM, B_ITEM,
+                   GOLD_A, GOLD_B, A_AFTER, B_AFTER)
+
+
 def set_state(root, state):
     with connect(paths(root)[2]) as db:
         db.execute("UPDATE journal SET state=? WHERE trade_key=?", (state, TRADE))
@@ -161,16 +177,33 @@ def expected_state(root, settled):
 
 
 def recovery_scope_valid(root):
-    """Fixture-only conservative fence; a real Core lifetime pin is NOT provided."""
-    for path, oid, incarnation in ((paths(root)[0], 42, 242),
-                                   (paths(root)[1], 43, 243)):
+    """Validate model-only custody and balances BEFORE compensating deletes.
+
+    The only legitimate duplicate in an interrupted recovery is source A's GUID
+    temporarily present on both shards AFTER A is restored and BEFORE B is.
+    Such a duplicate is never permitted in a PREPARED intent or a new settlement.
+    This is a narrowly scoped SQLite fixture invariant, NOT a native item proof.
+    """
+    state = journal_state(root)
+    observed = []
+    for path, oid, incarnation, acceptable_gold in (
+        (paths(root)[0], 42, 242, (GOLD_A, A_AFTER)),
+        (paths(root)[1], 43, 243, (GOLD_B, B_AFTER)),
+    ):
         with connect(path) as db:
-            if db.execute("SELECT id, incarnation, locked FROM owner").fetchone() != (oid, incarnation, 1):
+            row = db.execute("SELECT id, incarnation, gold, locked FROM owner").fetchone()
+            if not row or row[:2] != (oid, incarnation) or row[3] != 1:
                 return False
+            if row[2] not in acceptable_gold:
+                return False  # Unexpected currency must never be silently overwritten.
             item_rows = db.execute("SELECT guid, owner FROM item").fetchall()
             if any(guid not in (A_ITEM, B_ITEM) or owner != oid
                    for guid, owner in item_rows):
                 return False
+            observed.append({guid for guid, _ in item_rows})
+    duplicates = observed[0] & observed[1]
+    if duplicates and not (state == "RECOVERY" and duplicates == {A_ITEM}):
+        return False
     return True
 
 
@@ -187,6 +220,8 @@ def reconcile(root, crash_after_first_restore=False):
     state = journal_state(root)
     if state is None:
         return "NO_INTENT"
+    if not journal_intent_valid(root):
+        return "QUARANTINE"
     if state == "COMMITTED":
         if not expected_state(root, settled=True) or not terminal_owner_valid(root):
             return "QUARANTINE"
@@ -218,7 +253,8 @@ def reconcile(root, crash_after_first_restore=False):
 def complete_verified(root, trusted_four_outcomes=False):
     # No on-disk shape or guessed callback implies authorization. A future
     # native owner-context adapter must independently prove four real results.
-    if not trusted_four_outcomes or journal_state(root) != "PREPARED":
+    if (not trusted_four_outcomes or journal_state(root) != "PREPARED" or
+            not journal_intent_valid(root)):
         return False
     if not expected_state(root, settled=True) or not recovery_scope_valid(root):
         return False
@@ -324,6 +360,60 @@ def run():
         t.check(reconcile(root) == "QUARANTINE", "unexpected third item blocks compensating delete")
         t.check(snapshot(root) == prior, "foreign item retained for manual review")
         scenarios+=1
+
+    # No compensating SQL may turn unexplained new currency or duplicated
+    # cross-shard GUIDs into a seemingly clean rollback. Preserve the evidence.
+    for fault in ("duplicate-guid", "unexpected-gold", "prepared-owner-unlocked"):
+        with fresh() as root:
+            t.check(preflight_and_prepare(root), f"{fault}: setup")
+            if fault == "duplicate-guid":
+                with connect(paths(root)[1]) as db:
+                    db.execute("INSERT INTO item VALUES (?, 43)", (A_ITEM,))
+            elif fault == "unexpected-gold":
+                with connect(paths(root)[0]) as db:
+                    db.execute("UPDATE owner SET gold=999")
+            else:
+                with connect(paths(root)[1]) as db:
+                    db.execute("UPDATE owner SET locked=0")
+            before = snapshot(root)
+            t.check(reconcile(root) == "QUARANTINE", f"{fault}: quarantined")
+            t.check(snapshot(root) == before, f"{fault}: no compensation or unlock")
+            t.check(not complete_verified(root, trusted_four_outcomes=True),
+                    f"{fault}: cannot use claimed driver successes")
+            scenarios += 1
+
+    # A corrupted/misbound journal must be quarantined rather than using
+    # hardcoded fallback values and erasing contradictory durable evidence.
+    for field, value in (("owner_a", 999), ("incarnation_b", 777),
+                         ("item_b", "unknown-source-GUID"),
+                         ("gold_a_before", 500), ("gold_b_after", 9999)):
+        with fresh() as root:
+            t.check(preflight_and_prepare(root), f"corrupt {field}: setup")
+            with connect(paths(root)[2]) as db:
+                db.execute(f"UPDATE journal SET {field}=?", (value,))
+            before = snapshot(root)
+            t.check(not journal_intent_valid(root), f"corrupt {field}: detected")
+            t.check(reconcile(root) == "QUARANTINE", f"corrupt {field}: quarantine")
+            t.check(snapshot(root) == before, f"corrupt {field}: no destructive recovery")
+            t.check(not complete_verified(root, trusted_four_outcomes=True),
+                    f"corrupt {field}: cannot authorise trade")
+            scenarios += 1
+
+    # The only temporary cross-shard duplicate allowed under RECOVERY is A's
+    # restored source GUID after crashing between the two compensation writes.
+    with fresh() as root:
+        t.check(preflight_and_prepare(root), "completed four-phase recovery-crash setup")
+        for phase in range(4):
+            do_phase(root, phase)
+        child("crash_recover", root)
+        t.check(journal_state(root) == "RECOVERY", "crashed half-restored trade persisted")
+        with connect(paths(root)[0]) as ad, connect(paths(root)[1]) as bd:
+            t.check(ad.execute("SELECT guid FROM item").fetchone() == (A_ITEM,) and
+                    bd.execute("SELECT guid FROM item").fetchone() == (A_ITEM,),
+                    "temporary A GUID duplication is confined to incomplete recovery")
+        t.check(reconcile(root) == "ROLLED_BACK", "resume correctly resolves recovery-only duplicate")
+        t.check(expected_state(root, settled=False), "no duplicate remains after second restoration")
+        scenarios += 1
 
     # All four independent commits: durable readback still required to settle.
     with fresh() as root:
