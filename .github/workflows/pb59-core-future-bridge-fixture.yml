@@ -10,6 +10,11 @@ on:
       - tests/pb59/pb59_two_realm_commit_future_bridge.cpp
       - tests/pb59/test_two_realm_commit_future_bridge.py
       - tests/pb59/test_two_realm_disposable_sqlite_recovery.py
+      - tests/pb59/test_two_realm_worker_schedule_oracle.py
+      - tests/pb59/pb59_actual_core_queue_worker_order.cpp
+      - tests/pb59/test_actual_core_queue_worker_order.py
+      - src/common/Threading/PCQueue.h
+      - src/server/database/Database/DatabaseLoader.cpp
       - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
       - src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
       - src/server/database/Database/DatabaseTransactionResult.h
@@ -21,6 +26,11 @@ on:
       - tests/pb59/pb59_two_realm_commit_future_bridge.cpp
       - tests/pb59/test_two_realm_commit_future_bridge.py
       - tests/pb59/test_two_realm_disposable_sqlite_recovery.py
+      - tests/pb59/test_two_realm_worker_schedule_oracle.py
+      - tests/pb59/pb59_actual_core_queue_worker_order.cpp
+      - tests/pb59/test_actual_core_queue_worker_order.py
+      - src/common/Threading/PCQueue.h
+      - src/server/database/Database/DatabaseLoader.cpp
       - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
       - src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
       - src/server/database/Database/DatabaseTransactionResult.h
@@ -81,3 +91,45 @@ jobs:
           python3 -c "import sqlite3,sys; print(sys.version); print(sqlite3.sqlite_version)"
       - name: Execute isolated disk journal and process-death fault matrix
         run: python3 -B tests/pb59/test_two_realm_disposable_sqlite_recovery.py
+
+  exact-core-queue-scheduling:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+        sanitize: [false, true]
+    steps:
+      - name: Check out exact PR revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Report real queue header and fixture provenance
+        run: |
+          git rev-parse HEAD
+          git hash-object src/common/Threading/PCQueue.h
+          git hash-object tests/pb59/pb59_actual_core_queue_worker_order.cpp
+          git hash-object tests/pb59/test_actual_core_queue_worker_order.py
+      - name: Verify FIFO dequeue vs multiworker completion order
+        env:
+          CXX: ${{ matrix.cxx }}
+          SANITIZE: ${{ matrix.sanitize }}
+        run: |
+          "$CXX" --version | head -n 1
+          if [ "$SANITIZE" = "true" ]; then
+            python3 tests/pb59/test_actual_core_queue_worker_order.py --cxx "$CXX" --sanitize
+          else
+            python3 tests/pb59/test_actual_core_queue_worker_order.py --cxx "$CXX"
+          fi
+
+  offline-completion-permutations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact PR revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check independent four-phase schedule candidate enumeration
+        run: python3 -B tests/pb59/test_two_realm_worker_schedule_oracle.py
