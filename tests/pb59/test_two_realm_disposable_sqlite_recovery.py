@@ -177,35 +177,50 @@ def expected_state(root, settled):
 
 
 def recovery_scope_valid(root):
-    """Validate model-only custody and balances BEFORE compensating deletes.
+    """Match a reachable, four-phase test history before compensating SQL.
 
-    The only legitimate duplicate in an interrupted recovery is source A's GUID
-    temporarily present on both shards AFTER A is restored and BEFORE B is.
-    Such a duplicate is never permitted in a PREPARED intent or a new settlement.
-    This is a narrowly scoped SQLite fixture invariant, NOT a native item proof.
+    The *disposable SQLite runner* submits phase 0..3 in that order.  Its
+    PREPARED records must be one of the five exact state prefixes, including
+    item placement AND currency jointly. After RECOVERY is journaled but
+    before source A is restored, any prefix is possible. Once A is restored,
+    the only other permitted snapshots are exact post-A-restoration prefixes.
+    Native Core DB workers have different scheduling and are NOT covered.
     """
     state = journal_state(root)
     observed = []
-    for path, oid, incarnation, acceptable_gold in (
-        (paths(root)[0], 42, 242, (GOLD_A, A_AFTER)),
-        (paths(root)[1], 43, 243, (GOLD_B, B_AFTER)),
-    ):
+    for path, oid, incarnation in ((paths(root)[0], 42, 242),
+                                   (paths(root)[1], 43, 243)):
         with connect(path) as db:
             row = db.execute("SELECT id, incarnation, gold, locked FROM owner").fetchone()
-            if not row or row[:2] != (oid, incarnation) or row[3] != 1:
+            if not row or row[0:2] != (oid, incarnation) or row[3] != 1:
                 return False
-            if row[2] not in acceptable_gold:
-                return False  # Unexpected currency must never be silently overwritten.
-            item_rows = db.execute("SELECT guid, owner FROM item").fetchall()
+            item_rows = db.execute("SELECT guid, owner FROM item ORDER BY guid").fetchall()
             if any(guid not in (A_ITEM, B_ITEM) or owner != oid
                    for guid, owner in item_rows):
                 return False
-            observed.append({guid for guid, _ in item_rows})
-    duplicates = observed[0] & observed[1]
-    if duplicates and not (state == "RECOVERY" and duplicates == {A_ITEM}):
-        return False
-    return True
+            observed.append((tuple(guid for guid, _ in item_rows), row[2]))
 
+    # Capture both realm item sets alongside both gold balances. A known GUID
+    # with the wrong owner, or valid-looking gold at the wrong phase, is not
+    # sufficient authority to erase/compensate either database.
+    signature = (observed[0][0], observed[1][0], observed[0][1], observed[1][1])
+    prefixes = {
+        ((A_ITEM,), (B_ITEM,), GOLD_A, GOLD_B),        # before phase 0
+        ((), (B_ITEM,), GOLD_A, GOLD_B),               # after deletion A
+        ((), (), GOLD_A, GOLD_B),                      # after deletion B
+        ((B_ITEM,), (), A_AFTER, GOLD_B),              # after save A
+        ((B_ITEM,), (A_ITEM,), A_AFTER, B_AFTER),       # after save B
+    }
+    if state == "PREPARED":
+        return signature in prefixes
+    if state == "RECOVERY":
+        after_restoring_a = {
+            ((A_ITEM,), (B_ITEM,), GOLD_A, GOLD_B),     # first source restored
+            ((A_ITEM,), (), GOLD_A, GOLD_B),           # second was deleted
+            ((A_ITEM,), (A_ITEM,), GOLD_A, B_AFTER),    # second was finalized
+        }
+        return signature in prefixes or signature in after_restoring_a
+    return False
 
 def terminal_owner_valid(root):
     for path, oid, incarnation in ((paths(root)[0], 42, 242),
@@ -414,6 +429,54 @@ def run():
         t.check(reconcile(root) == "ROLLED_BACK", "resume correctly resolves recovery-only duplicate")
         t.check(expected_state(root, settled=False), "no duplicate remains after second restoration")
         scenarios += 1
+
+    # Explicitly reproduce the former fail-open: recognised item GUIDs on
+    # the wrong shard or at an impossible write stage were previously accepted.
+    # These snapshots are NOT reachable from our ordered four-phase fixture.
+    for name, a_item, b_item, a_gold, b_gold, state in (
+        ("swapped_without_gold", B_ITEM, A_ITEM, GOLD_A, GOLD_B, "PREPARED"),
+        ("a_saved_while_b_source_kept", B_ITEM, B_ITEM, A_AFTER, GOLD_B, "PREPARED"),
+        ("source_a_kept_while_b_deleted", A_ITEM, None, GOLD_A, GOLD_B, "PREPARED"),
+        ("final_b_without_earlier_writes", None, A_ITEM, GOLD_A, B_AFTER, "PREPARED"),
+        ("final_a_with_old_balance", B_ITEM, None, GOLD_A, GOLD_B, "PREPARED"),
+        ("swapped_recovery_without_gold", B_ITEM, A_ITEM, GOLD_A, GOLD_B, "RECOVERY"),
+        ("recovery_duplicate_a_wrong_balance", A_ITEM, A_ITEM, A_AFTER, B_AFTER, "RECOVERY"),
+        ("recovery_duplicate_a_wrong_b_gold", A_ITEM, A_ITEM, GOLD_A, GOLD_B, "RECOVERY"),
+        ("recovery_restored_a_with_wrong_b_gold", A_ITEM, None, GOLD_A, B_AFTER, "RECOVERY"),
+    ):
+        with fresh() as root:
+            t.check(preflight_and_prepare(root), f"{name}: setup")
+            for db_path, guid, owner, gold in (
+                (paths(root)[0], a_item, 42, a_gold),
+                (paths(root)[1], b_item, 43, b_gold),
+            ):
+                with connect(db_path) as db:
+                    db.execute("DELETE FROM item")
+                    if guid is not None:
+                        db.execute("INSERT INTO item VALUES (?, ?)", (guid, owner))
+                    db.execute("UPDATE owner SET gold=?", (gold,))
+            if state == "RECOVERY":
+                set_state(root, "RECOVERY")
+            before = snapshot(root)
+            t.check(not recovery_scope_valid(root), f"{name}: wrong stage is invalid")
+            t.check(reconcile(root) == "QUARANTINE", f"{name}: no destructive compensation")
+            t.check(snapshot(root) == before, f"{name}: audit evidence preserved")
+            t.check(not complete_verified(root, trusted_four_outcomes=True),
+                    f"{name}: cannot claim settlement")
+            scenarios += 1
+
+    # A crash after recording RECOVERY but before restoring A may leave ANY
+    # legitimate four-phase prefix. These valid cases must remain recoverable.
+    for completed in range(5):
+        with fresh() as root:
+            t.check(preflight_and_prepare(root), "recovery pre-restore setup")
+            for phase in range(completed):
+                do_phase(root, phase)
+            set_state(root, "RECOVERY")
+            t.check(recovery_scope_valid(root), "phase-prefix is valid during recovery")
+            t.check(reconcile(root) == "ROLLED_BACK", "valid recovery prefix restored")
+            t.check(expected_state(root, settled=False), "no source GUID or gold lost")
+            scenarios += 1
 
     # All four independent commits: durable readback still required to settle.
     with fresh() as root:
