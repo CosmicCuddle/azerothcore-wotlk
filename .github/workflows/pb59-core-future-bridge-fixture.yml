@@ -9,6 +9,7 @@ on:
       - .github/workflows/pb59-core-future-bridge-fixture.yml
       - tests/pb59/pb59_two_realm_commit_future_bridge.cpp
       - tests/pb59/test_two_realm_commit_future_bridge.py
+      - tests/pb59/test_two_realm_disposable_sqlite_recovery.py
       - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
       - src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
       - src/server/database/Database/DatabaseTransactionResult.h
@@ -19,6 +20,7 @@ on:
       - .github/workflows/pb59-core-future-bridge-fixture.yml
       - tests/pb59/pb59_two_realm_commit_future_bridge.cpp
       - tests/pb59/test_two_realm_commit_future_bridge.py
+      - tests/pb59/test_two_realm_disposable_sqlite_recovery.py
       - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
       - src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
       - src/server/database/Database/DatabaseTransactionResult.h
@@ -63,3 +65,19 @@ jobs:
           else
             python3 tests/pb59/test_two_realm_commit_future_bridge.py --cxx "$CXX"
           fi
+
+  disposable-sqlite-crash-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out exact draft revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Report test provenance and Python/SQLite versions
+        run: |
+          git rev-parse HEAD
+          git hash-object tests/pb59/test_two_realm_disposable_sqlite_recovery.py
+          python3 -c "import sqlite3,sys; print(sys.version); print(sqlite3.sqlite_version)"
+      - name: Execute isolated disk journal and process-death fault matrix
+        run: python3 -B tests/pb59/test_two_realm_disposable_sqlite_recovery.py
