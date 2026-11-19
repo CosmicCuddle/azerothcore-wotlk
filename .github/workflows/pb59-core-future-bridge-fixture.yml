@@ -1,0 +1,65 @@
+# Isolated PR53 typed-result future bridge verification. No server, databases or secrets.
+name: PB59 typed DB future bridge regression
+
+on:
+  push:
+    branches:
+      - review/cs01-pb59-db-future-ownerthread-20261118
+    paths:
+      - .github/workflows/pb59-core-future-bridge-fixture.yml
+      - tests/pb59/pb59_two_realm_commit_future_bridge.cpp
+      - tests/pb59/test_two_realm_commit_future_bridge.py
+      - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
+      - src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
+      - src/server/database/Database/DatabaseTransactionResult.h
+  pull_request:
+    branches:
+      - review/cs01-pb59-two-realm-db-outcome-evidence-20261118
+    paths:
+      - .github/workflows/pb59-core-future-bridge-fixture.yml
+      - tests/pb59/pb59_two_realm_commit_future_bridge.cpp
+      - tests/pb59/test_two_realm_commit_future_bridge.py
+      - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
+      - src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
+      - src/server/database/Database/DatabaseTransactionResult.h
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pb59-core-future-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-header-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+        sanitize: [false, true]
+    steps:
+      - name: Check out exact PR revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Report provenance of actual compiled sources
+        run: |
+          git rev-parse HEAD
+          git hash-object tests/pb59/pb59_two_realm_commit_future_bridge.cpp
+          git hash-object tests/pb59/test_two_realm_commit_future_bridge.py
+          git hash-object src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
+          git hash-object src/server/game/Entities/Player/PB59TwoRealmCommitEvidence.h
+          git hash-object src/server/database/Database/DatabaseTransactionResult.h
+      - name: Compile and run typed future bridge assertions
+        env:
+          CXX: ${{ matrix.cxx }}
+          SANITIZE: ${{ matrix.sanitize }}
+        run: |
+          "$CXX" --version | head -n 1
+          if [ "$SANITIZE" = "true" ]; then
+            python3 tests/pb59/test_two_realm_commit_future_bridge.py --cxx "$CXX" --sanitize
+          else
+            python3 tests/pb59/test_two_realm_commit_future_bridge.py --cxx "$CXX"
+          fi
