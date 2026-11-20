@@ -500,8 +500,21 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& /*recvPacket*/)
 
             if (!allClonesPrepared)
             {
-                // unique_ptr destroys every already prepared replacement. No
-                // inventory removal, source GUID deletion or gold write happened.
+                // CloneItem can enqueue a newly created item in its destination
+                // player's m_itemUpdateQueue while applying random properties.
+                // Detach every staged clone from that queue BEFORE unique_ptr
+                // destroys it; otherwise a failed trade leaves dangling Item*
+                // entries that a later inventory save can dereference.
+                for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; ++i)
+                {
+                    if (myCrossrealmClones[i] && myCrossrealmClones[i]->IsInUpdateQueue())
+                        myCrossrealmClones[i]->RemoveFromUpdateQueueOf(trader);
+                    if (hisCrossrealmClones[i] && hisCrossrealmClones[i]->IsInUpdateQueue())
+                        hisCrossrealmClones[i]->RemoveFromUpdateQueueOf(_player);
+                }
+                // No original inventory removal, original GUID deletion or
+                // trade gold write has happened. Creation-script side effects
+                // still require separate native review and cannot be undone here.
                 clearAcceptTradeMode(my_trade, his_trade);
                 my_trade->SetAccepted(false);
                 his_trade->SetAccepted(false);
