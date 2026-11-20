@@ -521,7 +521,7 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& /*recvPacket*/)
             {
                 if (myItems[i])
                 {
-                    Item* newItem = myItems[i]->CloneItem(myItems[i]->GetCount(), trader);
+                    Item* newItem = myItems[i]->CloneForCrossrealmTrade(myItems[i]->GetCount(), trader);
                     if (!newItem)
                     {
                         ItemPosCountVec playerDst;
@@ -554,7 +554,7 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& /*recvPacket*/)
             {
                 if (hisItems[i])
                 {
-                    Item* newItem = hisItems[i]->CloneItem(hisItems[i]->GetCount(), _player);
+                    Item* newItem = hisItems[i]->CloneForCrossrealmTrade(hisItems[i]->GetCount(), _player);
                     if (!newItem)
                     {
                         ItemPosCountVec playerDst;
