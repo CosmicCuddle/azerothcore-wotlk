@@ -164,8 +164,8 @@ jobs:
           git hash-object tests/pb59/test_actual_queue_outcome_cancel.py
       - name: Prove cancel/shutdown/in-flight future distinction in isolated fixture
         env:
-          CXX: \${{ matrix.cxx }}
-          SANITIZE: \${{ matrix.sanitize }}
+          CXX: ${{ matrix.cxx }}
+          SANITIZE: ${{ matrix.sanitize }}
         run: |
           "$CXX" --version | head -n 1
           if [ "$SANITIZE" = "true" ]; then
