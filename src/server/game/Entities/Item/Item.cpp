@@ -1098,7 +1098,7 @@ void Item::SendTimeUpdate(Player* owner)
     owner->SendDirectMessage(&data);
 }
 
-Item* Item::CreateItem(uint32 item, uint32 count, Player const* player, bool clone, uint32 randomPropertyId)
+Item* Item::CreateItem(uint32 item, uint32 count, Player const* player, bool clone, uint32 randomPropertyId, bool notify)
 {
     if (count < 1)
         return nullptr;                                        //don't create item at zero count
@@ -1117,7 +1117,7 @@ Item* Item::CreateItem(uint32 item, uint32 count, Player const* player, bool clo
         realmId = player->GetGUID().GetRealmID();
 
     Item* pItem = NewItemOrBag(pProto);
-    if (!pItem->Create(sObjectMgr->GetGenerator<HighGuid::Item>().Generate(realmId), item, player))
+    if (!pItem->CreateInternal(sObjectMgr->GetGenerator<HighGuid::Item>().Generate(realmId), item, player, notify))
     {
         delete pItem;
         return nullptr;
@@ -1216,10 +1216,24 @@ Item* Item::CloneForCrossrealmTrade(uint32 count, Player const* newOwner) const
     // IMPORTANT: this is only field fidelity. It is NOT a durable trade
     // transaction, and must not be used to justify deleting source items
     // before DB outcomes and rollback/reconciliation are verified.
-    Item* result = CloneItem(count, newOwner);
+    // CloneItem routes through CreateItem with its normal OnItemCreate hook.
+    // During preflight that hook can emit irreversible script side effects even
+    // if a later staged clone fails. Create the cross-realm replacement without
+    // publishing a new-item hook; every existing CreateItem / CloneItem caller
+    // retains notify=true by default. Commit-time script semantics are not yet
+    // implemented and must be settled with the durable-custody protocol.
+    Item* result = CreateItem(GetEntry(), count, newOwner, true,
+        newOwner ? GetItemRandomPropertyId() : 0, false);
     if (!result)
         return nullptr;
 
+    // Keep the ordinary CloneItem copied-field contract (including clearing
+    // refundable / BOP-tradable flags) despite bypassing its notify=true path.
+    result->SetUInt32Value(ITEM_FIELD_CREATOR, GetUInt32Value(ITEM_FIELD_CREATOR));
+    result->SetUInt32Value(ITEM_FIELD_GIFTCREATOR, GetUInt32Value(ITEM_FIELD_GIFTCREATOR));
+    result->SetUInt32Value(ITEM_FIELD_FLAGS,
+        GetUInt32Value(ITEM_FIELD_FLAGS) & ~(ITEM_FIELD_FLAG_REFUNDABLE | ITEM_FIELD_FLAG_BOP_TRADEABLE));
+    result->SetUInt32Value(ITEM_FIELD_DURATION, GetUInt32Value(ITEM_FIELD_DURATION));
     result->SetUInt32Value(ITEM_FIELD_MAXDURABILITY, GetUInt32Value(ITEM_FIELD_MAXDURABILITY));
     result->SetUInt32Value(ITEM_FIELD_DURABILITY, GetUInt32Value(ITEM_FIELD_DURABILITY));
     result->SetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME, GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME));
