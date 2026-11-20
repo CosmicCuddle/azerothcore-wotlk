@@ -32,6 +32,9 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
+#include <array>
+#include <memory>
+
 void WorldSession::SendTradeStatus(TradeStatusInfo const& info)
 {
     WorldPacket data(SMSG_TRADE_STATUS, 13);
@@ -460,6 +463,57 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& /*recvPacket*/)
             return;
         }
 
+        // Cross-realm clones must all be prepared before either original item,
+        // its owner's balance, or any database transaction is touched. A failed
+        // clone cancels the WHOLE trade instead of leaving a restored original
+        // in the transfer array for moveItems() to process a second time.
+        bool const needsCrossrealmHandling = sToCloud9Sidecar->IsCrossrealm() &&
+            _player->GetGUID().GetRealmID() != trader->GetGUID().GetRealmID();
+        std::array<std::unique_ptr<Item>, TRADE_SLOT_TRADED_COUNT> myCrossrealmClones{};
+        std::array<std::unique_ptr<Item>, TRADE_SLOT_TRADED_COUNT> hisCrossrealmClones{};
+        if (needsCrossrealmHandling)
+        {
+            bool allClonesPrepared = true;
+            for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; ++i)
+            {
+                if (myItems[i])
+                {
+                    myCrossrealmClones[i].reset(
+                        myItems[i]->CloneForCrossrealmTrade(myItems[i]->GetCount(), trader));
+                    if (!myCrossrealmClones[i])
+                    {
+                        allClonesPrepared = false;
+                        break;
+                    }
+                }
+                if (hisItems[i])
+                {
+                    hisCrossrealmClones[i].reset(
+                        hisItems[i]->CloneForCrossrealmTrade(hisItems[i]->GetCount(), _player));
+                    if (!hisCrossrealmClones[i])
+                    {
+                        allClonesPrepared = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!allClonesPrepared)
+            {
+                // unique_ptr destroys every already prepared replacement. No
+                // inventory removal, source GUID deletion or gold write happened.
+                clearAcceptTradeMode(my_trade, his_trade);
+                my_trade->SetAccepted(false);
+                his_trade->SetAccepted(false);
+                info.Status = TRADE_STATUS_TRADE_CANCELED;
+                trader->GetSession()->SendTradeStatus(info);
+                SendTradeStatus(info);
+                delete my_spell;
+                delete his_spell;
+                return;
+            }
+        }
+
         // cache traded item info before moving (pointers become invalid after moveItems if items merge into existing stacks)
         struct TradedItemInfo
         {
@@ -506,77 +560,52 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& /*recvPacket*/)
             }
         }
 
-        bool needsCrossrealmHandling = sToCloud9Sidecar->IsCrossrealm() && _player->GetGUID().GetRealmID() != trader->GetGUID().GetRealmID();
-
-        // Create new items for crossrealm usage.
+        // All replacement items were staged before MoveItemFromInventory.
+        // This still uses the existing asynchronous DB writes and is NOT a
+        // durable two-realm trade. Source deletion and TRADE_COMPLETE must
+        // subsequently be fenced by a separately reviewed custody journal.
         if (needsCrossrealmHandling)
         {
-            CharacterDatabasePreparedStatement* stmt = nullptr;
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-            stmt = CharacterDatabase.GetPreparedStatement(CHAR_NO_OP_PROVIDE_REALM_CONTEXT);
+            CharacterDatabasePreparedStatement* stmt =
+                CharacterDatabase.GetPreparedStatement(CHAR_NO_OP_PROVIDE_REALM_CONTEXT);
             stmt->SetData(0, _player->GetGUID().GetRealmID());
             trans->Append(stmt);
 
-            for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; i++)
+            for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; ++i)
             {
-                if (myItems[i])
-                {
-                    Item* newItem = myItems[i]->CloneForCrossrealmTrade(myItems[i]->GetCount(), trader);
-                    if (!newItem)
-                    {
-                        ItemPosCountVec playerDst;
-                        if (_player->CanStoreItem(NULL_BAG, NULL_SLOT, playerDst, myItems[i], false) == EQUIP_ERR_OK)
-                            _player->MoveItemToInventory(playerDst, myItems[i], true, true);
+                if (!myItems[i])
+                    continue;
 
-                        // Should we handle else statement here?
-
-                        continue;
-                    }
-
-                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
-                    stmt->SetData(0, myItems[i]->GetGUID().GetCounter());
-                    trans->Append(stmt);
-
-                    delete myItems[i];
-
-                    myItems[i] = newItem;
-                }
+                ASSERT(myCrossrealmClones[i]);
+                stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
+                stmt->SetData(0, myItems[i]->GetGUID().GetCounter());
+                trans->Append(stmt);
+                delete myItems[i];
+                myItems[i] = myCrossrealmClones[i].release();
+                // Match the old post-removal CloneItem gift-creator contract.
+                myItems[i]->SetGuidValue(ITEM_FIELD_GIFTCREATOR, _player->GetGUID());
             }
             CharacterDatabase.CommitTransaction(trans);
 
             trans = CharacterDatabase.BeginTransaction();
-
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_NO_OP_PROVIDE_REALM_CONTEXT);
             stmt->SetData(0, trader->GetGUID().GetRealmID());
             trans->Append(stmt);
-
-            for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; i++)
+            for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; ++i)
             {
-                if (hisItems[i])
-                {
-                    Item* newItem = hisItems[i]->CloneForCrossrealmTrade(hisItems[i]->GetCount(), _player);
-                    if (!newItem)
-                    {
-                        ItemPosCountVec playerDst;
-                        if (trader->CanStoreItem(NULL_BAG, NULL_SLOT, playerDst, hisItems[i], false) == EQUIP_ERR_OK)
-                            trader->MoveItemToInventory(playerDst, hisItems[i], true, true);
+                if (!hisItems[i])
+                    continue;
 
-                        // Should we handle else statement here?
-
-                        continue;
-                    }
-
-                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
-                    stmt->SetData(0, hisItems[i]->GetGUID().GetCounter());
-                    trans->Append(stmt);
-
-                    delete hisItems[i];
-
-                    hisItems[i] = newItem;
-                }
+                ASSERT(hisCrossrealmClones[i]);
+                stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
+                stmt->SetData(0, hisItems[i]->GetGUID().GetCounter());
+                trans->Append(stmt);
+                delete hisItems[i];
+                hisItems[i] = hisCrossrealmClones[i].release();
+                hisItems[i]->SetGuidValue(ITEM_FIELD_GIFTCREATOR, trader->GetGUID());
             }
             CharacterDatabase.CommitTransaction(trans);
-
         }
 
         // execute trade: 2. store
