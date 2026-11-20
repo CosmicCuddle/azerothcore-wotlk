@@ -111,8 +111,10 @@ public:
             e.identity.payloadHash = static_cast<std::uint64_t>(sqlite3_column_int64(rows.ptr, 2));
             e.sequence = static_cast<std::uint64_t>(sqlite3_column_int64(rows.ptr, 3));
             e.kind = static_cast<EventKind>(kind);
-            if (e.identity.realm != realm_ || into.Apply(e) != ApplyResult::Applied) return false;
+            // Verify the persisted effect marker BEFORE admitting the receipt into the replay gate.
+            // Otherwise a corrupt/missing marker can leave a falsely Complete in-memory state.
             if (e.kind == EventKind::Commit && !EffectExists(e)) return false;
+            if (e.identity.realm != realm_ || into.Apply(e) != ApplyResult::Applied) return false;
         }
     }
     int EventCount(std::uint64_t tradeId) const { return CountRows("journal", tradeId); }
