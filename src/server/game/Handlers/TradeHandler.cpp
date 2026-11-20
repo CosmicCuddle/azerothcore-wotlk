@@ -473,6 +473,29 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& /*recvPacket*/)
         std::array<std::unique_ptr<Item>, TRADE_SLOT_TRADED_COUNT> hisCrossrealmClones{};
         if (needsCrossrealmHandling)
         {
+            // A wrapped item is not self-contained: its real entry/flags live
+            // in character_gifts under the ORIGINAL item GUID. Cloning the
+            // wrapper alone creates a new GUID without that row; opening it
+            // then destroys the gift. Until the custody journal can migrate
+            // that record durably, refuse the WHOLE cross-realm trade.
+            // This guard precedes ALL CloneItem/OnItemCreate side effects.
+            for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; ++i)
+            {
+                if ((myItems[i] && myItems[i]->IsWrapped()) ||
+                    (hisItems[i] && hisItems[i]->IsWrapped()))
+                {
+                    clearAcceptTradeMode(my_trade, his_trade);
+                    my_trade->SetAccepted(false);
+                    his_trade->SetAccepted(false);
+                    info.Status = TRADE_STATUS_TRADE_CANCELED;
+                    trader->GetSession()->SendTradeStatus(info);
+                    SendTradeStatus(info);
+                    delete my_spell;
+                    delete his_spell;
+                    return;
+                }
+            }
+
             bool allClonesPrepared = true;
             for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT; ++i)
             {
