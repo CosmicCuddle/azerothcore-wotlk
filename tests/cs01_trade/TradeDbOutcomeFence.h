@@ -34,7 +34,10 @@ public:
         if (!realm_) return {realm_, true, {DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::NotStartedCode}};
         if (received_) return {realm_, true, result_};
         if (!future_.valid()) return {realm_, true, {DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::NotStartedCode}};
-        if (future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return {realm_, false, result_};
+        auto const status = future_.wait_for(std::chrono::seconds(0));
+        if (status == std::future_status::deferred)
+            return {realm_, true, {DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::AmbiguousCode}};
+        if (status != std::future_status::ready) return {realm_, false, result_};
         try { result_ = future_.get(); }
         catch (...) { result_ = {DatabaseTransactionStatus::FailedUnverified, DatabaseTransactionResult::AmbiguousCode}; }
         received_ = true;
