@@ -222,6 +222,9 @@ class Item : public Object
 public:
     static Item* CreateItem(uint32 item, uint32 count, Player const* player = nullptr, bool clone = false, uint32 randomPropertyId = 0);
     Item* CloneItem(uint32 count, Player const* player = nullptr) const;
+    // Dedicated cross-realm clone: copy persisted per-instance state, not only template defaults.
+    // This does not provide two-realm transactional item custody or commit verification.
+    [[nodiscard]] Item* CloneForCrossrealmTrade(uint32 count, Player const* newOwner) const;
 
     // PB59 preparation only: ownerless, unlinked and unqueued. Does not
     // publish creation hooks or authorize equip, save or old-item disposal.
