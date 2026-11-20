@@ -13,6 +13,10 @@ on:
       - tests/pb59/test_two_realm_worker_schedule_oracle.py
       - tests/pb59/pb59_actual_core_queue_worker_order.cpp
       - tests/pb59/test_actual_core_queue_worker_order.py
+      - tests/pb59/pb59_actual_queue_outcome_cancel.cpp
+      - tests/pb59/test_actual_queue_outcome_cancel.py
+      - src/server/database/Database/Transaction.h
+      - src/server/database/Database/Transaction.cpp
       - src/common/Threading/PCQueue.h
       - src/server/database/Database/DatabaseLoader.cpp
       - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
@@ -29,6 +33,10 @@ on:
       - tests/pb59/test_two_realm_worker_schedule_oracle.py
       - tests/pb59/pb59_actual_core_queue_worker_order.cpp
       - tests/pb59/test_actual_core_queue_worker_order.py
+      - tests/pb59/pb59_actual_queue_outcome_cancel.cpp
+      - tests/pb59/test_actual_queue_outcome_cancel.py
+      - src/server/database/Database/Transaction.h
+      - src/server/database/Database/Transaction.cpp
       - src/common/Threading/PCQueue.h
       - src/server/database/Database/DatabaseLoader.cpp
       - src/server/game/Entities/Player/PB59TwoRealmCommitFutureBridge.h
@@ -133,3 +141,35 @@ jobs:
           persist-credentials: false
       - name: Check independent four-phase schedule candidate enumeration
         run: python3 -B tests/pb59/test_two_realm_worker_schedule_oracle.py
+
+  exact-core-typed-queue-cancellation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+        sanitize: [false, true]
+    steps:
+      - name: Check out exact PR revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Record pinned queue and typed result provenance
+        run: |
+          git rev-parse HEAD
+          git hash-object src/common/Threading/PCQueue.h
+          git hash-object src/server/database/Database/DatabaseTransactionResult.h
+          git hash-object tests/pb59/pb59_actual_queue_outcome_cancel.cpp
+          git hash-object tests/pb59/test_actual_queue_outcome_cancel.py
+      - name: Prove cancel/shutdown/in-flight future distinction in isolated fixture
+        env:
+          CXX: \${{ matrix.cxx }}
+          SANITIZE: \${{ matrix.sanitize }}
+        run: |
+          "$CXX" --version | head -n 1
+          if [ "$SANITIZE" = "true" ]; then
+            python3 tests/pb59/test_actual_queue_outcome_cancel.py --cxx "$CXX" --sanitize
+          else
+            python3 tests/pb59/test_actual_queue_outcome_cancel.py --cxx "$CXX"
+          fi
