@@ -1207,6 +1207,42 @@ Item* Item::CloneItem(uint32 count, Player const* player) const
     return newItem;
 }
 
+Item* Item::CloneForCrossrealmTrade(uint32 count, Player const* newOwner) const
+{
+    // Keep the normal CloneItem semantics (including removal of refundable /
+    // BOP-tradable flags) unchanged for other callers such as stack splits.
+    // A cross-realm replacement, however, must preserve the source instance's
+    // persistent state rather than silently resetting to item-template defaults.
+    // IMPORTANT: this is only field fidelity. It is NOT a durable trade
+    // transaction, and must not be used to justify deleting source items
+    // before DB outcomes and rollback/reconciliation are verified.
+    Item* result = CloneItem(count, newOwner);
+    if (!result)
+        return nullptr;
+
+    result->SetUInt32Value(ITEM_FIELD_MAXDURABILITY, GetUInt32Value(ITEM_FIELD_MAXDURABILITY));
+    result->SetUInt32Value(ITEM_FIELD_DURABILITY, GetUInt32Value(ITEM_FIELD_DURABILITY));
+    result->SetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME, GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME));
+    result->SetUInt32Value(ITEM_FIELD_PROPERTY_SEED, GetUInt32Value(ITEM_FIELD_PROPERTY_SEED));
+    for (uint8 slot = 0; slot < MAX_ITEM_PROTO_SPELLS; ++slot)
+        result->SetSpellCharges(slot, GetSpellCharges(slot));
+
+    // Copy the exact serialized triple for every enchantment slot, including
+    // permanent enchantments, gems, durations, charges and random enchants.
+    // SetEnchantment() would emit player-facing events during clone preparation.
+    for (uint8 slot = 0; slot < MAX_ENCHANTMENT_SLOT; ++slot)
+    {
+        EnchantmentSlot const enchantSlot = EnchantmentSlot(slot);
+        uint32 const base = ITEM_FIELD_ENCHANTMENT_1_1 + slot * MAX_ENCHANTMENT_OFFSET;
+        result->SetUInt32Value(base + ENCHANTMENT_ID_OFFSET, GetEnchantmentId(enchantSlot));
+        result->SetUInt32Value(base + ENCHANTMENT_DURATION_OFFSET, GetEnchantmentDuration(enchantSlot));
+        result->SetUInt32Value(base + ENCHANTMENT_CHARGES_OFFSET, GetEnchantmentCharges(enchantSlot));
+    }
+
+    result->SetText(GetText());
+    return result;
+}
+
 bool Item::IsBindedNotWith(Player const* player) const
 {
     // not binded item
