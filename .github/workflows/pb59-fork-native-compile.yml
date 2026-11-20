@@ -1,0 +1,63 @@
+# Development ONLY: build this fork's exact Core PR53 head on a disposable runner.
+# The inherited Core workflows skip this fork and draft PRs via job-level if.
+# No production hosts/credentials, no source merge, no write permissions.
+name: PB59 fork Core native compile and dry run
+
+on:
+  push:
+    branches:
+      - review/cs01-pb59-db-future-ownerthread-20261118
+    paths:
+      - .github/workflows/pb59-fork-native-compile.yml
+      - src/server/database/Database/**
+      - src/server/game/Entities/Player/**
+      - src/server/game/Handlers/TradeHandler.cpp
+      - tests/pb59/**
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches:
+      - review/cs01-pb59-two-realm-db-outcome-evidence-20261118
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pb59-fork-native-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-native-no-custom-modules:
+    name: Core baseline (Clang 18; no custom modules)
+    if: github.repository == 'CosmicCuddle/azerothcore-wotlk'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact draft revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Record source/merge provenance
+        run: |
+          git rev-parse HEAD
+          git status --porcelain
+          git hash-object src/server/database/Database/DatabaseWorkerPool.cpp
+          git hash-object src/server/database/Database/Transaction.cpp
+          git hash-object src/server/game/Handlers/TradeHandler.cpp
+      - name: Compile, install, test, and dry-run Core in hosted disposable environment
+        uses: ./.github/actions/linux-build
+        with:
+          CC: clang-18
+          CXX: clang++-18
+          pch: 'false'
+          modules: 'false'
+          maxerrors: '1'
+      - name: Assert the Core binaries exist (not proof of module compatibility)
+        run: |
+          test -x env/dist/bin/worldserver
+          test -x env/dist/bin/authserver
+
+# Gate NOT addressed by this workflow:
+# actual forked Playerbots/IP/Character Services composition and custom data;
+# two distinct disposable character realms, crash-durable journal and trade;
+# player lifetime/four typed DB outcomes, gameplay, backups, production.
