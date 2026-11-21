@@ -6,7 +6,7 @@ int main() {
  int checks=0; auto ck=[&](bool ok){++checks;if(!ok){std::cerr<<"FAIL "<<checks<<'\n';std::abort();}};
  OwnerSnapshot a{1,42,1,100,200,2,888,999,7};
  OwnerSnapshot b{1,42,2,200,100,1,999,888,8};
- DurableSnapshotReadback ra{a,true,true,1,100,1},rb{b,true,true,2,200,1};
+ DurableSnapshotReadback ra{a,true,true,1,100,1,42,1,888,7,1},rb{b,true,true,2,200,1,42,2,999,8,1};
  auto verify=[&](){return VerifyPreparedPair(a,b,ra,rb);};
  ck(verify()==SnapshotCheck::PreparedVerified);
  ra.persisted=false;ck(verify()==SnapshotCheck::HoldForReadback);ra.persisted=true;
@@ -32,6 +32,16 @@ int main() {
  rb.queriedOwner=201;ck(verify()==SnapshotCheck::RecoveryRequired);rb.queriedOwner=200;
  ra.journalSequence=0;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalSequence=1;
  rb.journalSequence=0;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalSequence=1;
+ // F67-2 mutation oracle: readback peer payload must equal the offered peer hash.
+ ra.snapshot.peerPayloadHash=777;ck(verify()==SnapshotCheck::RecoveryRequired);ra.snapshot=a;
+ rb.snapshot.peerPayloadHash=777;ck(verify()==SnapshotCheck::RecoveryRequired);rb.snapshot=b;
+ // Full journal-row identity and PREPARED kind must be bound to this snapshot.
+ ra.journalTradeId=43;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalTradeId=42;
+ rb.journalRealm=1;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalRealm=2;
+ ra.journalPayloadHash=999;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalPayloadHash=888;
+ rb.journalRevision=7;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalRevision=8;
+ ra.journalKind=2;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalKind=1;
+ rb.journalKind=0;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalKind=1;
  // F66-3: low GUIDs may coincide across DIFFERENT realms.
  b.owner=100; a.peerOwner=100; ra.snapshot=a; rb.snapshot=b; rb.queriedOwner=100;
  ck(verify()==SnapshotCheck::PreparedVerified);
