@@ -21,9 +21,18 @@ struct DurableSnapshotReadback {
     std::uint32_t queriedRealm = 0;
     std::uint64_t queriedOwner = 0;
     std::uint64_t journalSequence = 0;
+    // Values the adapter claims it selected from the same realm-local journal row.
+    // Still UNTRUSTED until the native adapter proves the SELECT's backend/transaction.
+    std::uint64_t journalTradeId = 0;
+    std::uint32_t journalRealm = 0;
+    std::uint64_t journalPayloadHash = 0;
+    std::uint64_t journalRevision = 0;
+    std::uint8_t journalKind = 0; // Explicitly 1 = PREPARED in this test-only wire contract.
 };
 // The caller MUST prove that queriedRealm/Owner/sequence were returned by an
 // independently authenticated realm-specific, GUID-parameterised SQL readback.
+// All journal fields must originate in one coherent PREPARED row; copying a struct
+// or supplying plausible values is not an authenticated readback.
 // This pure function cannot authenticate a fabricated DurableSnapshotReadback.
 // PreparedVerified is NOT permission to debit, grant, refund or TRADE_COMPLETE.
 inline SnapshotCheck VerifyPreparedPair(OwnerSnapshot const& a, OwnerSnapshot const& b,
@@ -46,7 +55,12 @@ inline SnapshotCheck VerifyPreparedPair(OwnerSnapshot const& a, OwnerSnapshot co
     if (!equal(a, ra.snapshot) || !equal(b, rb.snapshot) || !ra.prepared || !rb.prepared ||
         ra.queriedRealm != a.realm || rb.queriedRealm != b.realm ||
         ra.queriedOwner != a.owner || rb.queriedOwner != b.owner ||
-        !ra.journalSequence || !rb.journalSequence)
+        !ra.journalSequence || !rb.journalSequence ||
+        ra.journalTradeId != a.tradeId || rb.journalTradeId != b.tradeId ||
+        ra.journalRealm != a.realm || rb.journalRealm != b.realm ||
+        ra.journalPayloadHash != a.payloadHash || rb.journalPayloadHash != b.payloadHash ||
+        ra.journalRevision != a.revision || rb.journalRevision != b.revision ||
+        ra.journalKind != 1 || rb.journalKind != 1)
         return SnapshotCheck::RecoveryRequired;
     return SnapshotCheck::PreparedVerified; // Never TRADE_COMPLETE.
 }
