@@ -42,6 +42,20 @@ int main() {
  rb.journalRevision=7;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalRevision=8;
  ra.journalKind=2;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalKind=1;
  rb.journalKind=0;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalKind=1;
+ // F68-1: right-side journal trade identity must have a negative oracle.
+ rb.journalTradeId=43;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalTradeId=42;
+ // F68-2: a contradictory completed readback is recovery-worthy even if peer is absent.
+ ra.persisted=false;
+ rb.journalTradeId=43;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalTradeId=42;
+ rb.prepared=false;ck(verify()==SnapshotCheck::RecoveryRequired);rb.prepared=true;
+ rb.queriedRealm=1;ck(verify()==SnapshotCheck::RecoveryRequired);rb.queriedRealm=2;
+ rb.journalKind=2;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalKind=1;
+ ck(verify()==SnapshotCheck::HoldForReadback);
+ ra.persisted=true;
+ rb.persisted=false;
+ ra.journalPayloadHash=999;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalPayloadHash=888;
+ ck(verify()==SnapshotCheck::HoldForReadback);
+ rb.persisted=true;
  // F66-3: low GUIDs may coincide across DIFFERENT realms.
  b.owner=100; a.peerOwner=100; ra.snapshot=a; rb.snapshot=b; rb.queriedOwner=100;
  ck(verify()==SnapshotCheck::PreparedVerified);
