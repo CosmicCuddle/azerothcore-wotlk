@@ -33,9 +33,9 @@ int main() {
  ra.journalSequence=0;ck(verify()==SnapshotCheck::RecoveryRequired);ra.journalSequence=1;
  rb.journalSequence=0;ck(verify()==SnapshotCheck::RecoveryRequired);rb.journalSequence=1;
  // F66-3: low GUIDs may coincide across DIFFERENT realms.
- b.owner=100; a.peerOwner=100; rb.snapshot=b; rb.queriedOwner=100;
+ b.owner=100; a.peerOwner=100; ra.snapshot=a; rb.snapshot=b; rb.queriedOwner=100;
  ck(verify()==SnapshotCheck::PreparedVerified);
- b.owner=200; a.peerOwner=200; rb.snapshot=b; rb.queriedOwner=200;
+ b.owner=200; a.peerOwner=200; ra.snapshot=a; rb.snapshot=b; rb.queriedOwner=200;
  // F66-1: missing readback and fully verified PREPARED are distinct.
  ck(verify()==SnapshotCheck::PreparedVerified);
  rb.persisted=false;ck(verify()==SnapshotCheck::HoldForReadback);rb.persisted=true;
