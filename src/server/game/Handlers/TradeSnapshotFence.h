@@ -45,13 +45,24 @@ inline SnapshotCheck VerifyPreparedPair(OwnerSnapshot const& a, OwnerSnapshot co
         a.peerRealm != b.realm || b.peerRealm != a.realm ||
         a.peerPayloadHash != b.payloadHash || b.peerPayloadHash != a.payloadHash)
         return SnapshotCheck::Reject;
-    if (!ra.persisted || !rb.persisted) return SnapshotCheck::HoldForReadback;
+    // Validate each completed readback before waiting for its peer. A known
+    // contradiction must be latched for recovery even if the other realm is down.
     auto equal = [](OwnerSnapshot const& x, OwnerSnapshot const& y) noexcept {
         return x.version == y.version && x.tradeId == y.tradeId && x.realm == y.realm &&
             x.owner == y.owner && x.peerOwner == y.peerOwner && x.peerRealm == y.peerRealm &&
             x.payloadHash == y.payloadHash && x.peerPayloadHash == y.peerPayloadHash &&
             x.revision == y.revision;
     };
+    auto contradictory = [&](OwnerSnapshot const& expected, DurableSnapshotReadback const& readback) noexcept {
+        return readback.persisted && (!equal(expected, readback.snapshot) || !readback.prepared ||
+            readback.queriedRealm != expected.realm || readback.queriedOwner != expected.owner ||
+            !readback.journalSequence || readback.journalTradeId != expected.tradeId ||
+            readback.journalRealm != expected.realm ||
+            readback.journalPayloadHash != expected.payloadHash ||
+            readback.journalRevision != expected.revision || readback.journalKind != 1);
+    };
+    if (contradictory(a, ra) || contradictory(b, rb)) return SnapshotCheck::RecoveryRequired;
+    if (!ra.persisted || !rb.persisted) return SnapshotCheck::HoldForReadback;
     if (!equal(a, ra.snapshot) || !equal(b, rb.snapshot) || !ra.prepared || !rb.prepared ||
         ra.queriedRealm != a.realm || rb.queriedRealm != b.realm ||
         ra.queriedOwner != a.owner || rb.queriedOwner != b.owner ||
