@@ -132,3 +132,13 @@
 - **Tests:** source-contract test only at creation; no native Worldserver compile/link or gameplay claim yet.
 - **Live status:** DRAFT / unmerged / not deployed.
 - **Rollback:** abandon/revert this child; with no consuming hook or no registered script, stock behaviour is unchanged.
+
+
+## Rewarded-quest projection observer API v1 — 21 Nov 2026
+
+- **Owner/component:** CosmicCuddle; Core Player quest state and ScriptMgr/PlayerScript. Development branch `feature/codex-rewarded-quest-change-hooks-20261121`, parent master `21ff1973bc75216f8a0d0f3d7731eb3e8894ff97`.
+- **Behavior:** paired non-vetoing notifications around rewarded membership and active-entry projection changes; appended hook IDs preserve prior numbering. Stack guards cover AddQuest/RewardQuest and nested status changes; no Player pointer outlives its initiating synchronous operation. No reward or database policy is changed.
+- **Paths/dependencies:** PlayerQuest.cpp, PlayerScript.{h,cpp}, ScriptMgr.h; source-linked/source-contract tests and dated note. Paired IP consumes version1 for its existing default-OFF F14 group view. Both existing session hooks and Paid OFF are required for unearned-Wrath borrowing. Full Core/module source rebuild required; no SQL/config/DBC/client dependency added.
+- **Evidence:** Core actual-source container/script tests 35 PASS in C++20 and C++17/NDEBUG; source8 PASS. Paired Core/IP matrix 67/69/69/71 PASS in each standard; IP snapshots3,906/source58 PASS. SQL checker PASS; C++ checker remains red on four diagnostics in three untouched parent-identical files, none in changed C++ paths. Diff checks PASS. GCC/sanitizers/native Worldserver/gameplay NOT RUN; no hosted Actions requested.
+- **Limits/status:** pre-login loader/direct mutable maps are not intercepted; login lifecycle and supported mutators are required. Native ownership, registered masks, gameplay/custom-feature/performance checks remain. DRAFT only, not merged/deployed; no feature/live state enabled or changed.
+- **Rollback:** pilot OFF, revert paired source and rebuild matching Core/modules; no data migration. Details/provenance/reproduction: `COSMIC_REWARDED_QUEST_CHANGE_HOOK_2026-11-21.md`. Owner approval required for production work.

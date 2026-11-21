@@ -397,6 +397,8 @@ public: /* PlayerScript */
     void OnPlayerFirstLogin(Player* player);
     void OnPlayerSetMaxLevel(Player* player, uint32& maxPlayerLevel);
     void OnPlayerCompleteQuest(Player* player, Quest const* quest);
+    void OnPlayerBeforeRewardedQuestChange(Player* player, uint32 questId);
+    void OnPlayerAfterRewardedQuestChange(Player* player, uint32 questId);
     void OnPlayerBattlegroundDesertion(Player* player, BattlegroundDesertionType const desertionType);
     bool OnPlayerCanJoinInBattlegroundQueue(Player* player, ObjectGuid BattlemasterGuid, BattlegroundTypeId BGTypeID, uint8 joinAsGroup, GroupJoinBattlegroundResult& err);
     bool OnPlayerShouldBeRewardedWithMoneyInsteadOfExp(Player* player);

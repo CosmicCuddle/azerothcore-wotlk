@@ -33,6 +33,36 @@
 #include "SpellMgr.h"
 #include "WorldSession.h"
 
+namespace
+{
+    // The projection can change when an active entry masks a rewarded marker.
+    // Keep the pair balanced across nested calls and early returns.
+    class RewardedQuestChangeGuard
+    {
+    public:
+        RewardedQuestChangeGuard(Player* player, uint32 questId, bool changed = true)
+            : _player(player), _questId(questId), _changed(changed)
+        {
+            if (_changed)
+                sScriptMgr->OnPlayerBeforeRewardedQuestChange(_player, _questId);
+        }
+
+        ~RewardedQuestChangeGuard()
+        {
+            if (_changed)
+                sScriptMgr->OnPlayerAfterRewardedQuestChange(_player, _questId);
+        }
+
+        RewardedQuestChangeGuard(RewardedQuestChangeGuard const&) = delete;
+        RewardedQuestChangeGuard& operator=(RewardedQuestChangeGuard const&) = delete;
+
+    private:
+        Player* _player;
+        uint32 _questId;
+        bool _changed;
+    };
+}
+
 /*********************************************************/
 /***                    QUEST SYSTEM                   ***/
 /*********************************************************/
@@ -526,6 +556,8 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
 
     uint32 quest_id = quest->GetQuestId();
 
+    RewardedQuestChangeGuard const mutation(this, quest_id);
+
     // if not exist then created with set uState == NEW and rewarded=false
     QuestStatusData& questStatusData = m_QuestStatus[quest_id];
 
@@ -674,6 +706,7 @@ void Player::IncompleteQuest(uint32 quest_id)
 
 void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, bool announce, bool isLFGReward)
 {
+    RewardedQuestChangeGuard const mutation(this, quest->GetQuestId());
     //this THING should be here to protect code from quest, which cast on player far teleport as a reward
     //should work fine, cause far teleport will be executed in Player::Update()
     SetMustDelayTeleport(true);
@@ -905,8 +938,13 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
 
 void Player::SetRewardedQuest(uint32 quest_id)
 {
+    bool const changed = m_RewardedQuests.find(quest_id) == m_RewardedQuests.end();
+    if (changed)
+        sScriptMgr->OnPlayerBeforeRewardedQuestChange(this, quest_id);
     m_RewardedQuests.insert(quest_id);
     m_RewardedQuestsSave[quest_id] = true;
+    if (changed)
+        sScriptMgr->OnPlayerAfterRewardedQuestChange(this, quest_id);
 }
 
 void Player::FailQuest(uint32 questId)
@@ -1554,6 +1592,9 @@ void Player::SetQuestStatus(uint32 questId, QuestStatus status, bool update /*= 
 {
     if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
     {
+        auto const previous = m_QuestStatus.find(questId);
+        bool const changed = previous == m_QuestStatus.end() || previous->second.Status != status;
+        RewardedQuestChangeGuard const mutation(this, questId, changed);
         m_QuestStatus[questId].Status = status;
 
         if (quest->GetQuestMethod() && !quest->IsAutoComplete())
@@ -1571,7 +1612,8 @@ void Player::RemoveActiveQuest(uint32 questId, bool update /*= true*/)
     QuestStatusMap::iterator itr = m_QuestStatus.find(questId);
     if (itr != m_QuestStatus.end())
     {
-        m_QuestStatus.erase(itr);
+        RewardedQuestChangeGuard const mutation(this, questId);
+        m_QuestStatus.erase(questId);
         m_QuestStatusSave[questId] = false;
     }
 
@@ -1589,8 +1631,11 @@ void Player::RemoveRewardedQuest(uint32 questId, bool update /*= true*/)
     RewardedQuestSet::iterator rewItr = m_RewardedQuests.find(questId);
     if (rewItr != m_RewardedQuests.end())
     {
-        m_RewardedQuests.erase(rewItr);
+        sScriptMgr->OnPlayerBeforeRewardedQuestChange(this, questId);
+        // An observer can trigger a nested edit; do not reuse its old iterator.
+        m_RewardedQuests.erase(questId);
         m_RewardedQuestsSave[questId] = false;
+        sScriptMgr->OnPlayerAfterRewardedQuestChange(this, questId);
     }
 
     if (update)
