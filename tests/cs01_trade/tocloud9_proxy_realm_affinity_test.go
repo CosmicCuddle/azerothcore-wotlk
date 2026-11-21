@@ -28,8 +28,9 @@ func TestTwoRealmContextStartsAndCommitsOnSameConnection(t *testing.T) {
     if _, err := p.HandleQuery(StartTransaction); err != nil {
         t.Fatal(err)
     }
+    finder := sqlparser.NewCharGUIDFinder()
     ctx := &StmtWithParsedDataContext{
-        GuidFinder: sqlparser.NewCharGUIDFinder(),
+        GuidFinder: &finder,
         Stmts: map[uint32]DBStatement{},
         IsDummy: true,
     }
