@@ -42,6 +42,18 @@ void ScriptMgr::OnPlayerCompleteQuest(Player* player, Quest const* quest)
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST, script->OnPlayerCompleteQuest(player, quest));
 }
 
+void ScriptMgr::OnPlayerBeforeRewardedQuestChange(Player* player, uint32 questId)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_BEFORE_REWARDED_QUEST_CHANGE,
+        script->OnPlayerBeforeRewardedQuestChange(player, questId));
+}
+
+void ScriptMgr::OnPlayerAfterRewardedQuestChange(Player* player, uint32 questId)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_REWARDED_QUEST_CHANGE,
+        script->OnPlayerAfterRewardedQuestChange(player, questId));
+}
+
 void ScriptMgr::OnPlayerSendInitialPacketsBeforeAddToMap(Player* player, WorldPacket& data)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_SEND_INITIAL_PACKETS_BEFORE_ADD_TO_MAP, script->OnPlayerSendInitialPacketsBeforeAddToMap(player, data));

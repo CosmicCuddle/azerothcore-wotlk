@@ -18,6 +18,9 @@
 #ifndef SCRIPT_OBJECT_PLAYER_SCRIPT_H_
 #define SCRIPT_OBJECT_PLAYER_SCRIPT_H_
 
+// Paired, non-vetoing notifications around rewarded-state projection changes.
+#define COSMIC_REWARDED_QUEST_CHANGE_HOOK_VERSION 1
+
 #include "ScriptObject.h"
 #include "SharedDefines.h"
 #include "DBCStructure.h"
@@ -241,6 +244,8 @@ enum PlayerHook
     PLAYERHOOK_ON_BEFORE_RECEIVE_SPELL_LIST_FROM_TRAINER,
     PLAYERHOOK_ON_GET_TRAINER_SPELL_STATE,
     PLAYERHOOK_ON_AFTER_TRAIN_SPELL,
+    PLAYERHOOK_ON_BEFORE_REWARDED_QUEST_CHANGE,
+    PLAYERHOOK_ON_AFTER_REWARDED_QUEST_CHANGE,
     PLAYERHOOK_END
 };
 
@@ -267,6 +272,12 @@ public:
 
     // Called when a player completes a quest
     virtual void OnPlayerCompleteQuest(Player* /*player*/, Quest const* /*quest_id*/) { }
+
+    // Observers run on the caller's thread. Do not retain Player pointers.
+    // Pairs include active-entry changes that can mask rewarded markers.
+    // SetRewardedQuest/RemoveRewardedQuest no-ops produce no pair.
+    virtual void OnPlayerBeforeRewardedQuestChange(Player* /*player*/, uint32 /*questId*/) { }
+    virtual void OnPlayerAfterRewardedQuestChange(Player* /*player*/, uint32 /*questId*/) { }
 
     // Called when a player kills another player
     virtual void OnPlayerPVPKill(Player* /*killer*/, Player* /*killed*/) { }
