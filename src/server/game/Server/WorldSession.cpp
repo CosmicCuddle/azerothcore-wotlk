@@ -46,6 +46,7 @@
 #include "Player.h"
 #include "Realm.h"
 #include "QueryHolder.h"
+#include "RoleStateChangeGuard.h"
 #include "ScriptMgr.h"
 #include "SocialMgr.h"
 #include "Transport.h"
@@ -192,6 +193,15 @@ WorldSession::~WorldSession()
 
     if (!_headless)
         LoginDatabase.Execute("UPDATE account SET online = 0 WHERE id = {};", GetAccountId());     // One-time query
+}
+
+void WorldSession::SetSecurity(AccountTypes security)
+{
+    if (_security == security)
+        return;
+
+    RoleStateChangeGuard roleChange;
+    _security = security;
 }
 
 void WorldSession::UpdateAccountFlag(uint32 flag, bool remove /*= flase*/)

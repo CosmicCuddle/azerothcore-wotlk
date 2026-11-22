@@ -142,3 +142,18 @@
 - **Evidence:** Core actual-source container/script tests 35 PASS in C++20 and C++17/NDEBUG; source8 PASS. Paired Core/IP matrix 67/69/69/71 PASS in each standard; IP snapshots3,906/source58 PASS. SQL checker PASS; C++ checker remains red on four diagnostics in three untouched parent-identical files, none in changed C++ paths. Diff checks PASS. GCC/sanitizers/native Worldserver/gameplay NOT RUN; no hosted Actions requested.
 - **Limits/status:** pre-login loader/direct mutable maps are not intercepted; login lifecycle and supported mutators are required. Native ownership, registered masks, gameplay/custom-feature/performance checks remain. DRAFT only, not merged/deployed; no feature/live state enabled or changed.
 - **Rollback:** pilot OFF, revert paired source and rebuild matching Core/modules; no data migration. Details/provenance/reproduction: `COSMIC_REWARDED_QUEST_CHANGE_HOOK_2026-11-21.md`. Owner approval required for production work.
+
+
+## Native role-state notifications (2026-11-22)
+
+Owner CosmicCuddle; component Core scripting and player/session native role setters.
+Source child of Core70c6e3bf04d2e49fd30afcb8b0e3416fca50287aab; exact child in PR/queue.
+WorldScript pointer-free before/after observers, appended IDs, stack guard for
+changed SetGameMaster/SetSecurity. No actor access authority, veto, permission/
+faction/phase policy or script activation. Rebuild all compatible modules for ABI.
+Files/risk/test details: COSMIC_ROLE_STATE_CHANGE_HOOK_2026-11-22.md. Local26 actual
+setter/guard/dispatch checks and4 source checks PASS with engine/registry doubles;
+hosted paired outcome tracked separately. Native link/gameplay unproven. No SQL/
+config/DBC/client or live dependency changes. Rollback paired children and rebuild,
+retain existing features/data. Nonthrowing paired subscribers required; direct
+writes/hydration/other role paths remain outside this API.

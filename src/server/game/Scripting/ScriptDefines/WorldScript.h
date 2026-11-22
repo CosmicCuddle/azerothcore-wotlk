@@ -18,6 +18,8 @@
 #ifndef SCRIPT_OBJECT_WORLD_SCRIPT_H_
 #define SCRIPT_OBJECT_WORLD_SCRIPT_H_
 
+#define COSMIC_ROLE_STATE_CHANGE_HOOK_VERSION 1
+
 #include "Common.h"
 #include "ScriptObject.h"
 #include <vector>
@@ -37,6 +39,8 @@ enum WorldHook
     WORLDHOOK_ON_AFTER_UNLOAD_ALL_MAPS,
     WORLDHOOK_ON_BEFORE_FINALIZE_PLAYER_WORLD_SESSION,
     WORLDHOOK_ON_BEFORE_WORLD_INITIALIZED,
+    WORLDHOOK_ON_BEFORE_ROLE_STATE_CHANGE,
+    WORLDHOOK_ON_AFTER_ROLE_STATE_CHANGE,
     WORLDHOOK_END
 };
 
@@ -46,6 +50,12 @@ protected:
     WorldScript(char const* name, std::vector<uint16> enabledHooks = std::vector<uint16>());
 
 public:
+    // Synchronous, paired notifications around supported native role setters.
+    // No object pointers, veto or thread-ownership authority. Observers must be
+    // non-throwing and support nesting/concurrent callers; retain values only.
+    virtual void OnBeforeRoleStateChange() { }
+    virtual void OnAfterRoleStateChange() { }
+
     // Called when the open/closed state of the world changes.
     virtual void OnOpenStateChange(bool /*open*/) { }
 

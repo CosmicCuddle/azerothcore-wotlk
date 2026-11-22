@@ -69,6 +69,7 @@
 #include "RBAC.h"
 #include "Realm.h"
 #include "ReputationMgr.h"
+#include "RoleStateChangeGuard.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "SocialMgr.h"
@@ -2242,6 +2243,8 @@ bool Player::CanBeGameMaster() const
 
 void Player::SetGameMaster(bool on)
 {
+    RoleStateChangeGuard roleChange(IsGameMaster() != on);
+
     if (on)
     {
         m_ExtraFlags |= PLAYER_EXTRA_GM_ON;

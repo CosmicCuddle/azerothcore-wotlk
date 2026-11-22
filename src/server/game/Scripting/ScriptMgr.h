@@ -166,6 +166,8 @@ public: /* SessionScript */
     bool OnWardenCheckExpectedResult(WorldSession* session, WardenCheck const& check, std::vector<uint8>& expected);
 
 public: /* WorldScript */
+    void OnBeforeRoleStateChange();
+    void OnAfterRoleStateChange();
     void OnLoadCustomDatabaseTable();
     void OnOpenStateChange(bool open);
     void OnBeforeConfigLoad(bool reload);

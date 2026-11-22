@@ -508,7 +508,7 @@ public:
     void SetCurrentVendor(uint32 vendorEntry) { m_currentVendorEntry = vendorEntry; }
 
     ObjectGuid::LowType GetGuidLow() const;
-    void SetSecurity(AccountTypes security) { _security = security; }
+    void SetSecurity(AccountTypes security);
     std::string const& GetRemoteAddress() { return m_Address; }
     void SetPlayer(Player* player);
     uint8 Expansion() const { return m_expansion; }
