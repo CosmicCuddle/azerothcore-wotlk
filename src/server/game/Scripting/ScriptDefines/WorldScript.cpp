@@ -19,6 +19,16 @@
 #include "ScriptMgr.h"
 #include "ScriptMgrMacros.h"
 
+void ScriptMgr::OnBeforeRoleStateChange()
+{
+    CALL_ENABLED_HOOKS(WorldScript, WORLDHOOK_ON_BEFORE_ROLE_STATE_CHANGE, script->OnBeforeRoleStateChange());
+}
+
+void ScriptMgr::OnAfterRoleStateChange()
+{
+    CALL_ENABLED_HOOKS(WorldScript, WORLDHOOK_ON_AFTER_ROLE_STATE_CHANGE, script->OnAfterRoleStateChange());
+}
+
 void ScriptMgr::OnOpenStateChange(bool open)
 {
     CALL_ENABLED_HOOKS(WorldScript, WORLDHOOK_ON_OPEN_STATE_CHANGE, script->OnOpenStateChange(open));
