@@ -13,6 +13,7 @@ class Map;
 namespace PB59::Recovery
 {
 constexpr std::size_t MaximumQueueObservations = 4096;
+constexpr std::size_t MaximumWatchedItems = MaximumOriginals + 4; // original items plus four carried bag containers
 enum class CollectionStatus
 {
     Prepared, Bound, Collected, Incomplete, OwnerUnavailable, ContextUnavailable,
@@ -39,6 +40,18 @@ struct QueueDifference
     QueueEntry before, now;
     bool sameNativeInstance = false;
 };
+struct WatchedItemValues
+{
+    QueueEntry state;
+    ItemFieldValues values;
+    bool operator==(WatchedItemValues const&) const = default;
+};
+struct WatchedItemObservation
+{
+    std::uint16_t position = 0, alternate = 0;
+    bool container = false, observed = false, sameNativeInstance = false, unchanged = false;
+    WatchedItemValues before, now;
+};
 struct CollectionSummary
 {
     CollectionStatus status = CollectionStatus::Prepared;
@@ -50,6 +63,7 @@ struct CollectionSummary
     std::size_t changedQueueEntries = 0;
     std::uint8_t queueDifferenceCount = 0;
     std::uint32_t nonFreshJournalMask = 0, uncertainJournalMask = 0;
+    std::size_t watchedItems = 0, observedWatchedItems = 0, changedWatchedItems = 0;
 };
 struct CollectedValues
 {
@@ -71,6 +85,12 @@ public:
     NativeCollection(NativeCollection const&) = delete;
     NativeCollection& operator=(NativeCollection const&) = delete;
     CollectedValues CopyValues() const noexcept { return _values; }
+    std::optional<WatchedItemObservation> CopyWatchedItem(std::size_t index) const noexcept
+    {
+        if (index >= _values.summary.watchedItems)
+            return std::nullopt;
+        return _watched[index].observation;
+    }
 private:
     friend class ::Player;
     NativeCollection() = default;
@@ -87,6 +107,12 @@ private:
         QueueEntry value;
     };
     std::array<NativeQueueEntry, MaximumQueueObservations> _queueBefore{};
+    struct NativeWatchedItem
+    {
+        Item const* item = nullptr; // identity comparison only after preparation
+        WatchedItemObservation observation;
+    };
+    std::array<NativeWatchedItem, MaximumWatchedItems> _watched{};
     CollectedValues _values;
 };
 static_assert(std::is_trivially_copyable_v<CollectedValues>);
