@@ -317,7 +317,7 @@ int main()
         {
             auto const& difference = data.queueDifferences[0];
             COLLECT_CHECK(difference.index == (defect == 6 ? 2u : defect == 8 ? 0u : 1u));
-            COLLECT_CHECK(difference.sameNativeInstance == (defect <= 3 || defect == 6));
+            COLLECT_CHECK(difference.sameNativeInstance == (defect <= 3));
             if (defect == 7)
                 COLLECT_CHECK(difference.before == difference.now); // identical values are insufficient
         }

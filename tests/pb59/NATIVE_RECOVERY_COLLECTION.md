@@ -63,6 +63,8 @@ entries, same-value replacements and length changes consisting only of tombstone
 current queues remain incomplete without indexing the fixed image.
 
 The owned report exports the first 19 differences and a separate total changedQueueEntries.
+sameNativeInstance requires a non-null current pointer equal to the saved pointer; two nulls
+do not establish an instance.
 queueCompared is true only after the entire bounded comparison; queueUnchanged is meaningful
 only when queueCompared is true. Counts and partial samples do not imply complete observation
 after an early context/lifetime failure. Collected describes observation completion and may

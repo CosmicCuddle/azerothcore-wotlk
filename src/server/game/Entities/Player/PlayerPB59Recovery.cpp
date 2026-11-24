@@ -354,7 +354,7 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
                     ++output.summary.changedQueueEntries;
                     if (output.summary.queueDifferenceCount < MaximumOriginals)
                         output.queueDifferences[output.summary.queueDifferenceCount++] =
-                            {index, before.value, now, before.item == item};
+                            {index, before.value, now, item && before.item == item};
                 }
             }
             output.summary.queueCompared = true;
