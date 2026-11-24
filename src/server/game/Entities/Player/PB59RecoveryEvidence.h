@@ -87,6 +87,7 @@ struct Evidence
     Operation operation;
     std::uint64_t revision = 0;
     InventoryBatchOutcome outcome = InventoryBatchOutcome::RecoveryRequired;
+    InventoryBatchFailure failure = InventoryBatchFailure::Context;
     std::uint8_t originalCount = 0, reportedCount = 0;
     std::array<Original, MaximumOriginals> originals{};
     std::array<std::uint64_t, MaximumOriginals> reportedGuids{};
@@ -138,6 +139,7 @@ inline Inspection Inspect(Evidence const& evidence, Operation const& expected) n
     auto add = [&](Issue issue) { result.issues |= static_cast<std::uint32_t>(issue); };
     if (evidence.version != 1 || !evidence.operation.Valid() || !evidence.revision ||
         evidence.outcome != InventoryBatchOutcome::RecoveryRequired || !evidence.originalCount ||
+        evidence.failure <= InventoryBatchFailure::None || evidence.failure > InventoryBatchFailure::Restoration ||
         evidence.originalCount > MaximumOriginals || evidence.reportedCount > MaximumOriginals ||
         evidence.effects > ProofState::Uncertain || evidence.queues > ProofState::Uncertain)
     {

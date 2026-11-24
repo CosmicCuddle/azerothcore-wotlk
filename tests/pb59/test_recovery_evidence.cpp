@@ -112,6 +112,10 @@ int main()
     CHECK(inspect([](auto& v) { v.reportedCount = 20; }).status == InspectionStatus::InvalidEvidence);
     CHECK(inspect([](auto& v) { v.version = 2; }).status == InspectionStatus::InvalidEvidence);
     CHECK(inspect([](auto& v) { v.revision = 0; }).status == InspectionStatus::InvalidEvidence);
+    CHECK(inspect([](auto& v) { v.failure = PB59::InventoryBatchFailure::None; }).status ==
+        InspectionStatus::InvalidEvidence);
+    CHECK(inspect([](auto& v) { v.failure = static_cast<PB59::InventoryBatchFailure>(255); }).status ==
+        InspectionStatus::InvalidEvidence);
     CHECK(inspect([](auto& v) { v.outcome = PB59::InventoryBatchOutcome::Applied; }).status ==
         InspectionStatus::InvalidEvidence);
     CHECK(inspect([](auto& v) { v.reportedCount = 1; v.reportedGuids[0] = 999; }).status ==

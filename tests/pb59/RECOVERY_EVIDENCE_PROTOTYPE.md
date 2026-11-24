@@ -24,12 +24,16 @@ at most 48 KiB: 19 originals and 19 reported GUIDs, with 512 text bytes per item
 CopySlot refuses larger text without modifying its output; it never truncates metadata.
 Do not serialize raw struct bytes: padding is not a persistence format.
 
-The record keeps operation owner/ticket and owner/session incarnations, evidence revision,
+The record keeps the reported native outcome/failure, operation owner/ticket and owner/session
+incarnations, evidence revision,
 full bounded original/current item facts, observation availability, instance-observation
 quality, effects/queue uncertainty and pending intents. Item facts preserve creators,
 random properties, enchantments, charges, text including embedded NULs and other native
 instance fields. A copied ExactNativeInstance claim is not a transferable lifetime proof.
 The native collector has not been implemented or wired by this prototype.
+The reported failure is retained as supplied; it does not reconstruct a forward failure
+that the existing executor replaced with Restoration. A None/unknown failure accompanying
+RecoveryRequired is inconsistent evidence and cannot pass inspection.
 
 Inspect validates counts before indexing, identity/version, duplicate originals/observations,
 reported GUID membership/duplicates and canonical facts. It retains every issue bit and
