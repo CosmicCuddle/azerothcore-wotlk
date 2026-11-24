@@ -261,3 +261,18 @@
   unrelated objects, gameplay and durability remain unproven.
 - **Live/rollback:** dormant/no runtime caller, Finish/unlock/replay/IO, schema/config/SQL/DBC/
   client, CI dispatch, activation, merge or deployment. Discard child; custom behavior preserved.
+
+## Native recovery handoff fixture (24 November 2026)
+
+- **Owner/scope:** CosmicCuddle / #81 native recovery completion task7141476499. Tests only.
+- **Source:** `test/codex-pb59-executor-recovery-handoff-20261124`, exact Core84 parent
+  `8d027154e1d3b1525d5cb867fde44631995e5dd0`. Production source and acceptance tuple unchanged.
+- **Files/behaviour:** existing collector runner optional --bridge, executor_recovery_bridge
+  checks/hooks and EXECUTOR_RECOVERY_HANDOFF.md. Temporary protocol insertions into the actual
+  executor body are reversible; the actual uninstrumented-body control is separately compiled.
+- **Tests/limits:**100 ordinary +100 NDEBUG handoff checks, six runtime guard mutants caught
+  in NDEBUG; eleven shared control scenarios preserve outcomes/native state/counters. Reuses
+  existing effect before-images without authorization. Explicit engine doubles; actual native
+  compilation, complete effects/cooldown/persistence/gameplay gates remain open. No PB duplication.
+- **Live/rollback:** no runtime wiring or native behavior change, IO/release/schema/config/SQL/
+  DBC/client, CI dispatch/activation/merge/deployment. Discard isolated test child to roll back.
