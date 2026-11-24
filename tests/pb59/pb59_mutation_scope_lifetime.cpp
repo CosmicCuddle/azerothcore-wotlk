@@ -22,8 +22,14 @@ int main()
     {
         auto owner = std::make_unique<Ledger>();
         auto mutation = std::make_unique<Ledger::MutationScope>(*owner);
+        auto const incarnation = owner->OwnerIncarnation();
+        test(mutation->CanAccess(incarnation, Ledger::Access::Forward), "live exact owner access");
+        test(!mutation->CanAccess(0, Ledger::Access::Forward), "missing incarnation refused");
+        test(!mutation->CanAccess(incarnation + 1, Ledger::Access::Forward), "different incarnation refused");
         test(mutation->GetTicket() != 0, "begin before owner destruction");
         owner.reset(); // emulates owner deletion by synchronous callback
+        test(!mutation->CanAccess(incarnation, Ledger::Access::Forward), "deleted owner cannot resume forward");
+        test(!mutation->CanAccess(incarnation, Ledger::Access::Recovery), "deleted owner cannot resume recovery");
         test(!mutation->Finish({true,true,true,true}), "cannot finish after owner deletion");
         mutation.reset(); // destructor MUST NOT dereference dead ledger
         test(true, "scope cleanup after owner deletion returned safely");
@@ -35,6 +41,24 @@ int main()
         owner.reset();
         mutation.reset(); // no Finish: destructor must not touch freed owner
         test(true, "scope destructor alone survives deleted ledger");
+    }
+    {
+        Ledger owner;
+        auto const incarnation = owner.OwnerIncarnation();
+        Ledger::MutationScope mutation(owner);
+        Ledger::MutationScope nested(owner);
+        test(!nested.GetTicket(), "nested mutation rejected");
+        test(!nested.CanAccess(incarnation, Ledger::Access::Forward), "nested scope cannot borrow outer access");
+        test(mutation.CanAccess(incarnation, Ledger::Access::Forward), "outer scope still owns admission");
+        test(owner.Request(Ledger::Work::InventoryMutation) == Ledger::Decision::RejectBeforeMutation,
+            "independent inventory producer rejected");
+        test(owner.Request(Ledger::Work::Logout) == Ledger::Decision::DeferLogout, "logout is deferred");
+        test(owner.RequireRecovery(mutation.GetTicket()), "explicit quarantine");
+        test(!mutation.CanAccess(incarnation, Ledger::Access::Forward), "quarantine rejects forward access");
+        test(mutation.CanAccess(incarnation, Ledger::Access::Recovery), "same owner may reconcile quarantine");
+        test(mutation.Finish({true,true,true,true}), "verified reconciliation finishes");
+        test(!mutation.CanAccess(incarnation, Ledger::Access::Recovery), "finished scope cannot be reused");
+        test(owner.PendingLogout(), "finishing does not erase deferred logout");
     }
     {
         Ledger owner;

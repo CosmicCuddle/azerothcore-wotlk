@@ -1,5 +1,25 @@
 # Batch inventory admission foundation
 
+## Compatible-compiler and scope-access follow-up
+
+The actual-ledger compiler gate is now passed locally with workspace-only
+WinLibs GCC16.2.0 (x86_64 UCRT POSIX SEH). Publisher release archive SHA256:
+3c69305081e4a647144339a936244fcf7d3d9e558319e1ad7be2cd2886d4b6a1.
+Default admission runner:27 checks PASS using actual ledger/slot/stamp headers
+and extracted native preflight body, with engine/session/capture doubles.
+Earlier Zig/libc++ limitation below remains historical, not the current gate.
+
+MutationScope now exposes CanAccess(expectedOwnerIncarnation, Access), using its
+existing retained sentinel and exact ticket. It refuses after owner destruction,
+incarnation mismatch, failed/nested admission, wrong forward/recovery phase or
+Finish. It does not pin native Player or Item and must precede native access
+after callbacks; context and item revalidation remain separately necessary.
+The actual-ledger lifetime fixture passes31 checks including owner destruction,
+independent producer rejection, nested scope refusal, quarantine access and
+preservation of deferred logout through explicit Finish. No mutation executor
+or effect/link rollback is wired by this increment; no hosted CI or full native
+Player build/DB/gameplay proof. Existing ledger admission semantics unchanged.
+
 Owner: CosmicCuddle. Child of exact Core53
 79b0b1fe2d0fac93227c28329508553cfec15c4d. Uninstalled, no activation.
 
