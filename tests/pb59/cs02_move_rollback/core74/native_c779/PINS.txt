@@ -1,0 +1,14 @@
+048723ba41a395b3f76203197199fc6fdaaa0f8b src/server/game/Entities/Player/PlayerStorage.cpp
+af442554a413be6377ecf61e91c2bf14e0e8d561 src/server/game/Entities/Player/Player.h
+8dd262783260aeedf983ed4b100eef1268626e02 src/server/game/Entities/Item/Item.cpp
+d5bd6b1a7f9dc5a5cd7809f31575dafb8d1e8703 src/server/game/Entities/Item/Item.h
+8a6eb052114bad6063e82a1d5d0ae669d606e0f1 src/server/game/Entities/Item/Container/Bag.cpp
+383b79c8909736bc0527edbe840503abf96fc400 src/server/game/Entities/Item/Container/Bag.h
+7844fbed52c0c25999eaa0d1cba6b888f18b522e src/server/game/Entities/Player/PB59InventorySlotFacts.h
+0b42af684479a899bc2fdfd254c18d120c57ee97 src/server/game/Entities/Player/PB59InventoryCustody.h
+6c3bf34b767f58c72232145c143263cc66d60fdd src/server/game/Entities/Player/PB59TransactionAdmission.h
+bece088d9ef70ae2adffa7087757c31f36ce7e01 src/server/game/Entities/Player/EquipmentCaptureState.h
+f0265bf1bcd11b741c207fce363c850a977de973 src/server/game/Entities/Player/PB59InventoryReservation.h
+ebad31a3fb693187c9e9b5b4eac8e8ac56b17810 src/server/game/Entities/Player/PlayerPB59Inventory.cpp
+e2a19aa46c4106221752baf7a7cbd9ddb391ff82 tests/pb59/test_inventory_custody_body.cpp
+9dc29ac135ee20760a766008d157d892334def38 tests/pb59/CORE74_NATIVE_INVENTORY_BATCH.md
