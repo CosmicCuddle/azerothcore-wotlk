@@ -43,6 +43,7 @@
 #include "EquipmentCaptureState.h"
 #include "ExactStorageGate.h"
 #include "PB59InventorySlotFacts.h"
+#include "PB59InventoryBatchPlan.h"
 #include "PB59InventoryCustody.h"
 #include "PB59OriginalQueueCustody.h"
 #include "PB59OriginalPointerCustody.h"
@@ -1109,6 +1110,11 @@ public:
     // Bot owner-context only, including a future serialized movement scope.
     // Nullopt means unknown, never empty. No script callbacks or mutation.
     [[nodiscard]] std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
+    // Synchronous owner-context preflight only: no ticket, lease or mutation
+    // authority is returned. The executor must recheck before its first effect.
+    [[nodiscard]] bool CheckPB59InventoryBatchPlan(uint64 owner, uint64 ownerIncarnation,
+        uint64 sessionIncarnation, PB59::Stamp const& stamp,
+        std::span<PB59::InventoryBatchMove const> moves) const;
     // Owner-context only: producer admission before bot identity retirement.
     // Lease owns no Player pointer and may outlive native Player destruction.
     // Owner-context only; scope blocks admitted retirement, not native lifetime.

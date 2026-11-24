@@ -463,6 +463,48 @@ Item* Player::GetItemByPos(uint8 bag, uint8 slot) const
     return nullptr;
 }
 
+bool Player::CheckPB59InventoryBatchPlan(uint64 owner, uint64 ownerIncarnation,
+    uint64 sessionIncarnation, PB59::Stamp const& stamp,
+    std::span<PB59::InventoryBatchMove const> moves) const
+{
+    // No callbacks, yielding, raw item retention or native writes here.
+    // A matching value snapshot does not itself pin Player or its session.
+    auto current = [&]()
+    {
+        auto const* session = GetSession();
+        return owner && owner == GetGUID().GetRawValue() && ownerIncarnation &&
+            ownerIncarnation == _pb59Transaction.OwnerIncarnation() && sessionIncarnation &&
+            session && session->GetPlayer() == this &&
+            session->GetPB59SessionIncarnation() == sessionIncarnation &&
+            !session->PlayerLoading() && !session->PlayerLogout() &&
+            IsInWorld() && IsAlive() && !IsInCombat() &&
+            !IsBeingTeleportedFar() && !IsBeingTeleportedNear() &&
+            !_pb59Transaction.PendingSave() && !_pb59Transaction.PendingLogout() &&
+            _pb59Transaction.CanBegin() && !HasPB59UnsettledOriginals() &&
+            _pb59Equipment.Current(stamp);
+    };
+    if (!current() || PB59::ValidateInventoryBatchPlan(owner, moves) != PB59::InventoryBatchPlanError::None)
+        return false;
+    auto combat = [](uint16 position)
+    {
+        auto const slot = position & 255;
+        return (position >> 8) == INVENTORY_SLOT_BAG_0 && slot < EQUIPMENT_SLOT_END &&
+            slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    };
+    for (auto const& move : moves)
+    {
+        // Only combat-slot <-> storage. Native capture validates backpack/bag
+        // range, bag GUID, owner, slot fields, complete item instance and links.
+        if (combat(move.source.position) == combat(move.destination.position))
+            return false;
+        auto const source = CapturePB59InventorySlot(move.source.position);
+        auto const destination = CapturePB59InventorySlot(move.destination.position);
+        if (!source || !destination || *source != move.source || *destination != move.destination)
+            return false;
+    }
+    return current();
+}
+
 std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 pos) const
 {
     // Unlike human command authority, headless bot sessions are allowed.
