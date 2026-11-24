@@ -293,3 +293,21 @@
   remaining engine/DB boundaries doubled. No native build, gameplay or durable recovery proof;
   no runtime recovery-save admission/IO/reset/replay, CI/merge/activation/deployment/live changes.
   Discard isolated child to roll back; full native build and recovery-save binding remain gates.
+
+## Native build and recovery-save admission gate specification (24 November 2026)
+
+- **Owner/assignment:** CosmicCuddle / CS01 #81 comment7146046931; native resource request
+  #52 comment7146136903. Specification and existing-policy tests, no runtime implementation.
+- **Source:** `docs/codex-pb59-native-build-admission-gates-20261124`, exact Core88 parent
+  `d5eee59878bed7991611b0bf6764e73e03885b39`; requested native build target remains that parent.
+- **Files:** NATIVE_GAME_BUILD_BRIEF.md, RECOVERY_SAVE_ADMISSION_REQUIREMENTS.md, real-header
+  receipt-retention checks/runner, linked release-gate handoff. No production source changes.
+- **Contract:** exact native owner/attempt/revision/observer origin, captured-state ownership,
+  pre-submit admission/fences and retained typed completion are required. Current diagnostic
+  observer's success reclamation/ACK cannot be presumed a recovery receipt handoff. No selected
+  new API, bypass, persistence schema or asynchronous borrowed native scope.
+- **Evidence/limits:**51 ordinary +51 NDEBUG actual-header checks, synthetic futures/no DB,
+  confirm ready-success/Empty and post-report-failure reclaim behavior. Native development
+  environment/module pins remain pending tester confirmation; no real Game/Worldserver/DB proof.
+- **Live/rollback:** Core74/PB56 acceptance unchanged; no activation, IO/release, environment
+  install, CI dispatch, merge/deploy or live/config/SQL/DBC/client change. Discard child to roll back.

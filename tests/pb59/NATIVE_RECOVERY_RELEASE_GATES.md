@@ -92,6 +92,11 @@ exercises actual save guard prefixes and the real typed observer, including a re
 exception containment gap. It does not create the missing operation-bound recovery-save admission.
 Its document records executed contract tests and the still-missing native recovery association.
 
+The [minimal admission/binding requirements](RECOVERY_SAVE_ADMISSION_REQUIREMENTS.md) identify
+native lifecycle/fence, exact capture and receipt-ownership preconditions, including the observer's
+independent reclaim consumer. [The Core88 build brief](NATIVE_GAME_BUILD_BRIEF.md) records known
+pins and the configured development resource/module manifest still requested from the native tester.
+
 ## Evidence distinction
 
 The source-pinned draft PR reports extracted-native executable counts and mutant results.
