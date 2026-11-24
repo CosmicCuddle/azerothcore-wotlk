@@ -47,6 +47,23 @@ std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCol
         values.evidence.revision = stamp->revision;
         values.evidence.originalCount = static_cast<std::uint8_t>(moves.size());
         values.summary.preparedQueueEntries = owner.m_itemUpdateQueue.size();
+        for (std::size_t index = 0; index < values.summary.preparedQueueEntries; ++index)
+        {
+            auto& entry = buffer->_queueBefore[index];
+            entry.item = owner.m_itemUpdateQueue[index];
+            if (!entry.item)
+                continue; // a native queue tombstone is a position, not a missing capture
+            entry.value = {entry.item->GetGUID().GetRawValue(), entry.item->GetOwnerGUID().GetRawValue(),
+                entry.item->uQueuePos, true};
+            if (!entry.value.guid || entry.value.owner != guid ||
+                entry.value.position != static_cast<std::int32_t>(index))
+                return {};
+            for (std::size_t previous = 0; previous < index; ++previous)
+                if (buffer->_queueBefore[previous].value.present &&
+                    buffer->_queueBefore[previous].value.guid == entry.value.guid)
+                    return {};
+        }
+        values.summary.queueBeforeObserved = true;
         for (std::size_t index = 0; index < moves.size(); ++index)
         {
             if (!CopySlot(moves[index].source, values.evidence.originals[index].before) ||
@@ -127,6 +144,28 @@ PB59::Recovery::CollectionStatus Player::BindPB59RecoveryCollection(PB59::Recove
                 !native || !CopySlot(*native, observed) || observed != output.destinations[index].before)
                 return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
                     CollectionStatus::OwnerUnavailable;
+        }
+        // The prepared image must still be exact at admission. Do not bind a
+        // stale image to a new native ticket, even if the planned slots match.
+        std::size_t queueSize = 0;
+        if (!read([&] { queueSize = owner->m_itemUpdateQueue.size(); }) ||
+            queueSize != output.summary.preparedQueueEntries)
+            return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
+                CollectionStatus::OwnerUnavailable;
+        for (std::size_t index = 0; index < queueSize; ++index)
+        {
+            Item const* item = nullptr;
+            QueueEntry entry;
+            if (!read([&] { item = owner->m_itemUpdateQueue[index]; }) || item != buffer._queueBefore[index].item)
+                return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
+                    CollectionStatus::OwnerUnavailable;
+            entry.present = item != nullptr;
+            if (item && (!read([&] { entry.guid = item->GetGUID().GetRawValue(); }) ||
+                !read([&] { entry.owner = item->GetOwnerGUID().GetRawValue(); }) ||
+                !read([&] { entry.position = item->uQueuePos; })))
+                return output.summary.status = CollectionStatus::OwnerUnavailable;
+            if (entry != buffer._queueBefore[index].value)
+                return output.summary.status = CollectionStatus::ContextUnavailable;
         }
         auto const boundStamp = *stamp;
         if (!read([&] { stamp = owner->_pb59Equipment.Capture(); }) || !stamp || *stamp != boundStamp)
@@ -287,25 +326,44 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
         output.summary.queueObserved = true;
         output.summary.queueConsistent = output.summary.observedQueueEntries <= MaximumQueueObservations;
         if (output.summary.queueConsistent)
-            for (std::size_t index = 0; index < output.summary.observedQueueEntries; ++index)
+        {
+            auto const count = std::max(output.summary.preparedQueueEntries, output.summary.observedQueueEntries);
+            for (std::size_t index = 0; index < count; ++index)
             {
                 Item const* item = nullptr;
-                if (!read([&] { item = owner->m_itemUpdateQueue[index]; }))
+                QueueEntry now;
+                if (index < output.summary.observedQueueEntries &&
+                    !read([&] { item = owner->m_itemUpdateQueue[index]; }))
                     return unavailable();
+                now.present = item != nullptr;
                 if (item)
                 {
-                    std::int32_t position = -1;
-                    std::uint64_t itemOwner = 0;
-                    if (!read([&] { position = item->uQueuePos; }) ||
-                        !read([&] { itemOwner = item->GetOwnerGUID().GetRawValue(); }))
+                    if (!read([&] { now.guid = item->GetGUID().GetRawValue(); }) ||
+                        !read([&] { now.owner = item->GetOwnerGUID().GetRawValue(); }) ||
+                        !read([&] { now.position = item->uQueuePos; }))
                         return unavailable();
-                    if (position != static_cast<std::int32_t>(index) || itemOwner != evidence.operation.owner)
+                    if (!now.guid || now.position != static_cast<std::int32_t>(index) ||
+                        now.owner != evidence.operation.owner)
                         output.summary.queueConsistent = false;
                 }
+                auto const& before = buffer._queueBefore[index];
+                // Length changes matter even when only trailing tombstones changed.
+                if (index >= output.summary.preparedQueueEntries || index >= output.summary.observedQueueEntries ||
+                    before.item != item || before.value != now)
+                {
+                    ++output.summary.changedQueueEntries;
+                    if (output.summary.queueDifferenceCount < MaximumOriginals)
+                        output.queueDifferences[output.summary.queueDifferenceCount++] =
+                            {index, before.value, now, before.item == item};
+                }
             }
+            output.summary.queueCompared = true;
+            output.summary.queueUnchanged = output.summary.changedQueueEntries == 0;
+        }
         // Queue shape and journal phases are observations, not original full
         // queue/update-mask or combat/aura before-images. Never promote them.
-        evidence.queues = output.summary.queueConsistent ? ProofState::Unknown : ProofState::Uncertain;
+        evidence.queues = output.summary.queueCompared && output.summary.queueConsistent &&
+            output.summary.queueUnchanged ? ProofState::Unknown : ProofState::Uncertain;
         bool pendingSave = false, pendingLogout = false;
         if (!read([&] { pendingSave = owner->_pb59Transaction.PendingSave(); }) ||
             !read([&] { pendingLogout = owner->_pb59Transaction.PendingLogout(); }))

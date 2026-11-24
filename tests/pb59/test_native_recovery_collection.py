@@ -13,7 +13,11 @@ parser.add_argument("--compiler", nargs="+", required=True)
 parser.add_argument("--syntax-only", action="store_true")
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--sanitizers", action="store_true")
+parser.add_argument("--mutants", action="store_true",
+                    help="Require queue-identity guard mutants to fail runtime checks")
 args = parser.parse_args()
+if args.mutants and args.syntax_only:
+    parser.error("--mutants requires executable checks")
 root = Path(__file__).resolve().parents[2]
 native = root / "src/server/game/Entities/Player"
 
@@ -57,6 +61,15 @@ for before in ("Guid GetGUID() const {", "Session* GetSession() const {", "Map* 
     assert actor_fixture.count(before) == 1, before
     actor_fixture = actor_fixture.replace(before, before + " NoteCollectionRead();")
 fixture = prefix + actor_fixture
+fixture = fixture.replace("class Item {\npublic:", "class Item {\npublic:\n" + r'''
+    mutable unsigned collectionQueueReads = 0;
+    mutable std::function<void()> collectionQueueHook;
+    void NoteQueueRead() const { ++collectionQueueReads; if (collectionQueueHook) collectionQueueHook(); }
+''')
+for before in ("Guid GetGUID() const { return {facts.guid}; }",
+               "Guid GetOwnerGUID() const { return {facts.owner}; }"):
+    assert fixture.count(before) == 1, before
+    fixture = fixture.replace(before, before.replace("{ return", "{ NoteQueueRead(); return"))
 before = "        return PB59::InventorySlotFacts{1, bag, pos, item ? std::optional{item->facts} : std::nullopt};"
 assert fixture.count(before) == 1
 fixture = fixture.replace(before, "        auto value = PB59::InventorySlotFacts{1, bag, pos, item ? std::optional{item->facts} : std::nullopt};\n"
@@ -91,3 +104,30 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
         print("Actual collector/stamp/admission bodies + native headers syntax PASS (engine doubles; not executed)")
     else:
         subprocess.run([str(binary)], check=True)
+    if args.mutants:
+        original = files["Collector.inc"]
+        bind_start = original.index("        // The prepared image must still be exact at admission.")
+        bind_end = original.index("        auto const boundStamp = *stamp;", bind_start)
+        mutants = {
+            "replacement pointer ignored": original.replace(
+                "before.item != item || before.value != now", "before.value != now"),
+            "queue values ignored": original.replace(
+                "before.item != item || before.value != now", "before.item != item"),
+            "trailing tombstones ignored": original.replace(
+                "index >= output.summary.preparedQueueEntries || index >= output.summary.observedQueueEntries ||",
+                "false ||"),
+            "bind image not validated": original[:bind_start] + original[bind_end:],
+            "identity promoted to proof": original.replace(
+                "output.summary.queueUnchanged ? ProofState::Unknown",
+                "output.summary.queueUnchanged ? ProofState::Verified"),
+        }
+        for name, body in mutants.items():
+            if body == original:
+                raise RuntimeError("Mutation did not change source: " + name)
+            (work / "Collector.inc").write_text(body, encoding="utf-8")
+            subprocess.run(args.compiler + flags + ["-I", str(native), "-I", str(work), str(work / "fixture.cpp"),
+                                                   "-o", str(binary)], check=True)
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            if result.returncode != 1 or "collector line " not in result.stderr:
+                raise RuntimeError(f"Mutant not rejected by a fixture assertion: {name}: {result.returncode}")
+        print(f"{len(mutants)}/{len(mutants)} queue observation mutants rejected by runtime checks")
