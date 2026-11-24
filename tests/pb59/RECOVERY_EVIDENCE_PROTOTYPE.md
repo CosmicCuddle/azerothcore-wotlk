@@ -120,12 +120,14 @@ treated as successful reconciliation. CS01's native acceptance matrix remains op
 Standalone GCC16.2/C++20/-Wall/-Wextra/-Werror/-pedantic checks validate bounded copying,
 all instance scalars, empty GUID effects uncertainty, missing/duplicate facts, owner/session
 loss, stale operation/revision, pending intents, missing native proofs, persistence
-distinctions and per-owner retirement admission. Seven one-defect mutants remove custody,
-effect, queue, lifetime, commit sequence or instance-quality guards; each must be caught.
+distinctions and per-owner retirement admission. Eight one-defect mutants remove custody,
+effect, queue, lifetime, commit sequence or instance-quality guards, or erase malformed-record
+lifecycle flags; each must be caught. The historical seven-mutant result belongs to351de1e0.
 
 ```text
 python -B tests/pb59/test_recovery_evidence.py --compiler g++
 python -B tests/pb59/test_recovery_evidence.py --ndebug --compiler g++
+python -B tests/pb59/test_recovery_evidence.py --compile-only --compiler g++
 ```
 
 This is executable prototype evidence, not native Worldserver/DB/gameplay or shutdown
@@ -141,6 +143,15 @@ evidence: Windows currently denies execution of newly compiled fixtures (WinErro
 both temporary and workspace artifact paths. This follow-up's expanded runtime matrix
 and eight-mutant run are pending an executable test environment; do not carry forward
 the earlier 128/7 runtime result as proof of the changed candidate.
+
+The pure inspection/proof/retirement functions are now constexpr. The separate
+recovery_compiletime_checks.cpp evaluates actual model decisions in static_assert
+contracts for missing native proofs, effects-only uncertainty, value-only instance
+identity, persistence freshness, malformed-record diagnostics and retirement holds.
+The runner's --compile-only mode compiles those contracts and verifies that all eight
+mutants fail their static assertions. It does not create or launch a test executable.
+This is compiler-evaluated semantic evidence, not execution of the runtime fixture or
+native Worldserver/DB/gameplay validation. The full runtime matrix remains pending.
 
 No runtime include/caller, schema, external IO, config/SQL/DBC/client change or gameplay
 rule change. Development rollback: discard this child, retaining Core76 and original

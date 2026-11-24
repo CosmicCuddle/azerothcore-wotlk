@@ -32,7 +32,7 @@ struct ReconciliationAssessment
 
 // No StableProof/Finish conversion, result replay or native state mutation.
 // Even VerifiedForReview + ConfirmedForReview is not an unlock capability.
-inline ReconciliationAssessment Assess(Evidence const& evidence, Operation const& expected,
+constexpr ReconciliationAssessment Assess(Evidence const& evidence, Operation const& expected,
     NativeProof const& native, PersistenceEvidence const& durable) noexcept
 {
     ReconciliationAssessment result;
@@ -77,7 +77,7 @@ enum class RetirementAssessment
     HoldMissingContext, HoldStaleIdentity, HoldRecovery, HoldPendingIntents,
     HoldLedger, CheckExistingNativeAdmission
 };
-inline RetirementAssessment InspectRetirement(RetirementObservation const& value) noexcept
+constexpr RetirementAssessment InspectRetirement(RetirementObservation const& value) noexcept
 {
     if (!value.ownerPresent || !value.sessionPresent || !value.serializedContext)
         return RetirementAssessment::HoldMissingContext;

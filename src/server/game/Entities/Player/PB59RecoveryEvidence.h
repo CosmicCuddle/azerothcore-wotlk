@@ -17,8 +17,8 @@ struct Operation
 {
     std::uint64_t owner = 0, ownerIncarnation = 0, sessionIncarnation = 0, ticket = 0;
     bool operator==(Operation const&) const = default;
-    bool OwnerValid() const noexcept { return owner && ownerIncarnation && sessionIncarnation; }
-    bool Valid() const noexcept { return OwnerValid() && ticket; }
+    constexpr bool OwnerValid() const noexcept { return owner && ownerIncarnation && sessionIncarnation; }
+    constexpr bool Valid() const noexcept { return OwnerValid() && ticket; }
 };
 
 struct ItemFacts
@@ -116,10 +116,10 @@ struct Inspection
     std::uint32_t issues = 0;
     std::array<std::uint64_t, MaximumOriginals> unprovenGuids{};
     std::uint8_t unprovenCount = 0;
-    bool Has(Issue issue) const noexcept { return (issues & static_cast<std::uint32_t>(issue)) != 0; }
+    constexpr bool Has(Issue issue) const noexcept { return (issues & static_cast<std::uint32_t>(issue)) != 0; }
 };
 
-inline bool ValidSlot(SlotFacts const& slot) noexcept
+constexpr bool ValidSlot(SlotFacts const& slot) noexcept
 {
     if (!slot.owner || !slot.position)
         return false;
@@ -133,7 +133,7 @@ inline bool ValidSlot(SlotFacts const& slot) noexcept
     return std::all_of(item.text.begin() + item.textSize, item.text.end(), [](char value) { return value == 0; });
 }
 
-inline Inspection Inspect(Evidence const& evidence, Operation const& expected) noexcept
+constexpr Inspection Inspect(Evidence const& evidence, Operation const& expected) noexcept
 {
     Inspection result;
     auto add = [&](Issue issue) { result.issues |= static_cast<std::uint32_t>(issue); };
