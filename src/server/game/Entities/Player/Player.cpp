@@ -16,6 +16,7 @@
  */
 
 #include "Player.h"
+#include "PB59EffectBoundary.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -6780,6 +6781,8 @@ void Player::DuelComplete(DuelCompleteType type)
 
 void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply)
 {
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     if (slot >= INVENTORY_SLOT_BAG_END || !item)
         return;
 
@@ -6797,21 +6800,35 @@ void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply)
     if (item->HasSocket())                              //only (un)equipping of items with sockets can influence metagems, so no need to waste time with normal items
         CorrectMetaGemEnchants(slot, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     _ApplyItemBonuses(proto, slot, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     if (slot == EQUIPMENT_SLOT_RANGED)
         _ApplyAmmoBonuses();
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     ApplyItemEquipSpell(item, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     ApplyItemDependentAuras(item, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     WeaponAttackType const attackType = Player::GetAttackBySlot(slot);
     if (attackType != MAX_ATTACK)
         UpdateWeaponDependentAuras(attackType);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     ApplyEnchantment(item, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     LOG_DEBUG("entities.player.items", "_ApplyItemMods complete.");
 }
 
@@ -6830,6 +6847,8 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
 
     sScriptMgr->OnPlayerCustomScalingStatValueBefore(this, proto, slot, apply, CustomScalingStatValue);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     uint32 ScalingStatValue = proto->ScalingStatValue > 0 ? proto->ScalingStatValue : CustomScalingStatValue;
 
     if (ssd && ssd_level > ssd->MaxLevel)

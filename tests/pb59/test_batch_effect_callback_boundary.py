@@ -19,6 +19,7 @@ end = source.index("void Player::_ApplyItemBonuses(", start)
 body = source[start:end]
 fixture = r'''
 #include "PB59TransactionAdmission.h"
+#include "PB59EffectBoundary.h"
 #include <cstdio>
 #include <functional>
 using uint8 = unsigned char;
@@ -65,8 +66,18 @@ int main() {
     if (player.callsAfterUnlink != 3) return 3;
     if (!scope.CanAccess(player.ledger.OwnerIncarnation(),
                         PB59::TransactionAdmission::Access::Forward)) return 4;
+    item.linked = true;
+    player.callsAfterUnlink = 0;
+    {
+        PB59::EffectBoundary boundary(&player, &item,
+            [](void* context) { return static_cast<Item*>(context)->linked; });
+        player._ApplyItemMods(&item, 0, false);
+        if (!boundary.Failed() || player.callsAfterUnlink) return 5;
+        item.linked = true;
+        if (PB59::EffectBoundary::Check(&player)) return 6; // cannot reset uncertain effects
+    }
     // The ledger alone cannot see the callback's direct inventory write.
-    std::puts("Actual item-mod body callback gap reproduced; ledger unchanged; control PASS");
+    std::puts("Actual item-mod body: ordinary gap control + opt-in early-stop/sticky failure PASS");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="pb59-effect-boundary-") as temporary:
