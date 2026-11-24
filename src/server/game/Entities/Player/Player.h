@@ -1098,6 +1098,7 @@ class Player : public Unit, public GridObject<Player>
     friend class WorldSession;
     friend class CinematicMgr;
     friend void Item::AddToUpdateQueueOf(Player* player);
+    friend void Item::AddPB59ToUpdateQueueOf(Player* player);
     friend void Item::RemoveFromUpdateQueueOf(Player* player);
 public:
     explicit Player(WorldSession* session);

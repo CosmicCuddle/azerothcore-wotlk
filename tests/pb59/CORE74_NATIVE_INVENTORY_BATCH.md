@@ -105,6 +105,16 @@ adapter must not enable this on a live server. Dropping a failed operation's res
 
 ## Executable evidence and its limits
 
+Native integration follow-up: Claude's full integrated build of `7fdc3a65` failed
+because `Item::AddPB59ToUpdateQueueOf` was not a friend of Player. The correction
+adds only that specific friendship; queue fields remain protected and the helper
+remains private. `test_item_queue_access.py` extracts the actual friend/member
+declarations and complete queue helper bodies: seven ordinary queue checks pass,
+and deleting the helper friendship reproduces the protected-access compiler error.
+This access-control fixture still doubles the remaining engine members. The exact
+corrected full integrated build remains a separate gate; see coordination #51
+comment 7134437862 for the original native failure evidence.
+
 Local standalone GCC 16.2.0, C++20, warnings-as-errors:
 
 - `test_inventory_batch_native.py`: actual executor/admission/stamp/journal/item-mod bodies,
@@ -133,6 +143,7 @@ Reproduce with Python 3 and a compatible C++20 compiler:
 python -B tests/pb59/test_inventory_batch_native.py --compiler g++
 python -B tests/pb59/test_inventory_batch_native.py --ndebug --compiler g++
 python -B tests/pb59/test_inventory_reservation_guards.py --compiler g++
+python -B tests/pb59/test_item_queue_access.py --compiler g++
 python -B tests/pb59/test_original_queue_custody.py --cxx g++
 python -B tests/pb59/test_inventory_custody_body.py --cxx g++
 python -B tests/pb59/test_inventory_custody_body.py --visible --cxx g++
