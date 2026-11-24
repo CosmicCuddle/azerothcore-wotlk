@@ -86,6 +86,19 @@ public:
     uint32 GetGlobalCooldown(SpellInfo const* spellInfo) const;
     void AddGlobalCooldown(SpellInfo const* spellInfo, uint32 gcd);
     void CancelGlobalCooldown(SpellInfo const* spellInfo);
+    bool PB59Equivalent(GlobalCooldownMgr const& other) const
+    {
+        if (m_GlobalCooldowns.size() != other.m_GlobalCooldowns.size())
+            return false;
+        for (auto const& [category, cooldown] : m_GlobalCooldowns)
+        {
+            auto const found = other.m_GlobalCooldowns.find(category);
+            if (found == other.m_GlobalCooldowns.end() || found->second.duration != cooldown.duration ||
+                found->second.cast_time != cooldown.cast_time)
+                return false;
+        }
+        return true;
+    }
 
 private:
     GlobalCooldownList m_GlobalCooldowns;

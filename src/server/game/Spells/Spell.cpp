@@ -16,6 +16,7 @@
  */
 
 #include "Spell.h"
+#include "PB59InventoryReservation.h"
 #include "ArenaSpectator.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -3563,6 +3564,10 @@ bool Spell::UpdateChanneledTargetList()
 
 SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const* triggeredByAura)
 {
+    // A native cast can affect remote targets and consume charges even without
+    // scripts. A later batch failure must not claim to invert those effects.
+    PB59::InventoryReservation::NoteCallback();
+
     Unit* unitCaster = m_caster->ToUnit();
     if (m_CastItem)
     {

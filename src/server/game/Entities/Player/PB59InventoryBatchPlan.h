@@ -5,6 +5,18 @@
 
 namespace PB59
 {
+enum class InventoryBatchOutcome { Refused, Applied, Restored, RecoveryRequired };
+enum class InventoryBatchFailure { None, Context, Plan, UnsupportedState, Policy, Effects, Links, Restoration };
+struct InventoryBatchResult
+{
+    InventoryBatchOutcome outcome = InventoryBatchOutcome::Refused;
+    InventoryBatchFailure failure = InventoryBatchFailure::None;
+    // GUIDs whose original position/instance could not be re-proven. Effect-
+    // only recovery can have an empty list; this is not a DB durability claim.
+    std::array<std::uint64_t, 19> recoveryGuids{};
+    std::uint8_t recoveryCount = 0;
+};
+
 // Owner-context observations only. Validation does not acquire custody, invoke
 // policy hooks, authorize mutation or prove that these observations are current.
 struct InventoryBatchMove

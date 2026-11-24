@@ -16,6 +16,7 @@
  */
 
 #include "SpellScript.h"
+#include "PB59InventoryReservation.h"
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
@@ -363,6 +364,7 @@ void SpellScript::_InitHit()
 
 void SpellScript::_PrepareScriptCall(SpellScriptHookType hookType)
 {
+    PB59::InventoryReservation::NoteCallback();
     m_currentScriptState = hookType;
 }
 
@@ -954,6 +956,7 @@ bool AuraScript::_Load(Aura* aura)
 
 void AuraScript::_PrepareScriptCall(AuraScriptHookType hookType, AuraApplication const* aurApp)
 {
+    PB59::InventoryReservation::NoteCallback();
     m_scriptStates.push(ScriptStateStore(m_currentScriptState, m_auraApplication, m_defaultActionPrevented));
     m_currentScriptState = hookType;
     m_defaultActionPrevented = false;

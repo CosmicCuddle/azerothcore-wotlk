@@ -9,8 +9,8 @@ class EffectBoundary final
 {
 public:
     using Verify = bool (*)(void*);
-    EffectBoundary(void const* owner, void* context, Verify verify) noexcept
-        : _owner(owner), _context(context), _verify(verify), _previous(_active)
+    EffectBoundary(void const* owner, void* context, Verify verify, Verify alive = nullptr) noexcept
+        : _owner(owner), _context(context), _verify(verify), _alive(alive), _previous(_active)
     {
         if (auto* outer = Find(owner))
         {
@@ -52,6 +52,22 @@ public:
         return false;
     }
     [[nodiscard]] bool Failed() const noexcept { return _failed; }
+    static bool OwnerAlive(void const* owner) noexcept
+    {
+        auto const* frame = Find(owner);
+        if (!frame)
+            return true;
+        if (!frame->_alive)
+            return false;
+        try
+        {
+            return frame->_alive(frame->_context);
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
 private:
     static EffectBoundary* Find(void const* owner) noexcept
     {
@@ -64,6 +80,7 @@ private:
     void const* _owner;
     void* _context;
     Verify _verify;
+    Verify _alive;
     EffectBoundary* _previous;
     bool _failed = false;
     bool _checking = false;

@@ -57,6 +57,9 @@ struct Item
     unsigned queuePos=0;
     ObjectGuid GetGUID() const { return {facts.guid}; }
     void SetState(int,Player*);
+    void SetPB59State(int value, Player* player) { SetState(value, player); }
+    void SetPB59Slot(uint8 value) { SetSlot(value); }
+    void SetPB59Container(Bag* value) { SetContainer(value); }
     bool IsInUpdateQueue() const { return queued; }
     unsigned GetQueuePos() const { return queuePos; }
     void SetSlot(uint8 value) { slot=value; }

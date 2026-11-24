@@ -19,6 +19,7 @@
 #define _SCRIPT_MGR_MACRO_H_
 
 #include "ScriptMgr.h"
+#include "PB59InventoryReservation.h"
 
 template<typename ScriptName>
 inline Optional<bool> IsValidBoolScript(std::function<bool(ScriptName*)> executeHook)
@@ -28,6 +29,7 @@ inline Optional<bool> IsValidBoolScript(std::function<bool(ScriptName*)> execute
 
     for (auto const& [scriptID, script] : ScriptRegistry<ScriptName>::ScriptPointerList)
     {
+        PB59::InventoryReservation::NoteCallback();
         if (executeHook(script))
             return true;
     }
@@ -43,6 +45,7 @@ inline T* GetReturnAIScript(std::function<T*(ScriptName*)> executeHook)
 
     for (auto const& [scriptID, script] : ScriptRegistry<ScriptName>::ScriptPointerList)
     {
+        PB59::InventoryReservation::NoteCallback();
         if (T* scriptAI = executeHook(script))
         {
             return scriptAI;
@@ -60,6 +63,7 @@ inline void ExecuteScript(std::function<void(ScriptName*)> executeHook)
 
     for (auto const& [scriptID, script] : ScriptRegistry<ScriptName>::ScriptPointerList)
     {
+        PB59::InventoryReservation::NoteCallback();
         executeHook(script);
     }
 }
@@ -71,18 +75,32 @@ inline bool ReturnValidBool(Optional<bool> ret, bool need = false)
 
 #define CALL_ENABLED_HOOKS(scriptType, hookType, action) \
     if (!ScriptRegistry<scriptType>::EnabledHooks[hookType].empty()) \
-        for (auto const& script : ScriptRegistry<scriptType>::EnabledHooks[hookType]) { action; }
+        for (auto const& script : ScriptRegistry<scriptType>::EnabledHooks[hookType]) \
+        { \
+            PB59::InventoryReservation::NoteCallback(); \
+            action; \
+        }
 
 #define CALL_ENABLED_BOOLEAN_HOOKS(scriptType, hookType, action) \
     if (ScriptRegistry<scriptType>::EnabledHooks[hookType].empty()) \
         return true; \
-    for (auto const& script : ScriptRegistry<scriptType>::EnabledHooks[hookType]) { if (action) return false; } \
+    for (auto const& script : ScriptRegistry<scriptType>::EnabledHooks[hookType]) \
+    { \
+        PB59::InventoryReservation::NoteCallback(); \
+        if (action) \
+            return false; \
+    } \
     return true;
 
 #define CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(scriptType, hookType, action) \
     if (ScriptRegistry<scriptType>::EnabledHooks[hookType].empty()) \
         return false; \
-    for (auto const& script : ScriptRegistry<scriptType>::EnabledHooks[hookType]) { if (action) return true; } \
+    for (auto const& script : ScriptRegistry<scriptType>::EnabledHooks[hookType]) \
+    { \
+        PB59::InventoryReservation::NoteCallback(); \
+        if (action) \
+            return true; \
+    } \
     return false;
 
 #endif // _SCRIPT_MGR_MACRO_H_

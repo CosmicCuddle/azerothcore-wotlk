@@ -542,6 +542,11 @@ public:
     {
         _updateObjects.erase(obj);
     }
+    // Serialized owner-context observation for batch queue reconciliation.
+    bool PB59HasUpdateObject(Object const* obj) const
+    {
+        return _updateObjects.find(const_cast<Object*>(obj)) != _updateObjects.end();
+    }
 
     size_t GetUpdatableObjectsCount() const { return _updatableObjectList.size(); }
 

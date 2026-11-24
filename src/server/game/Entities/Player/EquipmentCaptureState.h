@@ -1,10 +1,14 @@
 #pragma once
 
+#include "PB59InventoryReservation.h"
+
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <limits>
 #include <optional>
+
+class Player;
 
 namespace PB59
 {
@@ -20,6 +24,11 @@ struct Stamp
 class EquipmentCaptureState
 {
 public:
+    ~EquipmentCaptureState()
+    {
+        if (_reservationPrepared)
+            InventoryQuarantine::Forget(this);
+    }
     void Bind()
     {
         auto value = _lastSession.load(std::memory_order_relaxed);
@@ -70,7 +79,29 @@ public:
         return now && *now == stamp;
     }
 
+    // Public producer gate: throw only inside an active batch, otherwise
+    // refuse quarantined native writes through the caller's normal result.
+    bool InventoryMutationAllowed() const
+    {
+        InventoryReservation::CheckState(this);
+        return !_inventoryQuarantined;
+    }
+    bool InventoryQuarantined() const noexcept { return _inventoryQuarantined; }
+
 private:
+    friend class ::Player;
+    bool PrepareInventoryReservation(std::uint64_t owner, std::span<void const* const> items,
+        std::span<std::uint64_t const> counters = {}) noexcept
+    {
+        bool const prepared = InventoryQuarantine::Prepare(this, owner, items, counters);
+        _reservationPrepared = _reservationPrepared || prepared;
+        return prepared;
+    }
+    void SetInventoryQuarantined(bool value) noexcept
+    {
+        InventoryQuarantine::Set(this, value);
+        _inventoryQuarantined = value;
+    }
     void Invalidate()
     {
         if (_revision == std::numeric_limits<std::uint64_t>::max())
@@ -84,6 +115,8 @@ private:
     std::uint64_t _revision = 0;
     std::uint64_t _depth = 0;
     bool _exhausted = false;
+    bool _inventoryQuarantined = false;
+    bool _reservationPrepared = false;
 };
 
 // Raw facts only. No item-level weighting or eligibility policy here.
