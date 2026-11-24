@@ -276,3 +276,20 @@
   compilation, complete effects/cooldown/persistence/gameplay gates remain open. No PB duplication.
 - **Live/rollback:** no runtime wiring or native behavior change, IO/release/schema/config/SQL/
   DBC/client, CI dispatch/activation/merge/deployment. Discard isolated test child to roll back.
+
+## Save observer exceptional-delivery containment (24 November 2026; validation pending)
+
+- **Owner/assignment:** CosmicCuddle / CS01 #81 comment7142198686, narrow recovery-save contract.
+- **Source:** `fix/codex-pb59-recovery-save-contract-20261124`, exact Core85 parent
+  `72efa4a5c74e9ad0636f08e561e7a00770db849b`. Core74/PB56 tuple unchanged.
+- **Change:** PB59CharacterSaveObserver.h catches any future.get delivery exception as Ambiguous,
+  matching existing reclaim handling; report-callback exceptions still propagate without ACK.
+  Existing quarantine/save admission and missing recovery operation/revision binding preserved.
+- **Tests/status:** earlier180 ordinary +180 NDEBUG contracts passed; parent exception escape
+  reproduced. Final non-std exception variant/mutant correction rerun not executed because
+  automatic approval review hit its usage limit. No final fixture/mutant PASS claim; publication
+  and final checks remain pending. See RECOVERY_SAVE_BLOCKING_CONTRACT.md for exact evidence.
+- **Dependencies/live/rollback:** actual observer/future types and extracted save guard prefixes;
+  remaining engine/DB boundaries doubled. No native build, gameplay or durable recovery proof;
+  no runtime recovery-save admission/IO/reset/replay, CI/merge/activation/deployment/live changes.
+  Discard isolated child to roll back; full native build and recovery-save binding remain gates.

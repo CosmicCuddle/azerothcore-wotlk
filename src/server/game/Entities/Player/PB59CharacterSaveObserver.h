@@ -76,7 +76,7 @@ public:
                 {
                     DatabaseTransactionResult result = DatabaseTransactionResult::FromExecutionCode(DatabaseTransactionResult::AmbiguousCode);
                     try { result = future.get(); }
-                    catch (std::future_error const&) {} // missing delivery is not a known failure
+                    catch (...) {} // failed delivery is uncertain, never a success or permission to replay
                     _store.Complete(record->ticket, result);
                 }
                 else if (final)

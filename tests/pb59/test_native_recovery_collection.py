@@ -15,9 +15,12 @@ parser.add_argument("--syntax-only", action="store_true")
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--sanitizers", action="store_true")
 parser.add_argument("--bridge", action="store_true", help="Exercise a test-only executor-to-collector handoff")
+parser.add_argument("--save-contract", action="store_true", help="Exercise save guards and typed completion contracts")
 parser.add_argument("--mutants", action="store_true",
                     help="Require queue-identity guard mutants to fail runtime checks")
 args = parser.parse_args()
+if args.save_contract:
+    args.bridge = True
 if args.mutants and args.syntax_only:
     parser.error("--mutants requires executable checks")
 root = Path(__file__).resolve().parents[2]
@@ -60,7 +63,17 @@ extras = declarations + r'''
     }
     void AdvanceCollectionRevision() { _pb59Equipment.Invalidate(); }
 '''
+if args.save_contract:
+    extras += r'''
+    int m_nextSave = 42;
+    void ScheduleDelayedOperation(int) { ++SaveBoundary.scheduled; }
+    void SaveToDB(bool create, bool logout);
+    void SaveToDBWithEvidence(CharacterDatabaseTransaction trans, bool create, bool logout,
+        PB59::SaveEvidence* evidence);
+'''
 fixture = '#include "PB59NativeRecoveryCollection.h"\n#include <cstring>\n' + fixture
+if args.save_contract:
+    fixture = '#include "recovery_save_contract_hooks.h"\n' + fixture
 # Fixed underlying type keeps deliberately unknown test states defined. Native
 # ItemUpdateState itself is unchanged; no native corruption reachability claim.
 fixture = fixture.replace("enum ItemUpdateState {", "enum ItemUpdateState : std::int32_t {")
@@ -150,6 +163,17 @@ if args.bridge:
                        "Player::ExecutePB59InventoryBatchPlan(", 1) != original_executor:
         raise RuntimeError("Control executor differs beyond its qualified function name")
     executor_body = control + "\n" + executor_body
+save_guards = ""
+if args.save_contract:
+    outer = function(storage, "void Player::SaveToDB(bool create, bool logout)")
+    outer = outer[:outer.index("    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();")]
+    outer += "    ++SaveBoundary.transactionBoundary;\n}\n"
+    append = function(storage, "void Player::SaveToDBWithEvidence(")
+    append = append[:append.index("    // delay auto save at any saves")]
+    append += "    (void)trans; (void)create; (void)logout; (void)evidence;\n    ++SaveBoundary.appendBoundary;\n}\n"
+    save_guards = outer + append
+    fixture = fixture.replace('#include "NativeRecoveryChecks.inc"',
+                              '#include "SaveGuards.inc"\n#include "NativeRecoveryChecks.inc"')
 charm = (root / "src/server/game/Entities/Unit/CharmInfo.h").read_text(encoding="utf-8")
 with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
     work = Path(temporary)
@@ -166,6 +190,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
         "GlobalCooldownMgr.inc": function(charm, "class GlobalCooldownMgr ") + ";\n",
         "Collector.inc": collector[collector.index("std::unique_ptr<PB59::Recovery::NativeCollection>"):],
         "NativeRecoveryChecks.inc": Path(__file__).with_name(
+            "recovery_save_contract_checks.cpp" if args.save_contract else
             "executor_recovery_bridge_checks.cpp" if args.bridge else "native_recovery_collection_checks.cpp"
         ).read_text(encoding="utf-8"),
         "fixture.cpp": fixture,
@@ -173,9 +198,17 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
     if args.bridge:
         files["executor_recovery_bridge_hooks.h"] = Path(__file__).with_name(
             "executor_recovery_bridge_hooks.h").read_text(encoding="utf-8")
+    if args.save_contract:
+        files["SaveGuards.inc"] = save_guards
+        files["recovery_save_contract_hooks.h"] = Path(__file__).with_name(
+            "recovery_save_contract_hooks.h").read_text(encoding="utf-8")
+        for name in ("PB59CharacterSaveObserver.h", "PB59RecoverySaveProvenance.h"):
+            files[name] = (native / name).read_text(encoding="utf-8")
     for name, body in files.items():
         (work / name).write_text(body, encoding="utf-8")
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pthread"]
+    if args.save_contract:
+        flags += ["-I", str(root / "src/server/database/Database")]
     if args.ndebug:
         flags += ["-DNDEBUG", "-O2"]
     if args.sanitizers:
@@ -189,7 +222,29 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
         print(mode + " + native headers syntax PASS (engine doubles; not executed)")
     else:
         subprocess.run([str(binary)], check=True)
-    if args.mutants and args.bridge:
+    if args.mutants and args.save_contract:
+        mutants = [
+            ("SaveGuards.inc", "if (!_pb59Equipment.InventoryMutationAllowed())", "if (false)"),
+            ("SaveGuards.inc", "(void)_pb59Transaction.Request(PB59::TransactionAdmission::Work::StandaloneSave);",
+             "(void)0;"),
+            ("PB59CharacterSaveObserver.h", "catch (...) {} // failed delivery",
+             "catch (std::future_error const&) {} // failed delivery"),
+            ("PB59RecoverySaveProvenance.h", "record.ticket != expectedSave", "((void)expectedSave, false)"),
+        ]
+        for name, before, after in mutants:
+            for restored in {item[0] for item in mutants}:
+                (work / restored).write_text(files[restored], encoding="utf-8")
+            body = files[name].replace(before, after)
+            if body == files[name]:
+                raise RuntimeError("Save-contract mutation did not change source: " + name)
+            (work / name).write_text(body, encoding="utf-8")
+            subprocess.run(args.compiler + flags + ["-I", str(native), "-I", str(work), str(work / "fixture.cpp"),
+                                                   "-o", str(binary)], check=True)
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            if result.returncode != 1 or "save contract line " not in result.stderr:
+                raise RuntimeError(f"Save mutant not rejected by fixture assertion: {name}: {result.returncode}")
+        print(f"{len(mutants)}/{len(mutants)} recovery-save contract mutants rejected by runtime checks")
+    elif args.mutants and args.bridge:
         original = files["Executor.inc"][len(control) + 1:]
         capture = "Bridge.collectStatus = CollectPB59RecoveryEvidence(*bridgeCollection, scope, result);"
         mutants = {
