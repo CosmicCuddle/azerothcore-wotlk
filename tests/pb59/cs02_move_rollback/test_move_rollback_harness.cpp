@@ -154,13 +154,13 @@ std::vector<Scenario> PreflightScenarios()
             if (Item* it = core.GetItemByPos(BAG0, 9); it && it->pos.slot == 9)
                 core.HookRelocate(it, Pos{BAG0, 24});
             return true;
-        }; }), Outcome::Refused});
+        }; }), Outcome::RecoveryRequired}); // agreed point 2
     v.push_back({"P22 callback starts logout", strip3([](Synthetic::Core& c, Request&) {
         c.onPlayerCanUnequipItem = [](Synthetic::Core& core, std::uint16_t, bool) {
             core.loggingOut = true;
             ++core.incarnation;
             return true;
-        }; }), Outcome::Refused});
+        }; }), Outcome::RecoveryRequired}); // agreed point 2: context changed
     v.push_back({"P23 bag item as a move", [](Synthetic::Core& c) {
         Request r = Base(c);
         r.moves.push_back(Move{kBagGuid, Pos{BAG0, kBagSlot}, FreeStorage(c)[0]});
@@ -179,6 +179,22 @@ std::vector<Scenario> PreflightScenarios()
         Request r = Base(c);
         r.moves.push_back(Move{it->guid, it->pos, Pos{BAG0, 0}});
         return r; }, Outcome::Refused});
+    v.push_back({"P29 two-hander before the off-hand move (point 4: order matters)", [](Synthetic::Core& c) {
+        Synthetic::Item* oh = c.GetItemByPos(BAG0, Synthetic::OFFHAND);
+        auto free = FreeStorage(c);
+        Synthetic::Item* th = c.Create(783, 0x3008, free[1], true);
+        Request r = Base(c);
+        r.moves.push_back(Move{th->guid, th->pos, Pos{BAG0, Synthetic::MAINHAND}});
+        r.moves.push_back(Move{oh->guid, oh->pos, free[0]});
+        return r; }, Outcome::Refused, [] { return Fixture(8, Synthetic::MAINHAND); }});
+    v.push_back({"P30 off-hand move invalid, two-hander after it (point 4: validated)", [](Synthetic::Core& c) {
+        Synthetic::Item* oh = c.GetItemByPos(BAG0, Synthetic::OFFHAND);
+        auto free = FreeStorage(c);
+        Synthetic::Item* th = c.Create(784, 0x3009, free[1], true);
+        Request r = Base(c);
+        r.moves.push_back(Move{oh->guid, oh->pos, c.StoragePositions().back()}); // occupied destination
+        r.moves.push_back(Move{th->guid, th->pos, Pos{BAG0, Synthetic::MAINHAND}});
+        return r; }, Outcome::Refused, [] { return Fixture(8, Synthetic::MAINHAND); }});
     v.push_back({"P27 called while a transaction is already open", strip3([](Synthetic::Core& c, Request&) {
         c.transactionDepth = 1; }), Outcome::Refused});
     v.push_back({"P28 destination holds a mergeable stack of the same entry", [](Synthetic::Core& c) {
@@ -304,15 +320,33 @@ std::vector<Scenario> RollbackFaultScenarios()
     return v;
 }
 
+// Which OnPlayerCanUnequipItem call for the hazard slot fires the side
+// effect (1 = first call). PB44 calls the hook once per item; PB50 calls it
+// at planning, validation and inside the move (calls 1, 2, 3). The nested
+// executor for H5 is the executor under test (re-entry of itself).
+struct HazardControl
+{
+    int fireOnCall = 1;
+    std::function<void(Synthetic::Core&)> nested = [](Synthetic::Core& core) {
+        ReferenceExecutor ref;
+        ref.Execute(core, Strip(core, {2}));
+    };
+};
+HazardControl g_hazard;
+
 // CS01 7118646677: PB44 1a9e4801 TrainerAction.cpp:692-704 holds Item*
 // across CanUnequipItem's OnPlayerCanUnequipItem callback and trusts an empty
 // source slot. Each hook below is a callback side effect Core53 permits.
+// Expected outcomes are for the reference executor under the agreed contract
+// (#52 7130720231 / #51 7127659287): callback changes -> RecoveryRequired.
 std::vector<Scenario> HookHazardScenarios()
 {
     std::vector<Scenario> v;
     auto onSlot = [](std::uint8_t slot, auto effect) {
-        return [slot, effect](Synthetic::Core& core, std::uint16_t pos, bool) {
-            if ((pos & 0xFF) == slot && core.transactionDepth <= 1)
+        auto calls = std::make_shared<int>(0);
+        int const fire = g_hazard.fireOnCall;
+        return [slot, effect, calls, fire](Synthetic::Core& core, std::uint16_t pos, bool) {
+            if ((pos & 0xFF) == slot && ++*calls == fire)
                 effect(core);
             return true;
         };
@@ -320,39 +354,35 @@ std::vector<Scenario> HookHazardScenarios()
     v.push_back({"H1 callback deletes the held item (merge/destroy)", [onSlot](Synthetic::Core& c) {
         c.onPlayerCanUnequipItem = onSlot(2, [](Synthetic::Core& core) {
             core.HookMergeAway(core.GetItemByPos(BAG0, 2)); });
-        return Strip(c, FirstSlots(3)); }, Outcome::Refused});
-    v.push_back({"H2 callback moves the held item into the chosen destination", [onSlot](Synthetic::Core& c) {
+        return Strip(c, FirstSlots(3)); }, Outcome::RecoveryRequired});
+    v.push_back({"H2 callback moves the held item into its planned destination", [onSlot](Synthetic::Core& c) {
         c.onPlayerCanUnequipItem = onSlot(2, [](Synthetic::Core& core) {
-            Synthetic::Item* it = core.GetItemByPos(BAG0, 2);
-            core.HookRelocate(it, FreeStorage(core)[0]); });
-        return Strip(c, FirstSlots(3)); }, Outcome::Refused});
+            if (Synthetic::Item* it = core.GetItemByPos(BAG0, 2))
+                core.HookRelocate(it, FreeStorage(core)[0]); });
+        return Strip(c, FirstSlots(3)); }, Outcome::RecoveryRequired});
     v.push_back({"H3 callback swaps another GUID into the slot", [onSlot](Synthetic::Core& c) {
         Synthetic::Item* other = c.Create(781, 0x3004, FreeStorage(c).back());
         std::uint64_t og = other->guid;
         c.onPlayerCanUnequipItem = onSlot(2, [og](Synthetic::Core& core) {
-            Synthetic::Item* it = core.GetItemByPos(BAG0, 2);
-            core.HookRelocate(it, FreeStorage(core)[1]);
+            if (Synthetic::Item* it = core.GetItemByPos(BAG0, 2))
+                core.HookRelocate(it, FreeStorage(core)[1]);
             core.HookRelocate(core.FindArena(og), Pos{BAG0, 2}); });
-        return Strip(c, FirstSlots(3)); }, Outcome::Refused});
+        return Strip(c, FirstSlots(3)); }, Outcome::RecoveryRequired});
     v.push_back({"H4 callback begins logout", [onSlot](Synthetic::Core& c) {
         c.onPlayerCanUnequipItem = onSlot(2, [](Synthetic::Core& core) {
             core.loggingOut = true;
             ++core.incarnation; });
-        return Strip(c, FirstSlots(3)); }, Outcome::Refused});
-    v.push_back({"H5 callback re-enters the strip of the same slot", [](Synthetic::Core& c) {
-        auto once = std::make_shared<bool>(false);
-        c.onPlayerCanUnequipItem = [once](Synthetic::Core& core, std::uint16_t pos, bool) {
-            if ((pos & 0xFF) == 2 && !*once)
-            {
-                *once = true; // PB44-style executors have no fence; recurse once
-                Pb44StripExecutor nested;
-                nested.Execute(core, Strip(core, {2}));
-            }
-            return true;
-        };
-        return Strip(c, FirstSlots(3)); }, Outcome::Refused});
+        return Strip(c, FirstSlots(3)); }, Outcome::RecoveryRequired});
+    v.push_back({"H5 callback re-enters the strip of the same slot", [onSlot](Synthetic::Core& c) {
+        auto nested = g_hazard.nested;
+        c.onPlayerCanUnequipItem = onSlot(2, [nested](Synthetic::Core& core) { nested(core); });
+        return Strip(c, FirstSlots(3)); }, Outcome::Applied}); // reference: nested call fenced
     v.push_back({"H6 callback refuses the second strip (partial strip)", [](Synthetic::Core& c) {
-        c.onPlayerCanUnequipItem = [](Synthetic::Core&, std::uint16_t pos, bool) { return (pos & 0xFF) != 2; };
+        auto calls = std::make_shared<int>(0);
+        int const fire = g_hazard.fireOnCall;
+        c.onPlayerCanUnequipItem = [calls, fire](Synthetic::Core&, std::uint16_t pos, bool) {
+            return (pos & 0xFF) != 2 || ++*calls != fire;
+        };
         return Strip(c, FirstSlots(3)); }, Outcome::Refused});
     v.push_back({"H7 StoreItem returns a replacement pointer (hypothetical; Core53 comment permits)",
         [](Synthetic::Core& c) {
@@ -439,6 +469,10 @@ int main()
 
     // 3. PB44 1a9e4801 MoveEquippedToBags transcription: hazard reproduction.
     int hazards = 0, hazardScenarios = 0;
+    g_hazard.nested = [](Synthetic::Core& core) {
+        Pb44StripExecutor nested; // PB44 re-entering itself (it has no fence)
+        nested.Execute(core, Strip(core, {2}));
+    };
     for (auto const& s : HookHazardScenarios())
     {
         ++hazardScenarios;
@@ -450,6 +484,7 @@ int main()
         std::printf("[SYNTHETIC] PB44-pattern %-75s reported %-8s oracle: %s\n", s.name.c_str(),
             Name(run.rep.outcome), flagged ? run.verdict.violations.front().c_str() : "no violation");
     }
+    g_hazard = HazardControl{};
     std::printf("[SYNTHETIC] PB44 1a9e4801 TrainerAction.cpp:692-704 pattern flagged in %d/%d hazard scenarios"
                 " (expected red; Claude owns the fix)\n", hazards, hazardScenarios);
     // Controls: PB44 pattern is not falsely flagged when nothing goes wrong.
@@ -513,6 +548,8 @@ int main()
     add("no two-hander/off-hand check", [](Knobs& k) { k.skipTwoHandCheck = true; });
     add("no re-entry fence", [](Knobs& k) { k.skipReentryFence = true; });
     add("success from empty source only", [](Knobs& k) { k.trustSourceEmpty = true; });
+    add("callback change labelled Refused (pre-agreement)", [](Knobs& k) { k.callbackChangeRefused = true; });
+    add("two-hander rule on final state only (ignores order)", [](Knobs& k) { k.twoHandFinalStateOnly = true; });
     add("PB44 pattern: holds Item* across callback, no revalidation",
         [](Knobs& k) { k.holdPointerAcrossHook = true; k.skipRevalidateAfterHook = true; });
     int killed = 0;

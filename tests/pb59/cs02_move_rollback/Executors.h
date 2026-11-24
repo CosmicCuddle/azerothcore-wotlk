@@ -39,6 +39,8 @@ struct Knobs
     bool holdPointerAcrossHook = false; // the PB44 pattern inside an otherwise correct executor
     bool trustSourceEmpty = false;      // success = "source slot is empty"
     bool skipExactGate = false;         // does not consult PB59::AcceptExactStorage
+    bool callbackChangeRefused = false; // pre-agreement behaviour: callback change -> Refused
+    bool twoHandFinalStateOnly = false; // checks the two-hander rule only after the whole batch
 };
 
 class ReferenceExecutor
@@ -93,7 +95,7 @@ public:
             if (froms.count(m.to))
                 return Refuse(core, "destination is another move's source");
         if (!_k.skipTwoHandCheck)
-            if (std::string why = TwoHand(core, r); !why.empty())
+            if (std::string why = TwoHand(core, r, _k.twoHandFinalStateOnly); !why.empty())
                 return Refuse(core, why);
         for (std::size_t i = 0; i < r.moves.size(); ++i)
         {
@@ -117,10 +119,26 @@ public:
                     return Refuse(core, "CanUnequipItem (incl. OnPlayerCanUnequipItem) refused");
         if (!_k.skipRevalidateAfterHook)
         {
-            if (std::string why = Custody(core, r); !why.empty())
+            // Agreed point 2: a callback change is never "no effects". Do not try
+            // to undo arbitrary callback effects; report exactly what moved.
+            Snapshot const now = Capture(core);
+            std::string why = Custody(core, r);
+            if (!(now == s0))
+            {
+                if (_k.callbackChangeRefused)
+                    return Refuse(core, "callback changed inventory/context");
+                Report rep{Outcome::RecoveryRequired, "callback changed inventory/context" +
+                    (why.empty() ? std::string() : ": " + why), {}};
+                for (auto const& [g, pos] : s0.where)
+                {
+                    auto it = now.where.find(g);
+                    if (it == now.where.end() || it->second != pos)
+                        rep.notWhereExpected.push_back(g);
+                }
+                return rep;
+            }
+            if (!why.empty())
                 return Refuse(core, "after callback: " + why);
-            if (!(Capture(core) == s0))
-                return Refuse(core, "inventory changed during a callback");
         }
 
         // ---- apply ----
@@ -238,7 +256,10 @@ private:
     // Would any step put a two-hander next to an occupied off-hand, or an
     // off-hand next to a two-hander? Then Core would reach
     // AutoUnequipOffhandIfNeed (M4) and possibly mail the item: refuse.
-    static std::string TwoHand(Synthetic::Core const& core, Request const& r)
+    // Agreed point 4: a two-hander may enter the main hand only if the off-hand
+    // is already empty or an explicit, validated off-hand move EARLIER in the
+    // batch empties it. Otherwise refuse; there is no mail fallback.
+    static std::string TwoHand(Synthetic::Core const& core, Request const& r, bool finalOnly = false)
     {
         std::map<Pos, Item*> occ;
         for (Pos p : {Pos{Synthetic::BAG0, Synthetic::MAINHAND}, Pos{Synthetic::BAG0, Synthetic::OFFHAND}})
@@ -250,11 +271,17 @@ private:
                 occ[m.from] = nullptr;
             if (occ.count(m.to))
                 occ[m.to] = it;
+            if (finalOnly)
+                continue;
             Item* mh = occ[Pos{Synthetic::BAG0, Synthetic::MAINHAND}];
             Item* oh = occ[Pos{Synthetic::BAG0, Synthetic::OFFHAND}];
             if (mh && oh && mh->twoHanded)
                 return "plan pairs a two-hander with an occupied off-hand (would reach AutoUnequipOffhandIfNeed)";
         }
+        Item* mh = occ[Pos{Synthetic::BAG0, Synthetic::MAINHAND}];
+        Item* oh = occ[Pos{Synthetic::BAG0, Synthetic::OFFHAND}];
+        if (mh && oh && mh->twoHanded)
+            return "plan leaves a two-hander with an occupied off-hand";
         return {};
     }
     Item* Insert(Synthetic::Core& core, Pos to, Item* it, PB59::ExactStorageReservation const& res)

@@ -28,7 +28,7 @@ rollback not in exact reverse order, incoherent slot field / visible field / ite
 
 ## Matrix
 
-- P01-P28 preflight refusals (owner, incarnation, stamp, logout, retirement, re-entry, same slot/different GUID, moved item,
+- P01-P30 preflight refusals (owner, incarnation, stamp, logout, retirement, re-entry, same slot/different GUID, moved item,
   foreign owner, duplicates, occupied/mergeable/invalid/NULL_SLOT destinations, trade, loot, combat, callback refusal,
   callback side effects, bags one short, bag items, two-hander next to off-hand).
 - A01-A10 applied (N = 1..5, exact fit, bag destinations, equip from bag, off-hand out before a two-hander, fenced nested call).
@@ -38,7 +38,7 @@ rollback not in exact reverse order, incoherent slot field / visible field / ite
 - H1-H8 CS01's PB44 hazard as scenarios (callback deletes, relocates, swaps GUID, starts logout, re-enters, refuses mid-strip;
   replacement pointer; bags run out). Expected red for the PB44 transcription; the fix is Claude's.
 - Main-hand-first restore after an off-hand-first strip; M4 mail path for a naive two-hander sequence.
-- 14 mutants (negative controls), each must be killed.
+- 16 mutants (negative controls), each must be killed, incl. "callback change labelled Refused" and "two-hander rule on final state only".
 
 ## Run
 
@@ -54,12 +54,17 @@ native `Capture` that fills `PB59::InventorySlotFacts` from a real `Player`. Fau
 injection seam; the scenario names and expected outcomes stay. This harness does not test Codex's internals and should not
 duplicate Codex's own native tests.
 
-## Open questions (for #51/#52)
+## Agreed contract points (Codex #52 7130720231, Claude #51 7127659287) and how the harness enforces them
 
-1. Is a destination that an earlier move in the same batch vacates allowed? The reference refuses it (strict "currently empty").
-2. Should a callback that only refuses be `Refused`, and any callback side effect at all also be `Refused` (current oracle), or
-   should unrelated-slot side effects be tolerated?
-3. Exceptions: may native insert/remove throw after partial effects? The model injects both and expects RecoveryRequired only
-   when identity or position is not provably restored.
-4. Two-hander displacement: the reference refuses any plan that pairs a two-hander with an occupied off-hand at any step,
-   so the M4 mail path is unreachable. Confirm this is the intended contract.
+1. **No destination reuse, no source/destination overlap.** Every destination must be distinct and empty at preflight;
+   a destination that is another move's source is refused (P11, P12, P15, P28).
+2. **Callback changes are conservative.** After the callbacks the reference re-captures inventory AND owner context
+   (incarnation, stamp, logout, retirement). If anything changed it returns `RecoveryRequired` with the GUIDs that are not
+   at their original position and does not try to undo callback effects. A callback that only refuses is `Refused`.
+   The oracle derives `Refused` only when inventory and context are proven unchanged (P21, P22, H1-H4). A context-only
+   change (e.g. logout began) is `RecoveryRequired` with an empty GUID list.
+3. **No exception atomicity assumed.** Throw and move-then-throw are injected at every forward and rollback position;
+   the class comes only from captured postconditions.
+4. **No implicit off-hand displacement.** A two-hander may enter the main hand only if the off-hand is already empty or
+   an explicit, validated off-hand move earlier in the batch empties it (A09). Otherwise refuse: two-hander before the
+   off-hand move (P29), invalid off-hand move (P30), occupied off-hand (P25). No mail fallback (M4 check).

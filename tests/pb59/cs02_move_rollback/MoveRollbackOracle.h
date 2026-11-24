@@ -29,9 +29,13 @@ struct Snapshot
 {
     std::map<Pos, PB59::InventorySlotFacts> slots; // occupied positions only
     std::map<std::uint64_t, Pos> where;            // guid -> position
+    // Owner context (agreed point 2: a callback that changes context is not "no effects").
+    std::uint64_t incarnation = 0, custodyStamp = 0;
+    bool loggingOut = false, retiring = false;
     bool operator==(Snapshot const& o) const
     {
-        if (where != o.where || slots.size() != o.slots.size())
+        if (where != o.where || slots.size() != o.slots.size() || incarnation != o.incarnation ||
+            custodyStamp != o.custodyStamp || loggingOut != o.loggingOut || retiring != o.retiring)
             return false;
         for (auto const& [p, f] : slots)
         {
@@ -66,6 +70,10 @@ inline PB59::InventorySlotFacts Facts(Core const& core, Pos p, Item const* it)
 inline Snapshot Capture(Core const& core)
 {
     Snapshot s;
+    s.incarnation = core.incarnation;
+    s.custodyStamp = core.custodyStamp;
+    s.loggingOut = core.loggingOut;
+    s.retiring = core.retiring;
     for (Pos p : core.AllPositions())
         if (Item* it = core.GetItemByPos(p))
         {
@@ -166,15 +174,11 @@ inline int ExecutorMutations(Core const& core)
             ++n;
     return n;
 }
-inline bool HookMutated(Core const& core)
-{
-    for (auto const& e : core.ledger)
-        if (e.actor == Actor::Hook && e.kind != EventKind::HookCall)
-            return true;
-    return false;
-}
 
-inline Verdict Judge(Core const& core, Snapshot const& s0, Request const& r, Report const& rep)
+// checkGuidList=false for adapters whose result type carries no GUID list
+// (e.g. PB50's StripResult); the class is still judged from state.
+inline Verdict Judge(Core const& core, Snapshot const& s0, Request const& r, Report const& rep,
+    bool checkGuidList = true)
 {
     Verdict v;
     Snapshot s1 = Capture(core);
@@ -201,12 +205,13 @@ inline Verdict Judge(Core const& core, Snapshot const& s0, Request const& r, Rep
     bool restoredState = s1 == s0 && incoherent.empty();
     bool appliedState = s1 == p && incoherent.empty() && !mailed;
 
+    // Agreed contract (#52 7130720231 / #51 7127659287), point 2: Refused only
+    // when the original state (inventory AND owner context) is proven unchanged.
+    // A callback-made change with no executor effect is RecoveryRequired.
     if (appliedState && mutations > 0 && !(s0 == p))
         v.truth = Outcome::Applied;
-    else if (mutations == 0 && !HookMutated(core) && s1 == s0)
+    else if (mutations == 0 && s1 == s0)
         v.truth = Outcome::Refused; // pre-existing incoherence is not the executor's effect
-    else if (mutations == 0 && HookMutated(core))
-        v.truth = Outcome::Refused; // the callback, not the executor, changed state
     else if (restoredState && mutations > 0)
         v.truth = Outcome::Restored;
     else
@@ -224,7 +229,7 @@ inline Verdict Judge(Core const& core, Snapshot const& s0, Request const& r, Rep
         v.violations.push_back("original identity lost (" + std::to_string(lost.size()) +
             " guid(s)) without RecoveryRequired");
 
-    if (rep.outcome == Outcome::RecoveryRequired && v.truth == Outcome::RecoveryRequired)
+    if (checkGuidList && rep.outcome == Outcome::RecoveryRequired && v.truth == Outcome::RecoveryRequired)
     {
         std::set<std::uint64_t> want;
         for (auto const& [g, pos] : s0.where)
