@@ -361,7 +361,8 @@ PB59::InventoryBatchResult Player::ExecutePB59InventoryBatchPlan(uint64 owner,
                 try
                 {
                     auto const now = CapturePB59InventorySlot(steps[index].move.source.position);
-                    restored = now && *now == steps[index].move.source;
+                    restored = now && *now == steps[index].move.source &&
+                        GetItemByPos(now->position) == steps[index].item;
                 }
                 catch (...)
                 {
