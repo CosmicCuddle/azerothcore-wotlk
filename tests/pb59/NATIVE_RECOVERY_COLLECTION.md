@@ -1,8 +1,10 @@
 # Dormant native recovery collection and save provenance
 
 Owner: CosmicCuddle. Assignment: coordination #51 comment7139518657.
-Branch `feature/codex-pb59-native-recovery-collector-20261124`, exact Core78 parent
-`9bfe0d6ffbfe8204b62cd64f2af02eabb638a476`. Existing branches and PB53/PB54 build pins
+Original collector branch `feature/codex-pb59-native-recovery-collector-20261124`, exact Core78
+parent `9bfe0d6ffbfe8204b62cd64f2af02eabb638a476`. Queue identity follow-up branch
+`feature/codex-pb59-recovery-queue-beforeimage-20261124`, exact Core79 parent
+`d293650c77a9ce233f6e792c41632daed8e2b167`. Existing branches and PB53/PB54 build pins
 remain preserved. No integration repin or native runtime caller is introduced.
 
 ## Collection protocol
@@ -13,11 +15,11 @@ Three private static Player helpers are implemented in PlayerPB59Recovery.cpp:
    It uses actual native stamp/preflight, validates source/destination values and reserves
    one fixed-capacity scratch object. Allocation/refusal opens no scope and changes no
    native state. Capacity is 19 originals/destinations, 512 text bytes per observation and
-   a bounded 4096-entry queue scan. Future callers must refuse before movement on null.
+   a bounded 4096-entry queue identity before-image. Future callers must refuse before movement on null.
 2. BindPB59RecoveryCollection accepts the actual retained MutationScope, never an integer
    or PB identifier. Thread identity is checked before scope access, then scope incarnation
    and access before actor reads. Native owner/session/map, quarantine flag/key registry,
-   stamp and exact original/destination slots/pointers are checked. Only scope.GetTicket
+   stamp, exact original/destination slots/pointers and queue identity before-image are checked. Only scope.GetTicket
    supplies the operation ticket; only native equipment capture supplies revision.
 3. CollectPB59RecoveryEvidence is static: it can detect a dead sentinel without a call
    through a destroyed Player. Scope ticket/incarnation/access precede and follow every
@@ -42,6 +44,38 @@ dirty/update-mask restoration proof. Effects/queues stay Unknown or Uncertain, n
 Native slot getters may allocate/throw; failure stays incomplete, not invented empty inventory.
 Only collector scratch capacity is pre-reserved. Process teardown and unsupported raw deletion
 remain outside this retained synchronous contract.
+
+## Queue identity before-image follow-up
+
+Prepare captures each queue index, including null tombstones, with private original Item
+pointer and owned GUID/owner/queue-position values. Zero/duplicate GUIDs, foreign owners,
+incorrect queue positions and over-capacity queues refuse before admission. Duplicate
+GUID validation uses bounded quadratic comparison (at most 4096 entries); the adapter is dormant.
+Scratch is heap-reserved before admission and statically bounded to 256 KiB including the
+private image; exported CollectedValues contains no native addresses.
+
+Bind checks the full image against the current queue after obtaining a genuine scope ticket.
+A changed size, pointer or identity value refuses binding even when planned inventory slots
+remain equal. During recovery only current queue pointers are dereferenced behind the retained
+scope's currentness checks; the saved pointer is used solely for equality. Collection compares
+all indices up to max(before size, current size), detecting appended/removed entries, reordered
+entries, same-value replacements and length changes consisting only of tombstones. Over-capacity
+current queues remain incomplete without indexing the fixed image.
+
+The owned report exports the first 19 differences and a separate total changedQueueEntries.
+sameNativeInstance requires a non-null current pointer equal to the saved pointer; two nulls
+do not establish an instance.
+queueCompared is true only after the entire bounded comparison; queueUnchanged is meaningful
+only when queueCompared is true. Counts and partial samples do not imply complete observation
+after an early context/lifetime failure. Collected describes observation completion and may
+contain queue changes; any changed/inconsistent queue has Uncertain proof. Unchanged identities
+remain Unknown: item update masks, dirty values, map registration and combat effects still lack
+full restoration proof. Metadata changes are outside this identity comparison. No consumer,
+original executor Applied result, Playerbots behavior, release authority or persistence changes.
+
+This does not answer whole-inventory custody by inference. Core74 verifies planned links and
+depends on supported owner-wide mutation producers for unrelated items; fixture raw-field
+bypasses do not establish native reachability. See coordination #51 comment7140735652.
 
 ## Read-only save provenance
 
@@ -78,12 +112,17 @@ later absence is not proof of success/failure. No observer hook or save bypass i
 
 ## Executable evidence and limits
 
-- GCC16.2/C++20/-Wall/-Wextra/-Werror: 64 extracted native collector checks pass ordinary
+- GCC16.2/C++20/-Wall/-Wextra/-Werror: 175 extracted native collector checks pass ordinary
   and optimized NDEBUG. Actual collector/stamp/admission bodies and PB59 headers are used;
   engine, slot capture, map/session/item infrastructure are explicit reused doubles.
   Cases cover allocation/capacity refusal, actual ticket/revision, wrong/missing scope,
   context/lifetime loss, stale access during observation, wrong thread, wrong pointer,
-  missing originals, pending intent, queue/journal uncertainty and no writes/unlock.
+  missing originals, pending intent, queue/journal uncertainty and no writes/unlock. Follow-up
+  cases cover malformed/stale prepared queues, metadata versus identity, same-value pointer
+  replacement, missing/added/reordered entries, 4096 changes with 19 exported samples, and
+  sentinel loss at an Item GUID getter with no subsequent owner read. Five deliberate queue
+  guard mutants are rejected by runtime assertions in optimized NDEBUG mode; compile/launch
+  failures do not count as a killed mutant.
 - Actual save-record/transaction-result constexpr contracts pass ordinary/NDEBUG; eight
   one-defect mutants fail static assertions in each mode. No executable/DB is involved.
 - Inherited Core78 model: NDEBUG now executes 158 checks and rejects eight runtime mutants.
@@ -98,6 +137,7 @@ later absence is not proof of success/failure. No observer hook or save bypass i
 ```text
 python -B tests/pb59/test_native_recovery_collection.py --compiler g++
 python -B tests/pb59/test_native_recovery_collection.py --ndebug --compiler g++
+python -B tests/pb59/test_native_recovery_collection.py --ndebug --mutants --compiler g++
 python -B tests/pb59/test_native_recovery_collection.py --syntax-only --compiler g++
 python -B tests/pb59/test_recovery_save_provenance.py --compiler g++
 python -B tests/pb59/test_recovery_save_provenance.py --ndebug --compiler g++

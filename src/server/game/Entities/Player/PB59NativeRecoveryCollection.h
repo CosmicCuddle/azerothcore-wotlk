@@ -23,12 +23,28 @@ struct DestinationObservation
     bool observed = false;
     SlotFacts now;
 };
+struct QueueEntry
+{
+    std::uint64_t guid = 0, owner = 0;
+    std::int32_t position = -1;
+    bool present = false;
+    bool operator==(QueueEntry const&) const = default;
+};
+struct QueueDifference
+{
+    std::size_t index = 0;
+    QueueEntry before, now;
+    bool sameNativeInstance = false;
+};
 struct CollectionSummary
 {
     CollectionStatus status = CollectionStatus::Prepared;
     bool ticketBound = false, revisionObserved = false, intentsObserved = false;
     bool queueObserved = false, queueConsistent = false, journalsObserved = false;
+    bool queueBeforeObserved = false, queueCompared = false, queueUnchanged = false;
     std::size_t preparedQueueEntries = 0, observedQueueEntries = 0;
+    std::size_t changedQueueEntries = 0;
+    std::uint8_t queueDifferenceCount = 0;
     std::uint32_t nonFreshJournalMask = 0, uncertainJournalMask = 0;
 };
 struct CollectedValues
@@ -36,6 +52,9 @@ struct CollectedValues
     Evidence evidence;
     CollectionSummary summary;
     std::array<DestinationObservation, MaximumOriginals> destinations{};
+    // All indices are compared; only the first MaximumOriginals differences are
+    // exported. changedQueueEntries retains the total, including truncation.
+    std::array<QueueDifference, MaximumOriginals> queueDifferences{};
 };
 
 // Synchronous native scratch only. Borrowed pointers are private, never exported
@@ -57,8 +76,14 @@ private:
     Map const* _map = nullptr;
     PB59::Stamp _preparedStamp{}, _boundStamp{};
     std::array<Item const*, MaximumOriginals> _originals{};
+    struct NativeQueueEntry
+    {
+        Item const* item = nullptr; // compare only; never dereference this saved pointer during recovery
+        QueueEntry value;
+    };
+    std::array<NativeQueueEntry, MaximumQueueObservations> _queueBefore{};
     CollectedValues _values;
 };
 static_assert(std::is_trivially_copyable_v<CollectedValues>);
-static_assert(sizeof(NativeCollection) <= 96 * 1024);
+static_assert(sizeof(NativeCollection) <= 256 * 1024);
 }

@@ -244,5 +244,118 @@ int main()
             defect == 1 ? CollectionStatus::Incomplete : CollectionStatus::InvalidInput));
         COLLECT_CHECK(actor._pb59Equipment.InventoryQuarantined());
     }
+    for (unsigned defect = 0; defect < 5; ++defect)
+    {
+        Player actor; auto plan = CollectorPlan(actor);
+        auto* item = actor.GetItemByPos(65280);
+        actor.m_itemUpdateQueue = {nullptr, item}; item->uQueuePos = 1;
+        if (defect == 0) item->uQueuePos = 0;
+        if (defect == 1) item->facts.owner = 99;
+        if (defect == 2) item->facts.guid = 0;
+        if (defect == 3) actor.m_itemUpdateQueue.push_back(item);
+        if (defect == 4)
+        {
+            actor.Add(65310, 10); // different pointer with a duplicate GUID
+            auto* duplicate = actor.GetItemByPos(65310);
+            duplicate->uQueuePos = 2; actor.m_itemUpdateQueue.push_back(duplicate);
+        }
+        COLLECT_CHECK(!Player::PreparePB59RecoveryCollection(actor, plan));
+        COLLECT_CHECK(actor._pb59Transaction.CanBegin());
+    }
+    for (unsigned defect = 0; defect < 5; ++defect)
+    {
+        Player actor; auto plan = CollectorPlan(actor);
+        auto* item = actor.GetItemByPos(65280);
+        actor.m_itemUpdateQueue = {nullptr, item}; item->uQueuePos = 1;
+        auto buffer = Player::PreparePB59RecoveryCollection(actor, plan);
+        COLLECT_CHECK(buffer && buffer->CopyValues().summary.queueBeforeObserved);
+        if (defect == 0) actor.m_itemUpdateQueue.push_back(nullptr);
+        if (defect == 1) actor.m_itemUpdateQueue[1] = nullptr;
+        if (defect == 2) item->uQueuePos = 0;
+        if (defect == 3) item->facts.owner = 99;
+        if (defect == 4)
+        {
+            actor.Add(65310, 10); auto* replacement = actor.GetItemByPos(65310);
+            replacement->uQueuePos = 1; actor.m_itemUpdateQueue[1] = replacement;
+        }
+        Ledger::MutationScope scope(actor._pb59Transaction); actor.ArmCollection();
+        COLLECT_CHECK(Player::BindPB59RecoveryCollection(*buffer, scope) == CollectionStatus::ContextUnavailable);
+        COLLECT_CHECK(actor._pb59Transaction.CanAccess(scope.GetTicket(), Ledger::Access::Forward));
+    }
+    for (unsigned defect = 0; defect < 9; ++defect)
+    {
+        Player actor; auto plan = CollectorPlan(actor);
+        actor.Add(65310, 800); auto* item = actor.GetItemByPos(65310);
+        actor.m_itemUpdateQueue = {nullptr, item}; item->uQueuePos = 1;
+        auto buffer = Player::PreparePB59RecoveryCollection(actor, plan);
+        Ledger::MutationScope scope(actor._pb59Transaction); actor.ArmCollection();
+        COLLECT_CHECK(Player::BindPB59RecoveryCollection(*buffer, scope) == CollectionStatus::Bound);
+        if (defect == 0) item->facts.durability = 1; // queue identity does not claim metadata proof
+        if (defect == 1) item->facts.owner = 99;
+        if (defect == 2) item->uQueuePos = 0;
+        if (defect == 3) item->facts.guid = 801;
+        if (defect == 4) actor.m_itemUpdateQueue[1] = nullptr;
+        if (defect == 5) actor.m_itemUpdateQueue.resize(1);
+        if (defect == 6) actor.m_itemUpdateQueue.push_back(nullptr);
+        if (defect == 7)
+        {
+            actor.Add(65310, 800); auto* replacement = actor.GetItemByPos(65310);
+            replacement->uQueuePos = 1; actor.m_itemUpdateQueue[1] = replacement;
+        }
+        if (defect == 8)
+        {
+            actor.m_itemUpdateQueue = {item, nullptr}; item->uQueuePos = 0;
+        }
+        auto const result = Player::CollectPB59RecoveryEvidence(*buffer, scope, RecoveryFailure());
+        auto const data = buffer->CopyValues();
+        COLLECT_CHECK(result == (defect == 1 || defect == 2 ?
+            CollectionStatus::Incomplete : CollectionStatus::Collected));
+        COLLECT_CHECK(data.summary.queueCompared && data.summary.queueUnchanged == (defect == 0));
+        COLLECT_CHECK(data.summary.changedQueueEntries == (defect == 0 ? 0u : defect == 8 ? 2u : 1u));
+        COLLECT_CHECK(data.evidence.queues == (defect == 0 ? ProofState::Unknown : ProofState::Uncertain));
+        if (defect != 0)
+        {
+            auto const& difference = data.queueDifferences[0];
+            COLLECT_CHECK(difference.index == (defect == 6 ? 2u : defect == 8 ? 0u : 1u));
+            COLLECT_CHECK(difference.sameNativeInstance == (defect <= 3));
+            if (defect == 7)
+                COLLECT_CHECK(difference.before == difference.now); // identical values are insufficient
+        }
+        COLLECT_CHECK(actor._pb59Equipment.InventoryQuarantined());
+    }
+    {
+        Player actor; auto plan = CollectorPlan(actor);
+        actor.m_itemUpdateQueue.resize(MaximumQueueObservations, nullptr);
+        auto buffer = Player::PreparePB59RecoveryCollection(actor, plan);
+        COLLECT_CHECK(buffer != nullptr);
+        Ledger::MutationScope scope(actor._pb59Transaction); actor.ArmCollection();
+        COLLECT_CHECK(Player::BindPB59RecoveryCollection(*buffer, scope) == CollectionStatus::Bound);
+        actor.m_itemUpdateQueue.clear(); // 4096 differences, first 19 exported
+        COLLECT_CHECK(Player::CollectPB59RecoveryEvidence(*buffer, scope, RecoveryFailure()) ==
+            CollectionStatus::Collected);
+        auto data = buffer->CopyValues();
+        COLLECT_CHECK(data.summary.queueCompared && !data.summary.queueUnchanged);
+        COLLECT_CHECK(data.summary.changedQueueEntries == MaximumQueueObservations);
+        COLLECT_CHECK(data.summary.queueDifferenceCount == MaximumOriginals);
+        COLLECT_CHECK(data.queueDifferences[MaximumOriginals - 1].index == MaximumOriginals - 1);
+        COLLECT_CHECK(data.evidence.queues == ProofState::Uncertain);
+    }
+    for (bool binding : {false, true})
+    {
+        Player actor; auto plan = CollectorPlan(actor);
+        auto* item = actor.GetItemByPos(65280);
+        actor.m_itemUpdateQueue = {item}; item->uQueuePos = 0;
+        auto buffer = Player::PreparePB59RecoveryCollection(actor, plan);
+        Ledger::MutationScope scope(actor._pb59Transaction); actor.ArmCollection();
+        if (!binding)
+            COLLECT_CHECK(Player::BindPB59RecoveryCollection(*buffer, scope) == CollectionStatus::Bound);
+        auto const reads = item->collectionQueueReads;
+        item->collectionQueueHook = [&] { (void)scope.Finish({true, true, true, true}); };
+        auto const result = binding ? Player::BindPB59RecoveryCollection(*buffer, scope) :
+            Player::CollectPB59RecoveryEvidence(*buffer, scope, RecoveryFailure());
+        COLLECT_CHECK(result == CollectionStatus::OwnerUnavailable);
+        COLLECT_CHECK(item->collectionQueueReads == reads + 1); // no owner getter after sentinel loss at GUID getter
+        COLLECT_CHECK(!buffer->CopyValues().summary.queueCompared);
+    }
     std::cout << CollectionChecks << " extracted native collector checks PASS (explicit engine doubles)\n";
 }

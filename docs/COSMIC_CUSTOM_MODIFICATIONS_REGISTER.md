@@ -202,3 +202,21 @@
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
   wiring. Discard isolated child to roll back; original branches/pins remain preserved.
+
+## Dormant recovery queue identity before-image (24 November 2026)
+
+- **Owner/scope:** CosmicCuddle / continuing #51 native-observation assignment7139518657;
+  contract check-in7140735652. Private dormant Core collector only; CS01 owns Playerbots.
+- **Source:** `feature/codex-pb59-recovery-queue-beforeimage-20261124`, exact Core79 parent
+  `d293650c77a9ce233f6e792c41632daed8e2b167`. No integration tuple repin.
+- **Files/dependencies:** PB59NativeRecoveryCollection.h, PlayerPB59Recovery.cpp, existing
+  extracted native collector fixture/runner and NATIVE_RECOVERY_COLLECTION.md. No runtime caller.
+- **Behaviour:** pre-admission queue identity image (max4096, scratch max256 KiB), exact bind
+  validation, recovery comparison including null/removed/replaced entries. First19 differences
+  exported with total count; native pointers stay private. Changed queues remain Uncertain,
+  unchanged Unknown. This is not full dirty/update-mask, custody, effects or persistence proof.
+- **Tests/limits:**175 ordinary +175 optimized NDEBUG extracted-native checks, five runtime
+  mutants rejected in NDEBUG. Explicit engine doubles; full Player/Game build and gameplay
+  remain unvalidated. No native state writes, unlock, Finish, IO, SQL/schema/config or policy.
+- **Live/rollback:** dormant development only; no activation/deployment/CI dispatch or existing
+  feature removal. Discard isolated child to roll back; parent and existing executor preserved.
