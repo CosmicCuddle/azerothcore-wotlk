@@ -420,6 +420,15 @@ public:
         MutationScope(MutationScope const&) = delete;
         MutationScope& operator=(MutationScope const&) = delete;
         [[nodiscard]] Ticket GetTicket() const noexcept { return _ticket; }
+        // Check the retained sentinel BEFORE touching native Player after a
+        // callback. This proves only ledger identity/access, not Player/thread
+        // ownership or item lifetime. Destruction never retargets the sentinel.
+        [[nodiscard]] bool CanAccess(std::uint64_t ownerIncarnation, Access access) const noexcept
+        {
+            return ownerIncarnation && _ticket && _owner && _owner->owner &&
+                _owner->owner->OwnerIncarnation() == ownerIncarnation &&
+                _owner->owner->CanAccess(_ticket, access);
+        }
         bool Finish(StableProof proof) noexcept
         {
             if (!_owner || !_owner->owner || !_owner->owner->Finish(_ticket, proof))

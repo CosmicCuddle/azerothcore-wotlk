@@ -16,6 +16,7 @@
  */
 
 #include "Player.h"
+#include "PB59EffectBoundary.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -476,6 +477,9 @@ Player::~Player()
 
 void Player::CleanupsBeforeDelete(bool finalCleanup)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     TradeCancel(false);
     DuelComplete(DUEL_INTERRUPTED);
 
@@ -1400,6 +1404,9 @@ void Player::SendTeleportAckPacket()
 
 bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientation, uint32 options /*= 0*/, Unit* target /*= nullptr*/, bool newInstance /*= false*/)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return false;
+
     if (!MapMgr::IsValidMapCoord(mapid, x, y, z, orientation))
     {
         LOG_ERROR("entities.player", "TeleportTo: invalid map ({}) or invalid coordinates (X: {}, Y: {}, Z: {}, O: {}) given when teleporting player ({}, name: {}, map: {}, X: {}, Y: {}, Z: {}, O: {}).",
@@ -1648,6 +1655,9 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
 
 bool Player::TeleportToEntryPoint()
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return false;
+
     ScheduleDelayedOperation(DELAYED_BG_MOUNT_RESTORE);
     ScheduleDelayedOperation(DELAYED_BG_TAXI_RESTORE);
     ScheduleDelayedOperation(DELAYED_BG_GROUP_RESTORE);
@@ -1764,6 +1774,9 @@ void Player::ProcessDelayedOperations()
 
 void Player::AddToWorld()
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     ///- Do not add/remove the player from the object storage
     ///- It will crash when updating the ObjectAccessor
@@ -1777,6 +1790,9 @@ void Player::AddToWorld()
 
 void Player::RemoveFromWorld()
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // cleanup
     if (IsInWorld())
@@ -2497,6 +2513,9 @@ void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward)
 // Current player experience not update (must be update by caller)
 void Player::GiveLevel(uint8 level)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 oldLevel = GetLevel();
     if (level == oldLevel)
@@ -3179,6 +3198,9 @@ void Player::SendLearnPacket(uint32 spellId, bool learn)
 
 bool Player::addSpell(uint32 spellId, uint8 addSpecMask, bool updateActive, bool temporary /*= false*/, bool learnFromSkill /*= false*/)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return false;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!_addSpell(spellId, addSpecMask, temporary, learnFromSkill))
         return false;
@@ -3448,6 +3470,9 @@ bool Player::IsNeedCastPassiveSpellAtLearn(SpellInfo const* spellInfo) const
 
 void Player::learnSpell(uint32 spellId, bool temporary /*= false*/, bool learnFromSkill /*= false*/)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!sScriptMgr->OnPlayerCanLearnSpell(this, spellId))
         return;
@@ -3534,6 +3559,9 @@ uint8 Player::GetLearnSpellSpecMask(uint32 spellId) const
 
 void Player::removeSpell(uint32 spell_id, uint8 removeSpecMask, bool onlyTemporary, bool sendPacket /*= true*/)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     PlayerSpellMap::iterator itr = m_spells.find(spell_id);
     if (itr == m_spells.end())
@@ -3908,6 +3936,9 @@ uint32 Player::resetTalentsCost() const
 
 bool Player::resetTalents(bool noResetCost)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return false;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     sScriptMgr->OnPlayerTalentsReset(this, noResetCost);
 
@@ -5530,6 +5561,9 @@ void Player::ModifySkillBonus(uint32 skillid, int32 val, bool talent)
 // To "remove" a skill line, set it's values to zero
 void Player::SetSkill(uint16 id, uint16 step, uint16 newVal, uint16 maxVal)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!id)
         return;
@@ -6780,6 +6814,8 @@ void Player::DuelComplete(DuelCompleteType type)
 
 void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply)
 {
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     if (slot >= INVENTORY_SLOT_BAG_END || !item)
         return;
 
@@ -6797,21 +6833,35 @@ void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply)
     if (item->HasSocket())                              //only (un)equipping of items with sockets can influence metagems, so no need to waste time with normal items
         CorrectMetaGemEnchants(slot, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     _ApplyItemBonuses(proto, slot, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     if (slot == EQUIPMENT_SLOT_RANGED)
         _ApplyAmmoBonuses();
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     ApplyItemEquipSpell(item, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     ApplyItemDependentAuras(item, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     WeaponAttackType const attackType = Player::GetAttackBySlot(slot);
     if (attackType != MAX_ATTACK)
         UpdateWeaponDependentAuras(attackType);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     ApplyEnchantment(item, apply);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     LOG_DEBUG("entities.player.items", "_ApplyItemMods complete.");
 }
 
@@ -6830,6 +6880,8 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
 
     sScriptMgr->OnPlayerCustomScalingStatValueBefore(this, proto, slot, apply, CustomScalingStatValue);
 
+    if (!PB59::EffectBoundary::Check(this))
+        return;
     uint32 ScalingStatValue = proto->ScalingStatValue > 0 ? proto->ScalingStatValue : CustomScalingStatValue;
 
     if (ssd && ssd_level > ssd->MaxLevel)
@@ -6861,6 +6913,9 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
 
                 // OnCustomScalingStatValue(Player* player, ItemTemplate const* proto, uint32& statType, int32& val, uint8 itemProtoStatNumber, uint32 ScalingStatValue, ScalingStatValuesEntry const* ssv)
                 sScriptMgr->OnPlayerCustomScalingStatValue(this, proto, statType, val, i, ScalingStatValue, ssv);
+
+                if (!PB59::EffectBoundary::Check(this))
+                    return;
             }
         }
         else
@@ -6872,6 +6927,9 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
             val = proto->ItemStat[i].ItemStatValue;
 
             sScriptMgr->OnPlayerApplyItemModsBefore(this, slot, apply, i, statType, val);
+
+            if (!PB59::EffectBoundary::Check(this))
+                return;
         }
 
         if (val == 0)
@@ -12118,6 +12176,9 @@ void Player::ApplyEquipCooldown(Item* pItem)
 
 void Player::resetSpells()
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // not need after this call
     if (HasAtLoginFlag(AT_LOGIN_RESET_SPELLS))
@@ -12784,6 +12845,9 @@ void Player::AddItemDurations(Item* item)
 
 void Player::AutoUnequipOffhandIfNeed(bool force /*= false*/)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* offItem = GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
     if (!offItem)
@@ -13511,6 +13575,8 @@ void Player::SetCanBlock(bool value)
 
 void Player::SetSession(WorldSession* sess)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     m_session = sess;
 }
@@ -14387,6 +14453,9 @@ void Player::CompletedAchievement(AchievementEntry const* entry)
 
 void Player::LearnTalent(uint32 talentId, uint32 talentRank, bool command /*= false*/)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint32 CurTalentPoints = GetFreeTalentPoints();
 
@@ -15607,6 +15676,9 @@ void Player::_SaveTalents(CharacterDatabaseTransaction trans)
 
 void Player::ActivateSpec(uint8 spec)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // xinef: some basic checks
     if (GetActiveSpec() == spec)

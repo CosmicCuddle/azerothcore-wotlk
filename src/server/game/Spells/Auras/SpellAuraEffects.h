@@ -17,6 +17,7 @@
 
 #ifndef ACORE_SPELLAURAEFFECTS_H
 #define ACORE_SPELLAURAEFFECTS_H
+#include <tuple>
 
 class Unit;
 class AuraEffect;
@@ -116,6 +117,13 @@ public:
     int32 GetOldAmount() const { return m_oldAmount; }
     void SetOldAmount(int32 amount) { m_oldAmount = amount; }
     [[nodiscard]] bool IsEnabled() const { return m_isAuraEnabled; }
+    auto PB59RecoveryState() const
+    {
+        return std::tuple{m_baseAmount, m_dieSides, m_applyResilience, m_casterLevel,
+            m_amount, m_critChance, m_pctMods, m_oldAmount, m_isAuraEnabled,
+            m_channelData, m_spellmod, m_periodicTimer, m_amplitude, m_tickNumber,
+            m_canBeRecalculated, m_isPeriodic, m_isRecalculatingPassiveAuras};
+    }
     void SetEnabled(bool enabled) { m_isAuraEnabled = enabled; }
 
 private:

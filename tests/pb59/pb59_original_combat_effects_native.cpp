@@ -1,4 +1,6 @@
 #include "PB59OriginalCombatEffects.h"
+#include "PB59InventoryReservation.h"
+#include "PB59EffectBoundary.h"
 #include <algorithm>
 #include <array>
 #include <cassert>

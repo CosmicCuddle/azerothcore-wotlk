@@ -229,16 +229,26 @@ public:
     [[nodiscard]] static std::unique_ptr<Item> CreatePB59Detached(uint32 entry, int32 randomProperty);
 
     Item();
+    void AddToWorld() override;
+    void RemoveFromWorld() override;
 
     virtual bool Create(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner);
 
     [[nodiscard]] ItemTemplate const* GetTemplate() const;
 
     [[nodiscard]] ObjectGuid GetOwnerGUID() const { return GetGuidValue(ITEM_FIELD_OWNER); }
-    void SetOwnerGUID(ObjectGuid guid) { SetGuidValue(ITEM_FIELD_OWNER, guid); }
+    void SetOwnerGUID(ObjectGuid guid)
+    {
+        if (PB59InventoryMutationAllowed())
+            SetGuidValue(ITEM_FIELD_OWNER, guid);
+    }
     [[nodiscard]] Player* GetOwner() const;
 
-    void SetBinding(bool val) { ApplyModFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_SOULBOUND, val); }
+    void SetBinding(bool val)
+    {
+        if (PB59InventoryMutationAllowed())
+            ApplyModFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_SOULBOUND, val);
+    }
     [[nodiscard]] bool IsSoulBound() const { return HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_SOULBOUND); }
     [[nodiscard]] bool IsBoundAccountWide() const { return GetTemplate()->HasFlag(ITEM_FLAG_IS_BOUND_TO_ACCOUNT) != 0; }
     bool IsBindedNotWith(Player const* player) const;
@@ -262,7 +272,11 @@ public:
     [[nodiscard]] bool IsNotEmptyBag() const;
     [[nodiscard]] bool IsBroken() const { return GetUInt32Value(ITEM_FIELD_MAXDURABILITY) > 0 && GetUInt32Value(ITEM_FIELD_DURABILITY) == 0; }
     [[nodiscard]] bool CanBeTraded(bool mail = false, bool trade = false) const;
-    void SetInTrade(bool b = true) { mb_in_trade = b; }
+    void SetInTrade(bool b = true)
+    {
+        if (PB59InventoryMutationAllowed())
+            mb_in_trade = b;
+    }
     [[nodiscard]] bool IsInTrade() const { return mb_in_trade; }
     [[nodiscard]] bool IsRefundable() const { return HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_REFUNDABLE); }
     [[nodiscard]] bool IsBOPTradable() const { return HasFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_BOP_TRADEABLE); }
@@ -276,7 +290,11 @@ public:
     [[nodiscard]] bool GemsFitSockets() const;
 
     [[nodiscard]] uint32 GetCount() const { return GetUInt32Value(ITEM_FIELD_STACK_COUNT); }
-    void SetCount(uint32 value) { SetUInt32Value(ITEM_FIELD_STACK_COUNT, value); }
+    void SetCount(uint32 value)
+    {
+        if (PB59InventoryMutationAllowed())
+            SetUInt32Value(ITEM_FIELD_STACK_COUNT, value);
+    }
     [[nodiscard]] uint32 GetMaxStackCount() const { return GetTemplate()->GetMaxStackSize(); }
     // Checks if this item has sockets, whether built-in or added by an upgrade.
     [[nodiscard]] bool HasSocket() const;
@@ -287,9 +305,17 @@ public:
     [[nodiscard]] uint8 GetSlot() const {return m_slot;}
     Bag* GetContainer() { return m_container; }
     [[nodiscard]] uint8 GetBagSlot() const;
-    void SetSlot(uint8 slot) { m_slot = slot; }
+    void SetSlot(uint8 slot)
+    {
+        if (PB59InventoryMutationAllowed())
+            m_slot = slot;
+    }
     [[nodiscard]] uint16 GetPos() const { return uint16(GetBagSlot()) << 8 | GetSlot(); }
-    void SetContainer(Bag* container) { m_container = container; }
+    void SetContainer(Bag* container)
+    {
+        if (PB59InventoryMutationAllowed())
+            m_container = container;
+    }
 
     [[nodiscard]] bool IsInBag() const { return m_container != nullptr; }
     [[nodiscard]] bool IsEquipped() const;
@@ -312,7 +338,11 @@ public:
     [[nodiscard]] uint32 GetEnchantmentCharges(EnchantmentSlot slot)  const { return GetUInt32Value(ITEM_FIELD_ENCHANTMENT_1_1 + slot * MAX_ENCHANTMENT_OFFSET + ENCHANTMENT_CHARGES_OFFSET);}
 
     [[nodiscard]] std::string const& GetText() const { return m_text; }
-    void SetText(std::string const& text) { m_text = text; }
+    void SetText(std::string const& text)
+    {
+        if (PB59InventoryMutationAllowed())
+            m_text = text;
+    }
 
     void SendUpdateSockets();
 
@@ -321,7 +351,11 @@ public:
 
     // spell charges (signed but stored as unsigned)
     [[nodiscard]] int32 GetSpellCharges(uint8 index/*0..5*/ = 0) const { return GetInt32Value(ITEM_FIELD_SPELL_CHARGES + index); }
-    void  SetSpellCharges(uint8 index/*0..5*/, int32 value) { SetInt32Value(ITEM_FIELD_SPELL_CHARGES + index, value); }
+    void SetSpellCharges(uint8 index/*0..5*/, int32 value)
+    {
+        if (PB59InventoryMutationAllowed())
+            SetInt32Value(ITEM_FIELD_SPELL_CHARGES + index, value);
+    }
 
     Loot loot;
     bool m_lootGenerated;
@@ -335,7 +369,8 @@ public:
     [[nodiscard]] uint32 GetQueuePos() const { return uQueuePos; }
     void FSetState(ItemUpdateState state)               // forced
     {
-        uState = state;
+        if (PB59InventoryMutationAllowed())
+            uState = state;
     }
 
     [[nodiscard]] bool hasQuest(uint32 quest_id) const override { return GetTemplate()->StartQuest == quest_id; }
@@ -347,9 +382,21 @@ public:
 
     // Item Refund system
     void SetNotRefundable(Player* owner, bool changestate = true, CharacterDatabaseTransaction* trans = nullptr);
-    void SetRefundRecipient(ObjectGuid::LowType pGuidLow) { m_refundRecipient = pGuidLow; }
-    void SetPaidMoney(uint32 money) { m_paidMoney = money; }
-    void SetPaidExtendedCost(uint32 iece) { m_paidExtendedCost = iece; }
+    void SetRefundRecipient(ObjectGuid::LowType pGuidLow)
+    {
+        if (PB59InventoryMutationAllowed())
+            m_refundRecipient = pGuidLow;
+    }
+    void SetPaidMoney(uint32 money)
+    {
+        if (PB59InventoryMutationAllowed())
+            m_paidMoney = money;
+    }
+    void SetPaidExtendedCost(uint32 iece)
+    {
+        if (PB59InventoryMutationAllowed())
+            m_paidExtendedCost = iece;
+    }
     ObjectGuid::LowType GetRefundRecipient() { return m_refundRecipient; }
     uint32 GetPaidMoney() { return m_paidMoney; }
     uint32 GetPaidExtendedCost() { return m_paidExtendedCost; }
@@ -372,6 +419,12 @@ public:
     std::string GetDebugInfo() const override;
 private:
     friend class Player; // Private PB59 original queue handoff.
+    friend class Bag; // Reservation checks before container pointer writes.
+    bool PB59InventoryMutationAllowed() const;
+    void SetPB59State(ItemUpdateState state, Player* forplayer);
+    void AddPB59ToUpdateQueueOf(Player* player);
+    void SetPB59Slot(uint8 slot) { m_slot = slot; }
+    void SetPB59Container(Bag* container) { m_container = container; }
     // Native Object update registration is distinct from the item-save
     // queue. An interrupted RemoveFromWorld may leave this bit set, and
     // AddToWorld would ASSERT rather than restore safely.

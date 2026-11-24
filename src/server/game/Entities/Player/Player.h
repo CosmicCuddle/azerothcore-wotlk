@@ -43,6 +43,7 @@
 #include "EquipmentCaptureState.h"
 #include "ExactStorageGate.h"
 #include "PB59InventorySlotFacts.h"
+#include "PB59InventoryBatchPlan.h"
 #include "PB59InventoryCustody.h"
 #include "PB59OriginalQueueCustody.h"
 #include "PB59OriginalPointerCustody.h"
@@ -1097,6 +1098,7 @@ class Player : public Unit, public GridObject<Player>
     friend class WorldSession;
     friend class CinematicMgr;
     friend void Item::AddToUpdateQueueOf(Player* player);
+    friend void Item::AddPB59ToUpdateQueueOf(Player* player);
     friend void Item::RemoveFromUpdateQueueOf(Player* player);
 public:
     explicit Player(WorldSession* session);
@@ -1104,11 +1106,33 @@ public:
 
     // PB59 owner-context only. Raw facts, not a gear authorization.
     PB59::EquipmentCaptureState& GetPB59EquipmentState() { return _pb59Equipment; }
+    PB59::EquipmentCaptureState const& GetPB59EquipmentState() const { return _pb59Equipment; }
     [[nodiscard]] std::optional<PB59::EquipmentFacts> CapturePB59Equipment() const;
     [[nodiscard]] bool IsPB59EquipmentCurrent(PB59::Stamp const& stamp) const;
     // Bot owner-context only, including a future serialized movement scope.
     // Nullopt means unknown, never empty. No script callbacks or mutation.
     [[nodiscard]] std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
+#define COSMIC_PB59_INVENTORY_BATCH_API_VERSION 1
+    // Bot owner-context stamp; unlike human command-authority capture this
+    // accepts headless sessions. No permission to mutate follows from capture.
+    [[nodiscard]] std::optional<PB59::Stamp> CapturePB59InventoryStamp() const;
+    // Synchronous owner-context preflight only: no ticket, lease or mutation
+    // authority is returned. The executor must recheck before its first effect.
+    [[nodiscard]] bool CheckPB59InventoryBatchPlan(uint64 owner, uint64 ownerIncarnation,
+        uint64 sessionIncarnation, PB59::Stamp const& stamp,
+        std::span<PB59::InventoryBatchMove const> moves) const;
+    // Synchronous serialized owner/world-context only. Owns policy callbacks,
+    // reservation protection, native moves and reverse restoration. No DB commit.
+    [[nodiscard]] PB59::InventoryBatchResult ExecutePB59InventoryBatchPlan(uint64 owner,
+        uint64 ownerIncarnation, uint64 sessionIncarnation, PB59::Stamp const& stamp,
+        std::span<PB59::InventoryBatchMove const> moves);
+    // Retain the logout intent before a reserved producer is rejected. This
+    // never changes session flags or promises replay of a caller's parameters.
+    void RecordPB59ReservedLogout() noexcept
+    {
+        if (_pb59Equipment.InventoryQuarantined())
+            (void)_pb59Transaction.Request(PB59::TransactionAdmission::Work::Logout);
+    }
     // Owner-context only: producer admission before bot identity retirement.
     // Lease owns no Player pointer and may outlive native Player destruction.
     // Owner-context only; scope blocks admitted retirement, not native lifetime.

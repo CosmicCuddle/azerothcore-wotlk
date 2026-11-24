@@ -16,6 +16,7 @@
  */
 
 #include "Bag.h"
+#include "PB59InventoryReservation.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
 #include "ObjectMgr.h"
@@ -50,6 +51,9 @@ Bag::~Bag()
 
 void Bag::AddToWorld()
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     Item::AddToWorld();
 
     for (uint32 i = 0; i < GetBagSize(); ++i)
@@ -59,6 +63,9 @@ void Bag::AddToWorld()
 
 void Bag::RemoveFromWorld()
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     for (uint32 i = 0; i < GetBagSize(); ++i)
         if (m_bagslot[i])
             m_bagslot[i]->RemoveFromWorld();
@@ -68,6 +75,10 @@ void Bag::RemoveFromWorld()
 
 bool Bag::Create(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner)
 {
+    PB59::InventoryReservation::CheckItem(this, owner ? owner->GetGUID().GetRawValue() : 0);
+    if (PB59::InventoryQuarantine::Contains(this, owner ? owner->GetGUID().GetRawValue() : 0))
+        return false;
+
     ItemTemplate const* itemProto = sObjectMgr->GetItemTemplate(itemid);
 
     if (!itemProto || itemProto->ContainerSlots > MAX_BAG_SIZE)
@@ -123,6 +134,9 @@ bool Bag::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid owner_guid, Field* fie
 
 void Bag::DeleteFromDB(CharacterDatabaseTransaction trans)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     for (uint8 i = 0; i < MAX_BAG_SIZE; ++i)
         if (m_bagslot[i])
             m_bagslot[i]->DeleteFromDB(trans);
@@ -142,6 +156,8 @@ uint32 Bag::GetFreeSlots() const
 
 void Bag::RemoveItem(uint8 slot, bool /*update*/)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
     ASSERT(slot < MAX_BAG_SIZE);
 
     if (m_bagslot[slot])
@@ -153,6 +169,10 @@ void Bag::RemoveItem(uint8 slot, bool /*update*/)
 
 void Bag::StoreItem(uint8 slot, Item* pItem, bool /*update*/)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+    if (pItem && !pItem->PB59InventoryMutationAllowed())
+        return;
     ASSERT(slot < MAX_BAG_SIZE);
 
     if (pItem && pItem->GetGUID() != this->GetGUID())

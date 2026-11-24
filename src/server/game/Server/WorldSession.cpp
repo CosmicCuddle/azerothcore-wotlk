@@ -385,6 +385,9 @@ void WorldSession::LogUnprocessedTail(WorldPacket* packet)
 /// Update the WorldSession (triggered by World update)
 bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 {
+    if (_player && _player->GetPB59EquipmentState().InventoryQuarantined())
+        return true;
+
     ///- Before we process anything:
     /// If necessary, kick the player because the client didn't send anything for too long
     /// (or they've been idling in character select)
@@ -598,6 +601,11 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
     {
         sScriptMgr->OnSessionUpdate(this, diff);
 
+        // Retain a recovery-required batch owner/session rather than letting
+        // socket expiry destroy it while native inventory/effects are unsettled.
+        if (_player && _player->GetPB59EquipmentState().InventoryQuarantined())
+            return true;
+
         if (m_Socket && m_Socket->IsOpen() && _warden)
         {
             _warden->Update(diff);
@@ -627,6 +635,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
 bool WorldSession::HandleSocketClosed()
 {
+    if (_player && _player->GetPB59EquipmentState().InventoryQuarantined())
+        return false;
+
     if (m_Socket && !m_Socket->IsOpen() && !IsKicked() && GetPlayer() && !PlayerLogout() && GetPlayer()->m_taxi.empty() && GetPlayer()->IsInWorld() && !World::IsStopped())
     {
         m_Socket = nullptr;
@@ -691,6 +702,12 @@ void WorldSession::SendPlayTimeWarning(PlayTimeFlag flag, int32 playTimeRemainin
 /// %Log the player out
 void WorldSession::LogoutPlayer(bool save, bool redirecting)
 {
+    if (_player)
+        _player->RecordPB59ReservedLogout();
+    // AutoGear's synchronous reservation rejects re-entrant logout before
+    // transfer completion, session flags, save work or Player destruction.
+    if (_player && !_player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
     // finish pending transfers before starting the logout
     while (_player && _player->IsBeingTeleportedFar())
         HandleMoveWorldportAck();
@@ -1414,6 +1431,9 @@ void WorldSession::SendAddonsInfo()
 
 void WorldSession::SetPlayer(Player* player)
 {
+    if ((_player && !_player->GetPB59EquipmentState().InventoryMutationAllowed()) ||
+        (player && !player->GetPB59EquipmentState().InventoryMutationAllowed()))
+        return;
     _player = player;
 
     // set m_GUID that can be used while player loggined and later until m_playerRecentlyLogout not reset

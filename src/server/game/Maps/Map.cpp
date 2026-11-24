@@ -174,6 +174,9 @@ void Map::DeleteFromWorld(T* obj)
 template<>
 void Map::DeleteFromWorld(Player* player)
 {
+    if (!player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+
     ObjectAccessor::RemoveObject(player);
 
     RemoveUpdateObject(player); //TODO: I do not know why we need this, it should be removed in ~Object anyway
@@ -718,6 +721,9 @@ struct ResetNotifier
 
 void Map::RemovePlayerFromMap(Player* player, bool remove)
 {
+    if (!player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+
 #if defined(COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT) && COSMIC_F14_PRE_MAP_REMOVAL_EXPERIMENT >= 1
     // Observe the old map/player identity before any removal-side effects.
     // This is not permission to block teardown or send a visibility update.
@@ -2168,6 +2174,9 @@ void InstanceMap::Update(const uint32 t_diff, const uint32 s_diff, bool /*thread
 
 void InstanceMap::RemovePlayerFromMap(Player* player, bool remove)
 {
+    if (!player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+
     if (instance_data)
         instance_data->OnPlayerLeave(player);
     // pussywizard: moved m_unloadTimer to InstanceMap::AfterPlayerUnlinkFromMap(), in this function if 2 players run out at the same time the instance won't close
@@ -2414,6 +2423,9 @@ bool BattlegroundMap::AddPlayerToMap(Player* player)
 
 void BattlegroundMap::RemovePlayerFromMap(Player* player, bool remove)
 {
+    if (!player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+
     if (Battleground* bg = GetBG())
     {
         bg->RemovePlayerAtLeave(player);

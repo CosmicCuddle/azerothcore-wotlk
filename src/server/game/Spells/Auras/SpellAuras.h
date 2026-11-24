@@ -20,6 +20,7 @@
 
 #include "SpellAuraDefines.h"
 #include "Unit.h"
+#include <tuple>
 
 class Unit;
 class SpellInfo;
@@ -69,6 +70,11 @@ public:
     bool IsPositive() const { return (_flags & AFLAG_POSITIVE) != 0; }
     bool IsSelfcasted() const { return (_flags & AFLAG_CASTER) != 0; }
     uint8 GetEffectsToApply() const { return _effectsToApply; }
+    auto PB59RecoveryState() const
+    {
+        return std::tuple{_target, _base, int32(_removeMode), _slot, _flags,
+            _effectsToApply, bool(_needClientUpdate), _disableMask};
+    }
 
     void SetRemoveMode(AuraRemoveMode mode) { _removeMode = mode; }
     AuraRemoveMode GetRemoveMode() const {return _removeMode;}
@@ -127,6 +133,13 @@ public:
     void Update(uint32 diff, Unit* caster);
 
     time_t GetApplyTime() const { return m_applyTime; }
+    // Read-only synchronous batch recovery evidence; does not authorize replay.
+    auto PB59RecoveryState() const
+    {
+        return std::tuple{m_applyTime, m_refreshTime, m_procCooldown, m_timeCla,
+            m_updateTargetMapInterval, m_casterLevel, bool(m_isRemoved),
+            bool(m_isSingleTarget), bool(m_isUsingCharges), m_removedApplications.size(), m_triggeredByAuraSpellInfo};
+    }
     bool HasCasterDiedSinceApply(Unit const* caster) const;
     int32 GetMaxDuration() const { return m_maxDuration; }
     void SetMaxDuration(int32 duration) { m_maxDuration = duration; }
@@ -182,6 +195,7 @@ public:
 
     // Helpers for targets
     ApplicationMap const& GetApplicationMap() {return m_applications;}
+    ApplicationMap const& GetApplicationMap() const { return m_applications; }
     void GetApplicationList(std::list<AuraApplication*>& applicationList) const;
     AuraApplication const* GetApplicationOfTarget (ObjectGuid guid) const { ApplicationMap::const_iterator itr = m_applications.find(guid); if (itr != m_applications.end()) return itr->second; return nullptr; }
     AuraApplication* GetApplicationOfTarget (ObjectGuid guid) { ApplicationMap::iterator itr = m_applications.find(guid); if (itr != m_applications.end()) return itr->second; return nullptr; }

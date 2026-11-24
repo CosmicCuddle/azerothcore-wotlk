@@ -13,6 +13,36 @@ public:
         RestoringSet, RestoringMods, Restored, Uncertain };
     enum class Result { Rejected, Complete, RecoveryRequired };
     [[nodiscard]] Phase State() const noexcept { return _phase; }
+    // A native adapter may establish this baseline only for an exact item
+    // observed in storage and an empty equipment destination, before effects.
+    bool BeginUnequipped(std::uint64_t ticket, std::uint64_t guid) noexcept
+    {
+        if (_phase != Phase::Fresh || !ticket || !guid)
+            return false;
+        _ticket = ticket;
+        _guid = guid;
+        _phase = Phase::Removed;
+        return true;
+    }
+    template<class Verify>
+    bool RearmAfterVerifiedMove(std::uint64_t ticket, std::uint64_t guid, Verify&& verify) noexcept
+    {
+        if ((_phase != Phase::Removed && _phase != Phase::Restored) || !Matches(ticket, guid))
+            return false;
+        try
+        {
+            if (!verify())
+                return false;
+        }
+        catch (...)
+        {
+            return false;
+        }
+        _phase = Phase::Fresh;
+        _ticket = 0;
+        _guid = 0;
+        return true;
+    }
     [[nodiscard]] bool Matches(std::uint64_t ticket, std::uint64_t guid) const noexcept
     {
         return ticket && guid && _ticket == ticket && _guid == guid;

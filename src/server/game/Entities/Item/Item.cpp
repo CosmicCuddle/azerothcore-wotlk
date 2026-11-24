@@ -281,8 +281,25 @@ Item::Item()
     m_paidExtendedCost = 0;
 }
 
+void Item::AddToWorld()
+{
+    if (!PB59InventoryMutationAllowed())
+        return;
+    Object::AddToWorld();
+}
+
+void Item::RemoveFromWorld()
+{
+    if (!PB59InventoryMutationAllowed())
+        return;
+    Object::RemoveFromWorld();
+}
+
 bool Item::Create(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner)
 {
+    PB59::InventoryReservation::CheckItem(this, owner ? owner->GetGUID().GetRawValue() : 0);
+    if (PB59::InventoryQuarantine::Contains(this, owner ? owner->GetGUID().GetRawValue() : 0))
+        return false;
     return CreateInternal(guidlow, itemid, owner, true);
 }
 
@@ -325,6 +342,9 @@ bool Item::IsNotEmptyBag() const
 
 void Item::UpdateDuration(Player* owner, uint32 diff)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (!GetUInt32Value(ITEM_FIELD_DURATION))
         return;
 
@@ -343,6 +363,8 @@ void Item::UpdateDuration(Player* owner, uint32 diff)
 
 void Item::SaveToDB(CharacterDatabaseTransaction trans)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
     bool isInTransaction = static_cast<bool>(trans);
     if (!isInTransaction)
         trans = CharacterDatabase.BeginTransaction();
@@ -426,6 +448,9 @@ void Item::SaveToDB(CharacterDatabaseTransaction trans)
 
 bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid owner_guid, Field* fields, uint32 entry)
 {
+    PB59::InventoryReservation::CheckItem(this, owner_guid.GetRawValue());
+    if (PB59::InventoryQuarantine::Contains(this, owner_guid.GetRawValue()))
+        return false;
     //                                                    0                1      2         3        4      5             6                 7           8           9    10
     //result = CharacterDatabase.Query("SELECT creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomPropertyId, durability, playedTime, text FROM item_instance WHERE guid = '{}'", guid);
 
@@ -525,6 +550,9 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid owner_guid, Field* fi
 /*static*/
 void Item::DeleteFromDB(CharacterDatabaseTransaction trans, ObjectGuid::LowType itemGuid)
 {
+    PB59::InventoryReservation::CheckCounter(itemGuid);
+    if (PB59::InventoryQuarantine::ContainsCounter(itemGuid))
+        return;
     sScriptMgr->OnGlobalItemDelFromDB(trans, itemGuid);
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
     stmt->SetData(0, itemGuid);
@@ -533,12 +561,18 @@ void Item::DeleteFromDB(CharacterDatabaseTransaction trans, ObjectGuid::LowType 
 
 void Item::DeleteFromDB(CharacterDatabaseTransaction trans)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     DeleteFromDB(trans, GetGUID().GetCounter());
 }
 
 /*static*/
 void Item::DeleteFromInventoryDB(CharacterDatabaseTransaction trans, ObjectGuid::LowType itemGuid)
 {
+    PB59::InventoryReservation::CheckCounter(itemGuid);
+    if (PB59::InventoryQuarantine::ContainsCounter(itemGuid))
+        return;
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_INVENTORY_BY_ITEM);
     stmt->SetData(0, itemGuid);
     trans->Append(stmt);
@@ -546,6 +580,9 @@ void Item::DeleteFromInventoryDB(CharacterDatabaseTransaction trans, ObjectGuid:
 
 void Item::DeleteFromInventoryDB(CharacterDatabaseTransaction trans)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     DeleteFromInventoryDB(trans, GetGUID().GetCounter());
 }
 
@@ -675,6 +712,9 @@ int32 Item::GenerateItemRandomPropertyId(uint32 item_id)
 
 void Item::SetItemRandomProperties(int32 randomPropId)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (!randomPropId)
         return;
 
@@ -713,6 +753,9 @@ void Item::SetItemRandomProperties(int32 randomPropId)
 
 void Item::UpdateItemSuffixFactor()
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     uint32 suffixFactor = GenerateEnchSuffixFactor(GetEntry());
     if (GetItemSuffixFactor() == suffixFactor)
         return;
@@ -720,6 +763,21 @@ void Item::UpdateItemSuffixFactor()
 }
 
 void Item::SetState(ItemUpdateState state, Player* forplayer)
+{
+    if (forplayer && !forplayer->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+    if (!PB59InventoryMutationAllowed())
+        return;
+    SetPB59State(state, forplayer);
+}
+
+bool Item::PB59InventoryMutationAllowed() const
+{
+    PB59::InventoryReservation::CheckItem(this, GetOwnerGUID().GetRawValue());
+    return !PB59::InventoryQuarantine::Contains(this, GetOwnerGUID().GetRawValue());
+}
+
+void Item::SetPB59State(ItemUpdateState state, Player* forplayer)
 {
     if (uState == ITEM_NEW && state == ITEM_REMOVED)
     {
@@ -738,7 +796,7 @@ void Item::SetState(ItemUpdateState state, Player* forplayer)
         if (uState != ITEM_NEW)
             uState = state;
         if (forplayer)
-            AddToUpdateQueueOf(forplayer);
+            AddPB59ToUpdateQueueOf(forplayer);
     }
     else
     {
@@ -750,6 +808,15 @@ void Item::SetState(ItemUpdateState state, Player* forplayer)
 }
 
 void Item::AddToUpdateQueueOf(Player* player)
+{
+    if (player && !player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+    if (!PB59InventoryMutationAllowed())
+        return;
+    AddPB59ToUpdateQueueOf(player);
+}
+
+void Item::AddPB59ToUpdateQueueOf(Player* player)
 {
     if (IsInUpdateQueue())
         return;
@@ -771,6 +838,11 @@ void Item::AddToUpdateQueueOf(Player* player)
 
 void Item::RemoveFromUpdateQueueOf(Player* player)
 {
+    if (player && !player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return;
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (!IsInUpdateQueue())
         return;
 
@@ -927,6 +999,9 @@ bool Item::IsFitToSpellRequirements(SpellInfo const* spellInfo) const
 
 void Item::SetEnchantment(EnchantmentSlot slot, uint32 id, uint32 duration, uint32 charges, ObjectGuid caster /*= ObjectGuid::Empty*/)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     // Better lost small time at check in comparison lost time at item save to DB.
     if ((GetEnchantmentId(slot) == id) && (GetEnchantmentDuration(slot) == duration) && (GetEnchantmentCharges(slot) == charges))
         return;
@@ -948,6 +1023,9 @@ void Item::SetEnchantment(EnchantmentSlot slot, uint32 id, uint32 duration, uint
 }
 void Item::SetEnchantmentDuration(EnchantmentSlot slot, uint32 duration, Player* owner)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (GetEnchantmentDuration(slot) == duration)
         return;
 
@@ -958,6 +1036,9 @@ void Item::SetEnchantmentDuration(EnchantmentSlot slot, uint32 duration, Player*
 
 void Item::SetEnchantmentCharges(EnchantmentSlot slot, uint32 charges)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (GetEnchantmentCharges(slot) == charges)
         return;
 
@@ -967,6 +1048,9 @@ void Item::SetEnchantmentCharges(EnchantmentSlot slot, uint32 charges)
 
 void Item::ClearEnchantment(EnchantmentSlot slot)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (!GetEnchantmentId(slot))
         return;
 
@@ -1100,6 +1184,8 @@ void Item::SendTimeUpdate(Player* owner)
 
 Item* Item::CreateItem(uint32 item, uint32 count, Player const* player, bool clone, uint32 randomPropertyId)
 {
+    if (player && !player->GetPB59EquipmentState().InventoryMutationAllowed())
+        return nullptr;
     if (count < 1)
         return nullptr;                                        //don't create item at zero count
 
@@ -1254,6 +1340,9 @@ void Item::RemoveFromObjectUpdate()
 
 void Item::SaveRefundDataToDB()
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_REFUND_INSTANCE);
@@ -1272,6 +1361,9 @@ void Item::SaveRefundDataToDB()
 
 void Item::DeleteRefundDataFromDB(CharacterDatabaseTransaction* trans)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (trans)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_REFUND_INSTANCE);
@@ -1282,6 +1374,9 @@ void Item::DeleteRefundDataFromDB(CharacterDatabaseTransaction* trans)
 
 void Item::SetNotRefundable(Player* owner, bool changestate /*=true*/, CharacterDatabaseTransaction* trans /*=nullptr*/)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     if (!IsRefundable())
         return;
 
@@ -1300,6 +1395,9 @@ void Item::SetNotRefundable(Player* owner, bool changestate /*=true*/, Character
 
 void Item::UpdatePlayedTime(Player* owner)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     /*  Here we update our played time
         We simply add a number to the current played time,
         based on the time elapsed since the last update hereof.
@@ -1340,12 +1438,18 @@ bool Item::IsRefundExpired()
 
 void Item::SetSoulboundTradeable(AllowedLooterSet& allowedLooters)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     SetFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_BOP_TRADEABLE);
     allowedGUIDs = allowedLooters;
 }
 
 void Item::ClearSoulboundTradeable(Player* currentOwner)
 {
+    if (!PB59InventoryMutationAllowed())
+        return;
+
     RemoveFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_BOP_TRADEABLE);
     if (allowedGUIDs.empty())
         return;

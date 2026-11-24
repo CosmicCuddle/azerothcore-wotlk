@@ -49,6 +49,7 @@
 #include "Pet.h"
 #include "Player.h"
 #include "PB59VisibleEquipment.h"
+#include "PB59EffectBoundary.h"
 #include "PB59CharacterSaveObserver.h"
 #include "WorldSession.h"
 #include <algorithm>
@@ -463,6 +464,58 @@ Item* Player::GetItemByPos(uint8 bag, uint8 slot) const
     return nullptr;
 }
 
+std::optional<PB59::Stamp> Player::CapturePB59InventoryStamp() const
+{
+    auto const* session = GetSession();
+    if (!session || session->GetPlayer() != this || session->PlayerLoading() || session->PlayerLogout() ||
+        !IsInWorld() || !IsAlive() || IsInCombat() || IsBeingTeleportedFar() || IsBeingTeleportedNear() ||
+        _pb59Equipment.InventoryQuarantined() || !_pb59Transaction.CanBegin() || HasPB59UnsettledOriginals())
+        return std::nullopt;
+    return _pb59Equipment.Capture();
+}
+
+bool Player::CheckPB59InventoryBatchPlan(uint64 owner, uint64 ownerIncarnation,
+    uint64 sessionIncarnation, PB59::Stamp const& stamp,
+    std::span<PB59::InventoryBatchMove const> moves) const
+{
+    // No callbacks, yielding, raw item retention or native writes here.
+    // A matching value snapshot does not itself pin Player or its session.
+    auto current = [&]()
+    {
+        auto const* session = GetSession();
+        return owner && owner == GetGUID().GetRawValue() && ownerIncarnation &&
+            ownerIncarnation == _pb59Transaction.OwnerIncarnation() && sessionIncarnation &&
+            session && session->GetPlayer() == this &&
+            session->GetPB59SessionIncarnation() == sessionIncarnation &&
+            !session->PlayerLoading() && !session->PlayerLogout() &&
+            IsInWorld() && IsAlive() && !IsInCombat() &&
+            !IsBeingTeleportedFar() && !IsBeingTeleportedNear() &&
+            !_pb59Transaction.PendingSave() && !_pb59Transaction.PendingLogout() &&
+            _pb59Transaction.CanBegin() && !HasPB59UnsettledOriginals() && !_pb59Equipment.InventoryQuarantined() &&
+            _pb59Equipment.Current(stamp);
+    };
+    if (!current() || PB59::ValidateInventoryBatchPlan(owner, moves) != PB59::InventoryBatchPlanError::None)
+        return false;
+    auto combat = [](uint16 position)
+    {
+        auto const slot = position & 255;
+        return (position >> 8) == INVENTORY_SLOT_BAG_0 && slot < EQUIPMENT_SLOT_END &&
+            slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    };
+    for (auto const& move : moves)
+    {
+        // Only combat-slot <-> storage. Native capture validates backpack/bag
+        // range, bag GUID, owner, slot fields, complete item instance and links.
+        if (combat(move.source.position) == combat(move.destination.position))
+            return false;
+        auto const source = CapturePB59InventorySlot(move.source.position);
+        auto const destination = CapturePB59InventorySlot(move.destination.position);
+        if (!source || !destination || *source != move.source || *destination != move.destination)
+            return false;
+    }
+    return current();
+}
+
 std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 pos) const
 {
     // Unlike human command authority, headless bot sessions are allowed.
@@ -630,14 +683,17 @@ PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects(
     using Access = PB59::TransactionAdmission::Access;
     auto const access = _pb59Transaction.CanAccess(ticket, Access::Forward) ?
         Access::Forward : Access::Recovery;
-    if (!_pb59Transaction.CanAccess(ticket, access) || (!apply && access != Access::Forward) ||
+    if (!_pb59Transaction.CanAccess(ticket, access) ||
+        (!apply && access != Access::Forward && !PB59::InventoryReservation::ActiveForState(&_pb59Equipment)) ||
         !original.item || original.bag || (original.position >> 8) != INVENTORY_SLOT_BAG_0 ||
         (original.position & 255) >= EQUIPMENT_SLOT_END ||
         (original.position & 255) == EQUIPMENT_SLOT_BODY ||
         (original.position & 255) == EQUIPMENT_SLOT_TABARD || IsInCombat())
         return Result::Rejected;
     uint8 const slot = original.position & 255;
-    auto& journal = _pb59OriginalCombatEffects[slot];
+    // Callback work must not keep the mutable journal in a potentially retired
+    // Player. Commit this value back only after the outer lifetime check.
+    auto journal = _pb59OriginalCombatEffects[slot];
     if (apply ? journal.State() != Journal::Phase::Removed || !journal.Matches(ticket, original.item->guid)
               : journal.State() != Journal::Phase::Fresh)
         return Result::Rejected;
@@ -687,12 +743,16 @@ PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects(
     // owner lifetime across callbacks; this private method is not that pin.
     auto verify = [&]()
     {
+        if (!PB59::EffectBoundary::Check(this))
+            return false;
         auto now = CapturePB59InventorySlot(original.position);
         return _pb59Transaction.CanAccess(ticket, access) && !IsInCombat() &&
             now && *now == original && GetItemByPos(original.position) == item &&
             (!setId || count() == expected);
     };
-    PB59::EquipmentCaptureState::Mutation mutation(_pb59Equipment);
+    std::optional<PB59::EquipmentCaptureState::Mutation> mutation;
+    if (!PB59::InventoryReservation::ActiveForState(&_pb59Equipment))
+        mutation.emplace(_pb59Equipment);
     auto const result = journal.Run(ticket, original.item->guid, apply, verify,
         [&](bool add)
         {
@@ -705,6 +765,16 @@ PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects(
                 RemoveItemsSetItem(this, proto);
         },
         [&](bool add) { _ApplyItemMods(item, slot, add); });
+    if (!PB59::EffectBoundary::Check(this))
+    {
+        if (PB59::EffectBoundary::OwnerAlive(this))
+        {
+            _pb59OriginalCombatEffects[slot] = journal;
+            _pb59Transaction.RequireRecovery(ticket);
+        }
+        return Result::RecoveryRequired;
+    }
+    _pb59OriginalCombatEffects[slot] = journal;
     if (result == Result::RecoveryRequired)
         _pb59Transaction.RequireRecovery(ticket);
     return result;
@@ -967,11 +1037,11 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
         // marking starts, an unverified result requires reconciliation even
         // if the original item is still attached to its original slot.
         touched = true;
-        item->SetState(ITEM_CHANGED, this);
+        item->SetPB59State(ITEM_CHANGED, this);
         if (fromBag)
-            fromBag->SetState(ITEM_CHANGED, this);
+            fromBag->SetPB59State(ITEM_CHANGED, this);
         if (toBag)
-            toBag->SetState(ITEM_CHANGED, this);
+            toBag->SetPB59State(ITEM_CHANGED, this);
         if (!validQueue(item, true) || (fromBag && !validQueue(fromBag, true)) ||
             (toBag && !validQueue(toBag, true)))
             return recovery();
@@ -980,8 +1050,8 @@ PB59::LinkTransferResult Player::RelocatePB59InventoryLinks(
         // The destination owns the same object before the source is cleared.
         if (!PB59::RelocateInventoryPointer(from, to, item))
             return recovery();
-        item->SetSlot(toSlot);
-        item->SetContainer(toBag);
+        item->SetPB59Slot(toSlot);
+        item->SetPB59Container(toBag);
 
         // A setter may write the GUID and then fail to enqueue its object
         // update. Retrying SetGuidValue alone would skip an unchanged value.
@@ -3225,6 +3295,9 @@ void Player::RemoveAmmo()
 
 Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, bool refund)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     AllowedLooterSet allowedLooters;
     return StoreNewItem(dest, item, update, randomPropertyId, allowedLooters, refund);
@@ -3233,6 +3306,9 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
 // Return stored item (if stored to stack, it can diff. from pItem). And pItem ca be deleted in this case.
 Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint32 count = 0;
     for (ItemPosCountVec::const_iterator itr = dest.begin(); itr != dest.end(); ++itr)
@@ -3282,6 +3358,9 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
 
 Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return nullptr;
@@ -3310,6 +3389,9 @@ Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool update,
     PB59::ExactStorageReservation const* exact)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return nullptr;
@@ -3440,6 +3522,9 @@ Item* Player::_StoreItem(uint16 pos, Item* pItem, uint32 count, bool clone, bool
 
 Item* Player::EquipNewItem(uint16 pos, uint32 item, bool update)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* _item = Item::CreateItem(item, 1, this);
     if (!_item)
@@ -3467,6 +3552,9 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 Item* Player::_EquipItem(uint16 pos, Item* pItem, bool update,
     PB59::ExactStorageReservation const* exact)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 bag = pos >> 8;
     uint8 slot = pos & 255;
@@ -3601,6 +3689,9 @@ Item* Player::_EquipItem(uint16 pos, Item* pItem, bool update,
 
 void Player::QuickEquipItem(uint16 pos, Item* pItem)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (pItem)
     {
@@ -3698,6 +3789,9 @@ bool Player::ReconcilePB59VisibleEquipment(PB59::InventorySlotFacts const& befor
 
 void Player::VisualizeItem(uint8 slot, Item* pItem)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return;
@@ -3723,6 +3817,9 @@ void Player::VisualizeItem(uint8 slot, Item* pItem)
 
 void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // note: removeitem does not actually change the item
     // it only takes the item out of storage temporarily
@@ -3798,6 +3895,9 @@ void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 // Common operation need to remove item from inventory without delete in trade, auction, guild bank, mail....
 void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (Item* it = GetItemByPos(bag, slot))
     {
@@ -3819,6 +3919,9 @@ void Player::MoveItemFromInventory(uint8 bag, uint8 slot, bool update)
 // Common operation need to add item from inventory without delete in trade, guild bank, mail....
 Item* Player::MoveItemToInventory(ItemPosCountVec const& dest, Item* pItem, bool update, bool in_characterInventoryDB)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return nullptr;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     // update quest counters
     ItemAddedQuestCheck(pItem->GetEntry(), pItem->GetCount());
@@ -3849,6 +3952,9 @@ Item* Player::MoveItemToInventory(ItemPosCountVec const& dest, Item* pItem, bool
 
 void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     Item* pItem = GetItemByPos(bag, slot);
     if (pItem)
@@ -3943,6 +4049,9 @@ void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
 
 void Player::DestroyItemCount(uint32 itemEntry, uint32 count, bool update, bool unequip_check)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     LOG_DEBUG("entities.player.items", "STORAGE: DestroyItemCount item = {}, count = {}", itemEntry, count);
     uint32 remcount = 0;
@@ -4220,6 +4329,9 @@ Item* Player::GetItemByEntry(uint32 entry) const
 
 void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     if (!pItem)
         return;
@@ -4245,6 +4357,9 @@ void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
 
 void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 srcbag = src >> 8;
     uint8 srcslot = src & 255;
@@ -4361,6 +4476,9 @@ void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
 
 void Player::SwapItem(uint16 src, uint16 dst)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     uint8 srcbag = src >> 8;
     uint8 srcslot = src & 255;
@@ -5745,6 +5863,9 @@ bool Player::isBeingLoaded() const
 
 bool Player::LoadFromDB(ObjectGuid playerGuid, CharacterDatabaseQueryHolder const& holder)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return false;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     ////                                                     0     1        2     3     4        5      6    7      8     9    10    11         12         13           14         15         16
     //QueryResult* result = CharacterDatabase.Query("SELECT guid, account, name, race, class, gender, level, xp, money, skin, face, hairStyle, hairColor, facialStyle, bankSlots, restState, playerFlags, "
@@ -6691,6 +6812,9 @@ void Player::LoadCorpse(PreparedQueryResult result)
 
 void Player::_LoadInventory(PreparedQueryResult result, uint32 timeDiff)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
+
     PB59::EquipmentCaptureState::Mutation pb59Mutation(_pb59Equipment);
     //QueryResult* result = CharacterDatabase.Query("SELECT data, text, bag, slot, item, item_template FROM character_inventory JOIN item_instance ON character_inventory.item = item_instance.guid WHERE character_inventory.guid = '{}' ORDER BY bag, slot", GetGUID().GetCounter());
     //NOTE: the "order by `bag`" is important because it makes sure
@@ -7992,6 +8116,10 @@ void Player::DrainPB59CharacterSaveEvidence(bool final)
 
 void Player::SaveToDB(bool create, bool logout)
 {
+    if (_pb59Equipment.InventoryQuarantined() && !create && !logout)
+        (void)_pb59Transaction.Request(PB59::TransactionAdmission::Work::StandaloneSave);
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
     // Only ordinary non-logout, non-creation saves can safely be deferred
     // here. Caller-owned transactions and the native logout destructor path
     // cannot be made safe by silently returning from this void function.
@@ -8051,6 +8179,8 @@ void Player::SaveToDB(CharacterDatabaseTransaction trans, bool create, bool logo
 
 void Player::SaveToDBWithEvidence(CharacterDatabaseTransaction trans, bool create, bool logout, PB59::SaveEvidence* evidence)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
     // delay auto save at any saves (manual, in code, or autosave)
     m_nextSave = sWorld->getIntConfig(CONFIG_INTERVAL_SAVE);
 
@@ -8125,12 +8255,16 @@ void Player::AdditionalSavingAddMask(uint8 mask)
 // fast save function for item/money cheating preventing - save only inventory and money state
 void Player::SaveInventoryAndGoldToDB(CharacterDatabaseTransaction trans)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
     _SaveInventory(trans);
     SaveGoldToDB(trans);
 }
 
 void Player::SaveGoldToDB(CharacterDatabaseTransaction trans)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return;
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UDP_CHAR_MONEY);
     stmt->SetData(0, GetMoney());
     stmt->SetData(1, GetGUID().GetRawValue());

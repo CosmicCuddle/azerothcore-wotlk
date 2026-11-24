@@ -132,3 +132,31 @@
 - **Tests:** source-contract test only at creation; no native Worldserver compile/link or gameplay claim yet.
 - **Live status:** DRAFT / unmerged / not deployed.
 - **Rollback:** abandon/revert this child; with no consuming hook or no registered script, stock behaviour is unchanged.
+
+
+## Core74 native AutoGear exact inventory executor (24 November 2026; DRAFT)
+
+- **Intent/component:** Core owns exact combat-slot/storage movement, native policy/effects,
+  reverse restoration and four explicit outcomes for the dormant Playerbots AutoGear adapter.
+  Owner CosmicCuddle approved bounded shared reservation protection in coordination #81
+  comment 7131868276. Technical evidence is in #51, review queue #68 and Core PR74.
+- **Source/dependencies:** isolated branch `feature/codex-pb59-exact-inventory-batch-20261124`,
+  exact Core53 parent `79b0b1fe2d0fac93227c28329508553cfec15c4d`; version-1 Player API.
+  Depends on the inherited PB59 owner/session ledger, original pointer/queue/effect helpers
+  and exact dormant PB integration. New `CapturePB59InventoryStamp()` supports headless bots.
+- **Affected files:** PlayerPB59Inventory.cpp, PB59InventoryReservation.h,
+  PB59CombatRecoveryState.h and existing PB59 headers; Player.h/Player.cpp/PlayerStorage.cpp/
+  PlayerUpdates.cpp; Item.h/Item.cpp/Container/Bag.cpp; Unit/CharmInfo.h; Map.h/Map.cpp;
+  WorldSession.cpp/WorldSessionMgr.cpp; ScriptMgrMacros.h, Spell.cpp/SpellScript.cpp and read-only
+  recovery observations in SpellAuras.h/SpellAuraEffects.h. Existing custom hooks still run.
+- **Risks/tests:** shared producer guards activate only for an opted-in reservation/quarantine.
+  Uncertain effects remain quarantined, with no automatic replay/reset/disposal. Actual-source
+  standalone fixtures pass (986 executor assertions in ordinary/NDEBUG modes, 40 guard checks,
+  existing raw/visible/queue/combat regressions); engine/DB doubles are explicit. Full native
+  tuple/module compile, independent integration/fault injection and gameplay remain release
+  gates. See [native contract and executable evidence](../tests/pb59/CORE74_NATIVE_INVENTORY_BATCH.md).
+- **Config/SQL/DBC/client/live:** no changes, no runtime caller, no hosted CI, unmerged and
+  undeployed. No F14/Paid or visual-concealment activation. No established feature removed.
+- **Rollback:** discard isolated draft or revert coherent executor/dependent adapter commits
+  together before activation. Any future deployment requires source/module inventory,
+  recoverable DB/config/binary backups, restoration proof and separate owner approval.

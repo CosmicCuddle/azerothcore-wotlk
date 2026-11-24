@@ -141,6 +141,9 @@ void WorldSessionMgr::UpdateSessions(uint32 const diff)
 
         ///- and remove not active sessions from the list
         WorldSession* pSession = itr->second;
+        if (pSession->GetPlayer() && pSession->GetPlayer()->GetPB59EquipmentState().InventoryQuarantined())
+            continue;
+
         WorldSessionFilter updater(pSession);
 
         // pussywizard:
@@ -203,6 +206,9 @@ void WorldSessionMgr::UpdateSessions(uint32 const diff)
         next = itr;
         ++next;
         WorldSession* pSession = itr->second;
+        if (pSession->GetPlayer() && pSession->GetPlayer()->GetPB59EquipmentState().InventoryQuarantined())
+            continue;
+
         // A session with a logout already running leaves when that countdown ends, so closing the client early
         // with EXIT NOW doesn't shorten it. A client crash (or sudden ALT+F4) waits out the full interval so a
         // dropped connection can be reclaimed.
@@ -223,7 +229,9 @@ bool WorldSessionMgr::KickSession(uint32 id)
 
     if (itr != _sessions.end() && itr->second)
     {
-        if (itr->second->PlayerLoading())
+        if ((itr->second->GetPlayer() &&
+                itr->second->GetPlayer()->GetPB59EquipmentState().InventoryQuarantined()) ||
+            itr->second->PlayerLoading())
             return false;
 
         itr->second->KickPlayer("KickSession", false);
@@ -331,6 +339,15 @@ int32 WorldSessionMgr::GetQueuePos(WorldSession* session)
 void WorldSessionMgr::AddSession_(WorldSession* session)
 {
     ASSERT(session);
+
+    // An offline quarantined owner also keeps its session identity until recovery.
+    if (auto* offline = FindOfflineSession(session->GetAccountId()); offline && offline->GetPlayer() &&
+        offline->GetPlayer()->GetPB59EquipmentState().InventoryQuarantined())
+    {
+        session->KickPlayer("inventory recovery pending");
+        delete session;
+        return;
+    }
 
     // kick existing session with same account (if any)
     // if character on old session is being loaded, then return
