@@ -1,0 +1,413 @@
+PB53 96c579e86443c86780d6f9cd8ef51b7c252b09f8 | PB54 ec276855d869bdb30b9aa1907739e386e0fcac1e | Core74 c779e7b4f735cab048f5b351ca6b9053f188787a; 38 blobs verified
+=== configuration pb53 (96c579e8) ===
+SRC S1 default-OFF in code                       expected=GetOption(...,false)         observed=false                        as-expected PlayerbotAIConfig.cpp:748
+SRC S2 default-OFF in conf.dist                  expected== 0                          observed=0                            as-expected playerbots.conf.dist:675
+SRC S3 command returns early when OFF            expected=!AutoGearIPCapEnable -> false observed=present                      as-expected TrainerAction.cpp:1086
+SRC S4 outer caller revalidates bot/sender after Execute expected=revalidation before use      observed=none; uses at 1177,1182,1187,1194,1197,1199... DIVERGENCE TrainerAction.cpp:1172
+[pb53] SCN A1 strip main+off through real executor      expected=Done; off-hand first         observed=Done; order=off,main         as-expected
+[pb53] SCN A2 second link refused (Core Restored)       expected=Restored; layout original    observed=Restored; core=Restored      as-expected
+[pb53] SCN A3 Core RecoveryRequired                     expected=RecoveryRequired             observed=RecoveryRequired; core=RecoveryRequired guids=1 as-expected
+[pb53] SCN A3p Player reads after Core RR (CS01 oracle) expected=0                            observed=51 [CaptureSlotx37,GetBagByPosx4,GetGUIDx1,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE TrainerAction.cpp RunCoreBatch post-return Fingerprint/AllAtDestination/log
+[pb53] SCN A4 owner context lost inside Core            expected=not Done                     observed=RecoveryRequired; core=RecoveryRequired as-expected
+[pb53] SCN A4p Player reads after owner loss (CS01 oracle) expected=0                            observed=7 [CaptureSlotx3,GetGUIDx1,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE no live Player pointer may be assumed from a recovery result
+[pb53] SCN A5 Core Refused + unrelated change           expected=RecoveryRequired             observed=RecoveryRequired; core=Refused as-expected
+[pb53] SCN A6 Core Restored + unrelated change          expected=RecoveryRequired             observed=RecoveryRequired; core=Restored as-expected
+[pb53] SCN A7 Core Applied + unrelated change           expected=RecoveryRequired (CS02 independent) observed=Done; core=Applied           DIVERGENCE PB contract believes Applied on destinations only
+[pb53] SCN A8 Core RR with empty GUID list (throwMods=1) expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+[pb53] SCN A9 RestoreToSlot main then off               expected=true,true; layout original   observed=true,true                    as-expected
+[pb53] SCN A10 RestoreToSlot with Core refusing the link expected=false; item still owned once observed=false                        as-expected
+[pb53] SCN A11 empty mask / no free slot                expected=Refused,NoSpace; 0 Core calls observed=Refused,NoSpace; core=0      as-expected
+[pb53] SCN A12 nested strip from a hook inside Core     expected=inner Refused; outer Done    observed=inner=Refused outer=Done     as-expected
+[pb53] SCN A12b nested strip touches nothing            expected=inner: 0 Player reads, 0 Core calls observed=reads=0 core=0               as-expected
+[pb53] SCN A13 one masked slot unobservable             expected=Refused; 0 Core calls; layout original observed=Refused; core=0; layout original as-expected
+[pb53] SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE CS01 #52 7137340399
+[pb53] SCN B1 failed factory restore: post-stop inventory reads expected=0                            observed=41 [DestroyItemx1,GetBagByPosx4,GetItemByPosx37] DIVERGENCE AutoGearCappedExecution.h:224-256
+[pb53] SCN B1 failed factory restore: post-stop writes (Core/Destroy) expected=0                            observed=1 destroyCalls=1             DIVERGENCE
+[pb53] SCN B1 failed factory restore: post-stop finishers expected=0                            observed=0                            as-expected
+[pb53] SCN B2 BiS restore failed: outcome               expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE CS01 #52 7137340399
+[pb53] SCN B2 BiS restore failed: post-stop inventory reads expected=0                            observed=41 [DestroyItemx1,GetBagByPosx4,GetItemByPosx37] DIVERGENCE AutoGearCappedExecution.h:224-256
+[pb53] SCN B2 BiS restore failed: post-stop writes (Core/Destroy) expected=0                            observed=1 destroyCalls=1             DIVERGENCE
+[pb53] SCN B2 BiS restore failed: post-stop finishers   expected=0                            observed=0                            as-expected
+[pb53] SCN B3 displaced off-hand, BiS equip fails       expected=Succeeded; layout original; order off,main,main,off observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 order ok as-expected
+[pb53] SCN B4 zero-strip (nothing over cap), later BiS  expected=Succeeded; strips=0 factory=1 bis=1 finishers=1 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 strips=0 f=1 b=1 fin=1 as-expected
+[pb53] SCN B5 empty reset, later BiS                    expected=Succeeded; strips=0 core=0 finishers=1 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 strips=0 core=0 as-expected
+[pb53] SCN B6 reset strip then BiS                      expected=Succeeded; stripped=3 one Core call observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=3 missing=0 core=1 as-expected
+[pb53] SCN B7 Altbot over cap                           expected=Succeeded; retained=3 strips=0 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 retained=3 strips=0 as-expected
+[pb53] SCN B8 owned off-hand leaves inventory           expected=RecoveryRequired missing=1   observed=refusal=9 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=1 as-expected
+[pb53] SCN B9 reset strip RecoveryRequired              expected=RecoveryRequired ran=0; factory=0 observed=refusal=9 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 f=0 as-expected
+[pb53] MATRIX C1 ToStripResult: 64 rows, 64 agree with the independent oracle
+[pb53] SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb53] SCN C2 unknown native outcome 7                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb53] SCN C2 unknown native outcome 255                expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 19   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 20   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 1000 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 18446744073709551615 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C4 RecoveryRequired with empty GUID list     expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+[pb53] SCN C5 no-fallback gate                          expected=MayMove(false)=0 MayMove(true)=1 observed=MayMove(false)=0 MayMove(true)=1 as-expected
+[pb53] SCN C6 Altbot plan                               expected=reset refused; no over-cap strip observed=reset=4 stripOverCap=0       as-expected
+[pb53] CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations
+[pb53] SCN N1 factory stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900 gone revoked=1 destroys=1 flag=1 DIVERGENCE
+[pb53] SCN N1 factory stop: Capture()/finishers after stop expected=0,0                          observed=1,0                          DIVERGENCE
+[pb53] SCN N1 factory stop: RR returned immediately     expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE
+[pb53] SCN N2 BiS stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900 gone revoked=1 destroys=1 flag=1 DIVERGENCE
+[pb53] SCN N2 BiS stop: Capture()/finishers after stop  expected=0,0                          observed=1,0                          DIVERGENCE
+[pb53] SCN N2 BiS stop: RR returned immediately         expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE
+[pb53] SCN R0 control: same context, Core Applied       expected=Done; observation happens (>0) observed=Done; core=Applied; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6] as-expected
+[pb53] SCN R1 bot pointer swapped (same GUID)           expected=RR; 0 reads of old bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+[pb53] SCN R1b different Player* only (same GUID/session/inc) expected=RR; 0 reads of old bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+[pb53] SCN R2 owner incarnation mismatch                expected=RR; 0 observation reads      observed=Done; core=Applied; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6] DIVERGENCE
+[pb53] SCN R3 session incarnation mismatch              expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=45 [CaptureSlotx35,GetBagByPosx4,GetItemByPosx6] DIVERGENCE
+[pb53] SCN R4 session logging out (late hook)           expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=3 [CaptureSlotx3] DIVERGENCE
+[pb53] SCN R3b session incarnation mismatch, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=45 [CaptureSlotx35,GetBagByPosx4,GetItemByPosx6] DIVERGENCE
+[pb53] SCN R4b session logging out, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=3 [CaptureSlotx3] DIVERGENCE
+[pb53] SCN R5 bot no longer connected                   expected=RR; 0 reads of bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+[pb53] SCN R6 unknown native outcome 7                  expected=RR                           observed=RecoveryRequired; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6] as-expected
+[pb53] SCN R7 Applied with recoveryCount 255 (array of 19) expected=RR; no out-of-bounds         observed=RecoveryRequired             as-expected
+[pb53] SCN R8 forced RR, empty GUID list                expected=RR; 0 reads after Core       observed=RecoveryRequired; all=51 [CaptureSlotx37,GetBagByPosx4,GetGUIDx1,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+[pb53] SCN R9 forced RR, recoveryCount 255              expected=RR; 0 reads after Core; no out-of-bounds observed=RecoveryRequired; all=51 [CaptureSlotx37,GetBagByPosx4,GetGUIDx1,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+[pb53] SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; NOT revalidated first DIVERGENCE
+[pb53] SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=1 [GetGUIDx1]                DIVERGENCE
+[pb53] SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=2 [GetGUIDx1,GetNamex1]      DIVERGENCE
+[pb53] SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    DIVERGENCE
+[pb53] SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=41 [GetBagByPosx4,GetGUIDx2,GetItemByPosx35] DIVERGENCE
+[pb53] SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O4 bot session logging out                   expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O5 sender logging out                        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O10 sender disconnected                      expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O11 bot left world                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Renamed                   DIVERGENCE
+[pb53] SCN I0 no unrelated change (control)             expected=custody: planned only; PB Done (metadata permitted) observed=Done; core=Applied; custody=none metadata=none as-expected
+[pb53] SCN I1 metadata only: 800.durability (= original A7) expected=custody: planned only; PB Done (metadata permitted) observed=Done; core=Applied; custody=none metadata=800.durability 100->1 as-expected
+[pb53] SCN I2 metadata only: 800.count/flags/enchants   expected=custody: planned only; PB Done (metadata permitted) observed=Done; core=Applied; custody=none metadata=800.count 1->5;800.flags 0->1;800.enchants as-expected
+[pb53] SCN I3 custody: 800 slot E30->E31                expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.slot 0xFF1E->0xFF1F metadata=none DIVERGENCE
+[pb53] SCN I4 custody: 800 owner 1->99                  expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.owner 1->99 metadata=none DIVERGENCE
+[pb53] SCN I5 custody: 800 disappears                   expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.present 1->0 metadata=none DIVERGENCE
+[pb53] SCN I6 custody: 801 appears at E32               expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=801.present 0->1@0xFF20 metadata=none DIVERGENCE
+[pb53] SCN I7 custody: 800 moves into bag 19 slot 0     expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.container 0->5000;800.slot 0xFF1E->0x1300 metadata=none DIVERGENCE
+[pb53] CS02 layer3b new rows: 43 checks, 0 property failures, 37 divergences from pre-registered expectations
+[pb53] SCN D1 OFF: reset                                expected=StripRefused; layout original; factory=0 observed=refusal=6 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 f=0 as-expected
+[pb53] SCN D2 OFF: RestoreToSlot                        expected=false; 0 Core calls          observed=false core=0                 as-expected
+[pb53] SCN D3 OFF: random bot over cap                  expected=StripRefused; layout original observed=refusal=6 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+[pb53] MATRIX C1 ToStripResult: 64 rows, 64 agree with the independent oracle
+[pb53] SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb53] SCN C2 unknown native outcome 7                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb53] SCN C2 unknown native outcome 255                expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 19   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 20   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 1000 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C3 Restored/Applied with recovery count 18446744073709551615 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb53] SCN C4 RecoveryRequired with empty GUID list     expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+[pb53] SCN C5 no-fallback gate                          expected=MayMove(false)=0 MayMove(true)=1 observed=MayMove(false)=0 MayMove(true)=1 as-expected
+[pb53] SCN C6 Altbot plan                               expected=reset refused; no over-cap strip observed=reset=4 stripOverCap=0       as-expected
+[pb53] CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations
+[pb53] SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; NOT revalidated first DIVERGENCE
+[pb53] SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=1 [GetGUIDx1]                DIVERGENCE
+[pb53] SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=2 [GetGUIDx1,GetNamex1]      DIVERGENCE
+[pb53] SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    DIVERGENCE
+[pb53] SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=41 [GetBagByPosx4,GetGUIDx2,GetItemByPosx35] DIVERGENCE
+[pb53] SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O4 bot session logging out                   expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O5 sender logging out                        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O10 sender disconnected                      expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O11 bot left world                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[pb53] SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Renamed                   DIVERGENCE
+[pb53] CS02 layer3b new rows: 16 checks, 0 property failures, 16 divergences from pre-registered expectations
+[pb53] SCN F1 keepOwned=1 (capped AutoGear finishers)   expected=old ammo kept; new stocked   observed=kept destroyed=0 stored=1 ammo=21 as-expected
+[pb53] SCN F2 keepOwned=0 control (legacy factory)      expected=both obsolete stacks destroyed observed=destroyed=2                  as-expected
+[pb53] SCN F3 DisplacesOffhand: no off-hand             expected=keeps                        observed=keeps                        as-expected
+[pb53] SCN F3 DisplacesOffhand: 2H axe, shield, no Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb53] SCN F3 DisplacesOffhand: 1H axe, shield          expected=keeps                        observed=keeps                        as-expected
+[pb53] SCN F3 DisplacesOffhand: 1H axe, off-hand weapon, no dual wield expected=displaces                    observed=displaces                    as-expected
+[pb53] SCN F3 DisplacesOffhand: 1H axe, off-hand weapon, dual wield expected=keeps                        observed=keeps                        as-expected
+[pb53] SCN F3 DisplacesOffhand: staff, holdable, Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb53] SCN F3 DisplacesOffhand: polearm, off-hand 2H, Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb53] SCN F3 DisplacesOffhand: 2H axe, off-hand 2H axe, Titan's Grip expected=keeps                        observed=keeps                        as-expected
+[pb53] SCN F3 DisplacesOffhand: 1H axe, off-hand 2H, no Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb53] CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations
+pb53-g++-plain: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 37 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 16 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+pb53-g++-asan-ubsan: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 37 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 16 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+pb53-clang++-plain: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 37 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 16 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+pb53-clang++-asan-ubsan: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 37 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 16 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+=== configuration pb54 (ec276855) ===
+SRC S1 default-OFF in code                       expected=GetOption(...,false)         observed=false                        as-expected PlayerbotAIConfig.cpp:748
+SRC S2 default-OFF in conf.dist                  expected== 0                          observed=0                            as-expected playerbots.conf.dist:675
+SRC S3 command returns early when OFF            expected=!AutoGearIPCapEnable -> false observed=present                      as-expected TrainerAction.cpp:1117
+SRC S4 outer caller revalidates bot/sender after Execute expected=revalidation before use      observed=none; uses at 1259,1264,1270 as-expected TrainerAction.cpp:1217
+[pb54] SCN A1 strip main+off through real executor      expected=Done; off-hand first         observed=Done; order=off,main         as-expected
+[pb54] SCN A2 second link refused (Core Restored)       expected=Restored; layout original    observed=Restored; core=Restored      as-expected
+[pb54] SCN A3 Core RecoveryRequired                     expected=RecoveryRequired             observed=RecoveryRequired; core=RecoveryRequired guids=1 as-expected
+[pb54] SCN A3p Player reads after Core RR (CS01 oracle) expected=0                            observed=0 [none]                     as-expected TrainerAction.cpp RunCoreBatch post-return Fingerprint/AllAtDestination/log
+[pb54] SCN A4 owner context lost inside Core            expected=not Done                     observed=RecoveryRequired; core=RecoveryRequired as-expected
+[pb54] SCN A4p Player reads after owner loss (CS01 oracle) expected=0                            observed=0 [none]                     as-expected no live Player pointer may be assumed from a recovery result
+[pb54] SCN A5 Core Refused + unrelated change           expected=RecoveryRequired             observed=RecoveryRequired; core=Refused as-expected
+[pb54] SCN A6 Core Restored + unrelated change          expected=RecoveryRequired             observed=RecoveryRequired; core=Restored as-expected
+[pb54] SCN A7 Core Applied + unrelated change           expected=RecoveryRequired (CS02 independent) observed=Done; core=Applied           DIVERGENCE PB contract believes Applied on destinations only
+[pb54] SCN A8 Core RR with empty GUID list (throwMods=1) expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+[pb54] SCN A9 RestoreToSlot main then off               expected=true,true; layout original   observed=true,true                    as-expected
+[pb54] SCN A10 RestoreToSlot with Core refusing the link expected=false; item still owned once observed=false                        as-expected
+[pb54] SCN A11 empty mask / no free slot                expected=Refused,NoSpace; 0 Core calls observed=Refused,NoSpace; core=0      as-expected
+[pb54] SCN A12 nested strip from a hook inside Core     expected=inner Refused; outer Done    observed=inner=Refused outer=Done     as-expected
+[pb54] SCN A12b nested strip touches nothing            expected=inner: 0 Player reads, 0 Core calls observed=reads=0 core=0               as-expected
+[pb54] SCN A13 one masked slot unobservable             expected=Refused; 0 Core calls; layout original observed=Refused; core=0; layout original as-expected
+[pb54] SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected CS01 #52 7137340399
+[pb54] SCN B1 failed factory restore: post-stop inventory reads expected=0                            observed=0 [none]                     as-expected AutoGearCappedExecution.h:224-256
+[pb54] SCN B1 failed factory restore: post-stop writes (Core/Destroy) expected=0                            observed=0 destroyCalls=0             as-expected
+[pb54] SCN B1 failed factory restore: post-stop finishers expected=0                            observed=0                            as-expected
+[pb54] SCN B2 BiS restore failed: outcome               expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected CS01 #52 7137340399
+[pb54] SCN B2 BiS restore failed: post-stop inventory reads expected=0                            observed=0 [none]                     as-expected AutoGearCappedExecution.h:224-256
+[pb54] SCN B2 BiS restore failed: post-stop writes (Core/Destroy) expected=0                            observed=0 destroyCalls=0             as-expected
+[pb54] SCN B2 BiS restore failed: post-stop finishers   expected=0                            observed=0                            as-expected
+[pb54] SCN B3 displaced off-hand, BiS equip fails       expected=Succeeded; layout original; order off,main,main,off observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 order ok as-expected
+[pb54] SCN B4 zero-strip (nothing over cap), later BiS  expected=Succeeded; strips=0 factory=1 bis=1 finishers=1 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 strips=0 f=1 b=1 fin=1 as-expected
+[pb54] SCN B5 empty reset, later BiS                    expected=Succeeded; strips=0 core=0 finishers=1 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 strips=0 core=0 as-expected
+[pb54] SCN B6 reset strip then BiS                      expected=Succeeded; stripped=3 one Core call observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=3 missing=0 core=1 as-expected
+[pb54] SCN B7 Altbot over cap                           expected=Succeeded; retained=3 strips=0 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 retained=3 strips=0 as-expected
+[pb54] SCN B8 owned off-hand leaves inventory           expected=RecoveryRequired missing=1   observed=refusal=9 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=1 as-expected
+[pb54] SCN B9 reset strip RecoveryRequired              expected=RecoveryRequired ran=0; factory=0 observed=refusal=9 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 f=0 as-expected
+[pb54] MATRIX C1 ToStripResult: 64 rows, 64 agree with the independent oracle
+[pb54] SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb54] SCN C2 unknown native outcome 7                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb54] SCN C2 unknown native outcome 255                expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 19   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 20   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 1000 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 18446744073709551615 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C4 RecoveryRequired with empty GUID list     expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+[pb54] SCN C5 no-fallback gate                          expected=MayMove(false)=0 MayMove(true)=1 observed=MayMove(false)=0 MayMove(true)=1 as-expected
+[pb54] SCN C6 Altbot plan                               expected=reset refused; no over-cap strip observed=reset=4 stripOverCap=0       as-expected
+[pb54] CS02 layer3 adapter: 109 checks, 0 property failures, 1 divergences from pre-registered expectations
+[pb54] SCN N1 factory stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900@E1 revoked=0 destroys=0 flag=1 as-expected
+[pb54] SCN N1 factory stop: Capture()/finishers after stop expected=0,0                          observed=0,0                          as-expected
+[pb54] SCN N1 factory stop: RR returned immediately     expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+[pb54] SCN N2 BiS stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900@E1 revoked=0 destroys=0 flag=1 as-expected
+[pb54] SCN N2 BiS stop: Capture()/finishers after stop  expected=0,0                          observed=0,0                          as-expected
+[pb54] SCN N2 BiS stop: RR returned immediately         expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+[pb54] SCN R0 control: same context, Core Applied       expected=Done; observation happens (>0) observed=Done; core=Applied; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6] as-expected
+[pb54] SCN R1 bot pointer swapped (same GUID)           expected=RR; 0 reads of old bot after Core observed=RecoveryRequired; core=Applied; all=0 [none] as-expected
+[pb54] SCN R1b different Player* only (same GUID/session/inc) expected=RR; 0 reads of old bot after Core observed=RecoveryRequired; core=Applied; all=0 [none] as-expected
+[pb54] SCN R2 owner incarnation mismatch                expected=RR; 0 observation reads      observed=RecoveryRequired; core=Applied; obs=0 [none] as-expected
+[pb54] SCN R3 session incarnation mismatch              expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=0 [none] as-expected
+[pb54] SCN R4 session logging out (late hook)           expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=0 [none] as-expected
+[pb54] SCN R3b session incarnation mismatch, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=0 [none] as-expected
+[pb54] SCN R4b session logging out, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=0 [none] as-expected
+[pb54] SCN R5 bot no longer connected                   expected=RR; 0 reads of bot after Core observed=RecoveryRequired; core=Applied; all=0 [none] as-expected
+[pb54] SCN R6 unknown native outcome 7                  expected=RR                           observed=RecoveryRequired; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6] as-expected
+[pb54] SCN R7 Applied with recoveryCount 255 (array of 19) expected=RR; no out-of-bounds         observed=RecoveryRequired             as-expected
+[pb54] SCN R8 forced RR, empty GUID list                expected=RR; 0 reads after Core       observed=RecoveryRequired; all=0 [none] as-expected
+[pb54] SCN R9 forced RR, recoveryCount 255              expected=RR; 0 reads after Core; no out-of-bounds observed=RecoveryRequired; all=0 [none] as-expected
+[pb54] SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; ordered    as-expected
+[pb54] SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=0 [none]                     as-expected
+[pb54] SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=0 [none]                     as-expected
+[pb54] SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    as-expected
+[pb54] SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=0 [none]                     as-expected
+[pb54] SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O4 bot session logging out                   expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O5 sender logging out                        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O10 sender disconnected                      expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O11 bot left world                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Sender                    as-expected
+[pb54] SCN I0 no unrelated change (control)             expected=custody: planned only; PB Done (metadata permitted) observed=Done; core=Applied; custody=none metadata=none as-expected
+[pb54] SCN I1 metadata only: 800.durability (= original A7) expected=custody: planned only; PB Done (metadata permitted) observed=Done; core=Applied; custody=none metadata=800.durability 100->1 as-expected
+[pb54] SCN I2 metadata only: 800.count/flags/enchants   expected=custody: planned only; PB Done (metadata permitted) observed=Done; core=Applied; custody=none metadata=800.count 1->5;800.flags 0->1;800.enchants as-expected
+[pb54] SCN I3 custody: 800 slot E30->E31                expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.slot 0xFF1E->0xFF1F metadata=none DIVERGENCE
+[pb54] SCN I4 custody: 800 owner 1->99                  expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.owner 1->99 metadata=none DIVERGENCE
+[pb54] SCN I5 custody: 800 disappears                   expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.present 1->0 metadata=none DIVERGENCE
+[pb54] SCN I6 custody: 801 appears at E32               expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=801.present 0->1@0xFF20 metadata=none DIVERGENCE
+[pb54] SCN I7 custody: 800 moves into bag 19 slot 0     expected=custody change detected; PB RecoveryRequired observed=Done; core=Applied; custody=800.container 0->5000;800.slot 0xFF1E->0x1300 metadata=none DIVERGENCE
+[pb54] CS02 layer3b new rows: 43 checks, 0 property failures, 5 divergences from pre-registered expectations
+[pb54] SCN D1 OFF: reset                                expected=StripRefused; layout original; factory=0 observed=refusal=6 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 f=0 as-expected
+[pb54] SCN D2 OFF: RestoreToSlot                        expected=false; 0 Core calls          observed=false core=0                 as-expected
+[pb54] SCN D3 OFF: random bot over cap                  expected=StripRefused; layout original observed=refusal=6 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+[pb54] MATRIX C1 ToStripResult: 64 rows, 64 agree with the independent oracle
+[pb54] SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb54] SCN C2 unknown native outcome 7                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb54] SCN C2 unknown native outcome 255                expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 19   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 20   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 1000 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C3 Restored/Applied with recovery count 18446744073709551615 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+[pb54] SCN C4 RecoveryRequired with empty GUID list     expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+[pb54] SCN C5 no-fallback gate                          expected=MayMove(false)=0 MayMove(true)=1 observed=MayMove(false)=0 MayMove(true)=1 as-expected
+[pb54] SCN C6 Altbot plan                               expected=reset refused; no over-cap strip observed=reset=4 stripOverCap=0       as-expected
+[pb54] CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations
+[pb54] SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; ordered    as-expected
+[pb54] SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=0 [none]                     as-expected
+[pb54] SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=0 [none]                     as-expected
+[pb54] SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    as-expected
+[pb54] SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=0 [none]                     as-expected
+[pb54] SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O4 bot session logging out                   expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O5 sender logging out                        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O10 sender disconnected                      expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O11 bot left world                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+[pb54] SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Sender                    as-expected
+[pb54] CS02 layer3b new rows: 16 checks, 0 property failures, 0 divergences from pre-registered expectations
+[pb54] SCN F1 keepOwned=1 (capped AutoGear finishers)   expected=old ammo kept; new stocked   observed=kept destroyed=0 stored=1 ammo=21 as-expected
+[pb54] SCN F2 keepOwned=0 control (legacy factory)      expected=both obsolete stacks destroyed observed=destroyed=2                  as-expected
+[pb54] SCN F3 DisplacesOffhand: no off-hand             expected=keeps                        observed=keeps                        as-expected
+[pb54] SCN F3 DisplacesOffhand: 2H axe, shield, no Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb54] SCN F3 DisplacesOffhand: 1H axe, shield          expected=keeps                        observed=keeps                        as-expected
+[pb54] SCN F3 DisplacesOffhand: 1H axe, off-hand weapon, no dual wield expected=displaces                    observed=displaces                    as-expected
+[pb54] SCN F3 DisplacesOffhand: 1H axe, off-hand weapon, dual wield expected=keeps                        observed=keeps                        as-expected
+[pb54] SCN F3 DisplacesOffhand: staff, holdable, Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb54] SCN F3 DisplacesOffhand: polearm, off-hand 2H, Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb54] SCN F3 DisplacesOffhand: 2H axe, off-hand 2H axe, Titan's Grip expected=keeps                        observed=keeps                        as-expected
+[pb54] SCN F3 DisplacesOffhand: 1H axe, off-hand 2H, no Titan's Grip expected=displaces                    observed=displaces                    as-expected
+[pb54] CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations
+pb54-g++-plain: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 1 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 5 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+pb54-g++-asan-ubsan: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 1 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 5 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+pb54-clang++-plain: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 1 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 5 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+pb54-clang++-asan-ubsan: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 1 divergences from pre-registered expectations | CS02 layer3b new rows: 43 checks, 0 property failures, 5 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3b new rows: 16 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+[SABOTAGE] M1 Execute early return removed               killed  first change: SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing
+[SABOTAGE] M2 early return claims capHeld                killed  first change: SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing
+[SABOTAGE] M3 early return without refusal               killed  first change: SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=0 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing
+[SABOTAGE] M4 RunCoreBatch RR early return removed       killed  first change: SCN A3p Player reads after Core RR (CS01 oracle) expected=0                            observed=53 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx2,IsA
+[SABOTAGE] M5 SameContext skipped                        killed  first change: SCN R1 bot pointer swapped (same GUID)           expected=RR; 0 reads of old bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,Ge
+[SABOTAGE] M6 SameContext: no pointer compare            killed  first change: SCN R1b different Player* only (same GUID/session/inc) expected=RR; 0 reads of old bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPo
+[SABOTAGE] M7 SameContext: no owner incarnation          killed  first change: SCN R2 owner incarnation mismatch                expected=RR; 0 observation reads      observed=Done; core=Applied; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItem
+[SABOTAGE] M8 SameContext: no session incarnation        killed  first change: SCN R3b session incarnation mismatch, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=45 [CaptureSlotx35,GetBagByPo
+[SABOTAGE] M9 SameContext: no logout check               killed  first change: SCN R4b session logging out, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=3 [CaptureSlotx3] DIVERGENCE
+[SABOTAGE] M10 outer: AI not rechecked                   killed  first change: SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; NOT revalidated first DIVE
+[SABOTAGE] M11 outer: sender not rechecked               killed  first change: SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; NOT revalidated first DIVE
+[SABOTAGE] M12 outer: no pointer compare                 killed  first change: SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[SABOTAGE] M13 outer: no logout check                    killed  first change: SCN O4 bot session logging out                   expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[SABOTAGE] M14 outer: whisper uses live name             killed  first change: SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Renamed                   DIVERGENCE
+[SABOTAGE] M15 recovery list unbounded                   killed  first change: SCN =================================================================
+[SABOTAGE] M16 outer: log reads live bot GUID            killed  first change: SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=1 [GetGUIDx1]                DIVERGENCE
+[SABOTAGE] M17 outer: no owner incarnation               killed  first change: SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[SABOTAGE] M18 outer: no session incarnation             killed  first change: SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+[SABOTAGE] 18/18 killed
+=== rows that differ PB53 -> PB54 ===
+PB54 SCN A3p Player reads after Core RR (CS01 oracle) expected=0                            observed=0 [none]                     as-expected TrainerAction.cpp RunCoreBatch post-return Fingerprint/AllAtDestination/log
+PB54 SCN A4p Player reads after owner loss (CS01 oracle) expected=0                            observed=0 [none]                     as-expected no live Player pointer may be assumed from a recovery result
+PB54 SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected CS01 #52 7137340399
+PB54 SCN B1 failed factory restore: post-stop inventory reads expected=0                            observed=0 [none]                     as-expected AutoGearCappedExecution.h:224-256
+PB54 SCN B1 failed factory restore: post-stop writes (Core/Destroy) expected=0                            observed=0 destroyCalls=0             as-expected
+PB54 SCN B2 BiS restore failed: outcome               expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected CS01 #52 7137340399
+PB54 SCN B2 BiS restore failed: post-stop inventory reads expected=0                            observed=0 [none]                     as-expected AutoGearCappedExecution.h:224-256
+PB54 SCN B2 BiS restore failed: post-stop writes (Core/Destroy) expected=0                            observed=0 destroyCalls=0             as-expected
+PB54 SCN N1 factory stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900@E1 revoked=0 destroys=0 flag=1 as-expected
+PB54 SCN N1 factory stop: Capture()/finishers after stop expected=0,0                          observed=0,0                          as-expected
+PB54 SCN N1 factory stop: RR returned immediately     expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+PB54 SCN N2 BiS stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900@E1 revoked=0 destroys=0 flag=1 as-expected
+PB54 SCN N2 BiS stop: Capture()/finishers after stop  expected=0,0                          observed=0,0                          as-expected
+PB54 SCN N2 BiS stop: RR returned immediately         expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+PB54 SCN R1 bot pointer swapped (same GUID)           expected=RR; 0 reads of old bot after Core observed=RecoveryRequired; core=Applied; all=0 [none] as-expected
+PB54 SCN R1b different Player* only (same GUID/session/inc) expected=RR; 0 reads of old bot after Core observed=RecoveryRequired; core=Applied; all=0 [none] as-expected
+PB54 SCN R2 owner incarnation mismatch                expected=RR; 0 observation reads      observed=RecoveryRequired; core=Applied; obs=0 [none] as-expected
+PB54 SCN R3 session incarnation mismatch              expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=0 [none] as-expected
+PB54 SCN R4 session logging out (late hook)           expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=0 [none] as-expected
+PB54 SCN R3b session incarnation mismatch, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=0 [none] as-expected
+PB54 SCN R4b session logging out, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=0 [none] as-expected
+PB54 SCN R5 bot no longer connected                   expected=RR; 0 reads of bot after Core observed=RecoveryRequired; core=Applied; all=0 [none] as-expected
+PB54 SCN R8 forced RR, empty GUID list                expected=RR; 0 reads after Core       observed=RecoveryRequired; all=0 [none] as-expected
+PB54 SCN R9 forced RR, recoveryCount 255              expected=RR; 0 reads after Core; no out-of-bounds observed=RecoveryRequired; all=0 [none] as-expected
+PB54 SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; ordered    as-expected
+PB54 SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=0 [none]                     as-expected
+PB54 SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=0 [none]                     as-expected
+PB54 SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    as-expected
+PB54 SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=0 [none]                     as-expected
+PB54 SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O4 bot session logging out                   expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O5 sender logging out                        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O10 sender disconnected                      expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O11 bot left world                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Sender                    as-expected
+PB54 SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; ordered    as-expected
+PB54 SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=0 [none]                     as-expected
+PB54 SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=0 [none]                     as-expected
+PB54 SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    as-expected
+PB54 SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=0 [none]                     as-expected
+PB54 SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O4 bot session logging out                   expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O5 sender logging out                        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O10 sender disconnected                      expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O11 bot left world                           expected=false; 0 whispers            observed=false; whispers=0            as-expected
+PB54 SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Sender                    as-expected
+PB53 SCN A3p Player reads after Core RR (CS01 oracle) expected=0                            observed=51 [CaptureSlotx37,GetBagByPosx4,GetGUIDx1,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE TrainerAction.cpp RunCoreBatch post-return Fingerprint/AllAtDestination/log
+PB53 SCN A4p Player reads after owner loss (CS01 oracle) expected=0                            observed=7 [CaptureSlotx3,GetGUIDx1,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE no live Player pointer may be assumed from a recovery result
+PB53 SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE CS01 #52 7137340399
+PB53 SCN B1 failed factory restore: post-stop inventory reads expected=0                            observed=41 [DestroyItemx1,GetBagByPosx4,GetItemByPosx37] DIVERGENCE AutoGearCappedExecution.h:224-256
+PB53 SCN B1 failed factory restore: post-stop writes (Core/Destroy) expected=0                            observed=1 destroyCalls=1             DIVERGENCE
+PB53 SCN B2 BiS restore failed: outcome               expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE CS01 #52 7137340399
+PB53 SCN B2 BiS restore failed: post-stop inventory reads expected=0                            observed=41 [DestroyItemx1,GetBagByPosx4,GetItemByPosx37] DIVERGENCE AutoGearCappedExecution.h:224-256
+PB53 SCN B2 BiS restore failed: post-stop writes (Core/Destroy) expected=0                            observed=1 destroyCalls=1             DIVERGENCE
+PB53 SCN N1 factory stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900 gone revoked=1 destroys=1 flag=1 DIVERGENCE
+PB53 SCN N1 factory stop: Capture()/finishers after stop expected=0,0                          observed=1,0                          DIVERGENCE
+PB53 SCN N1 factory stop: RR returned immediately     expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE
+PB53 SCN N2 BiS stop: created item left in place, flags kept expected=900@E1 revoked=0 destroys=0 flag=1 observed=900 gone revoked=1 destroys=1 flag=1 DIVERGENCE
+PB53 SCN N2 BiS stop: Capture()/finishers after stop  expected=0,0                          observed=1,0                          DIVERGENCE
+PB53 SCN N2 BiS stop: RR returned immediately         expected=refusal=RR ran=1 capHeld=0 newItems=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE
+PB53 SCN R1 bot pointer swapped (same GUID)           expected=RR; 0 reads of old bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+PB53 SCN R1b different Player* only (same GUID/session/inc) expected=RR; 0 reads of old bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+PB53 SCN R2 owner incarnation mismatch                expected=RR; 0 observation reads      observed=Done; core=Applied; obs=47 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6] DIVERGENCE
+PB53 SCN R3 session incarnation mismatch              expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=45 [CaptureSlotx35,GetBagByPosx4,GetItemByPosx6] DIVERGENCE
+PB53 SCN R4 session logging out (late hook)           expected=RR; 0 observation reads      observed=RecoveryRequired; core=RecoveryRequired; obs=3 [CaptureSlotx3] DIVERGENCE
+PB53 SCN R3b session incarnation mismatch, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=45 [CaptureSlotx35,GetBagByPosx4,GetItemByPosx6] DIVERGENCE
+PB53 SCN R4b session logging out, native Applied (forced) expected=RR; 0 observation reads      observed=RecoveryRequired; obs=3 [CaptureSlotx3] DIVERGENCE
+PB53 SCN R5 bot no longer connected                   expected=RR; 0 reads of bot after Core observed=Done; core=Applied; all=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+PB53 SCN R8 forced RR, empty GUID list                expected=RR; 0 reads after Core       observed=RecoveryRequired; all=51 [CaptureSlotx37,GetBagByPosx4,GetGUIDx1,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+PB53 SCN R9 forced RR, recoveryCount 255              expected=RR; 0 reads after Core; no out-of-bounds observed=RecoveryRequired; all=51 [CaptureSlotx37,GetBagByPosx4,GetGUIDx1,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE
+PB53 SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; NOT revalidated first DIVERGENCE
+PB53 SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=1 [GetGUIDx1]                DIVERGENCE
+PB53 SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=2 [GetGUIDx1,GetNamex1]      DIVERGENCE
+PB53 SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    DIVERGENCE
+PB53 SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=41 [GetBagByPosx4,GetGUIDx2,GetItemByPosx35] DIVERGENCE
+PB53 SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O4 bot session logging out                   expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O5 sender logging out                        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O10 sender disconnected                      expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O11 bot left world                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Renamed                   DIVERGENCE
+PB53 SCN O1 success: reply after revalidation         expected=true; 1 whisper to Sender; after both lookups+AI observed=true; whispers=1; NOT revalidated first DIVERGENCE
+PB53 SCN O1b success: bot identity reads after Execute, before re-resolve expected=0 (logs use copied text)     observed=1 [GetGUIDx1]                DIVERGENCE
+PB53 SCN O1c success: sender reads during/after Execute, before re-resolve expected=0                            observed=2 [GetGUIDx1,GetNamex1]      DIVERGENCE
+PB53 SCN O2 factory stop: recovery reply              expected=false; 1 RR whisper after revalidation observed=false; whispers=1 RR-text    DIVERGENCE
+PB53 SCN O2b factory stop: bot reads after stop, before re-resolve expected=0                            observed=41 [GetBagByPosx4,GetGUIDx2,GetItemByPosx35] DIVERGENCE
+PB53 SCN O3 bot pointer swapped during command        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O3b bot Player* differs only (same GUID/session/inc) expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O4 bot session logging out                   expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O5 sender logging out                        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O6 sender owner incarnation changed          expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O7 sender session incarnation changed        expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O8 bot owner incarnation changed             expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O9 bot AI replaced                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O10 sender disconnected                      expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O11 bot left world                           expected=false; 0 whispers            observed=true; whispers=1             DIVERGENCE
+PB53 SCN O12 sender renamed during command            expected=whisper to name copied before run (Sender) observed=to=Renamed                   DIVERGENCE
