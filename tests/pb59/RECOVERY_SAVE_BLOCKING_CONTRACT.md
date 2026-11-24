@@ -57,30 +57,28 @@ Native Game/Worldserver compilation and actual gameplay/DB validation are still 
 that IO/lifecycle path can be implemented and activated safely. No new binding API, bypass,
 save/release caller, persistence policy or speculative effect model is introduced here.
 
-## Exact verification state at this checkpoint
+## Executable verification and limits
 
-- Source fix and earlier fixture:180 ordinary +180 optimized NDEBUG checks passed with
-  GCC16.2/C++20/-Wall/-Wextra/-Werror; actual observer and guard-prefix implementations,
-  explicit remaining engine doubles. The earlier standalone parent-header failure was reproduced.
-- First three contract mutants were rejected by runtime assertions. The fourth (observer-ticket
-  guard removed) failed compilation on an unused-parameter warning; it was NOT counted as a kill.
-  Mutation was corrected to explicitly discard that parameter without disabling warnings.
-- The final fixture adds non-std exceptional delivery. The final ordinary/NDEBUG and four-mutant
-  rerun was NOT executed: automatic approval review hit a usage limit. No final186/4 PASS claim.
+- 186 ordinary +186 optimized NDEBUG checks pass with GCC16.2/C++20/-Wall/-Wextra/-Werror.
+  Actual observer and guard-prefix implementations, explicit remaining engine doubles.
+  The standalone parent-header failure was reproduced before the one-line fix.
+- Four contract mutants compile and are rejected by runtime assertions under NDEBUG.
+  Compiler/launch failures do not count as kills; the ticket-check mutant explicitly discards
+  its unused parameter rather than disabling warnings. Std runtime_error, broken promise,
+  non-std delivery and report-callback retention paths are exercised.
 - CPP style retains only the four inherited diagnostics (BattlegroundAV.h56/797,
-  MoveSpline.cpp224, Spell.cpp3901); whitespace is clean. SQL style was attempted but its
-  required git fetch failed DNS resolution in the sandbox; no current SQL style PASS claim.
+  MoveSpline.cpp224, Spell.cpp3901); whitespace is clean. SQL style passes with its required
+  read-only reference fetch. No SQL source changes are part of this child.
 - No configured approved native development build was identified in the inspected workspace/PATH;
   the existing compiler was reused for header/fixture tests. Native compilation's existing Boost
   dependency gate is not retried here. See NATIVE_RECOVERY_RELEASE_GATES.md.
 
-Pending commands once execution approval review is available:
+Commands:
 
 ```text
 python -B tests/pb59/test_native_recovery_collection.py --save-contract --compiler g++
 python -B tests/pb59/test_native_recovery_collection.py --save-contract --ndebug --mutants --compiler g++
 ```
 
-This checkpoint remains incomplete pending final validation/publication. No merge, repin,
-activation, hosted CI dispatch, deployment, live/schema/config/SQL/DBC/client change or forced
+No merge, repin, activation, hosted CI dispatch, deployment, live/schema/config/SQL/DBC/client change or forced
 recovery. Rollback: discard this isolated child; original source branches remain intact.

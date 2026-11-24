@@ -90,7 +90,7 @@ Such admission/IO/release wiring remains a separate safety decision; none is add
 The focused follow-up [blocking contract and typed delivery fix](RECOVERY_SAVE_BLOCKING_CONTRACT.md)
 exercises actual save guard prefixes and the real typed observer, including a reproduced future
 exception containment gap. It does not create the missing operation-bound recovery-save admission.
-Its document records the final test rerun still pending after approval-review usage exhaustion.
+Its document records executed contract tests and the still-missing native recovery association.
 
 ## Evidence distinction
 
