@@ -14,6 +14,7 @@
 #include "ExactStorageGate.h" // REAL Core53 header (src/server/game/Entities/Player)
 #include "MoveRollbackOracle.h"
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -41,6 +42,10 @@ struct Knobs
     bool skipExactGate = false;         // does not consult PB59::AcceptExactStorage
     bool callbackChangeRefused = false; // pre-agreement behaviour: callback change -> Refused
     bool twoHandFinalStateOnly = false; // checks the two-hander rule only after the whole batch
+    bool trustInsertReturn = false;     // success = insertion returned the same pointer (no re-read)
+    // Optional extra forward-write permission (e.g. ledger access AND no pending
+    // intent), checked after callbacks and before every forward write.
+    std::function<bool()> forwardPermit;
 };
 
 class ReferenceExecutor
@@ -149,6 +154,11 @@ public:
         for (; done < r.moves.size(); ++done)
         {
             auto const& m = r.moves[done];
+            if (done > 0 && _k.forwardPermit && !_k.forwardPermit())
+            {
+                failure = "forward write permission lost mid-batch";
+                break;
+            }
             Item* it = _k.holdPointerAcrossHook ? held[done] : core.GetItemByPos(m.from);
             if (!core.Live(it) || it->guid != m.itemGuid)
             {
@@ -185,6 +195,8 @@ public:
                 core.GetItemByPos(m.to) == stored;
             if (_k.trustSourceEmpty)
                 exact = !core.GetItemByPos(m.from);
+            if (_k.trustInsertReturn)
+                exact = stored == it;
             if (!exact)
             {
                 failure = "store did not return the same item at the exact destination";
@@ -250,6 +262,8 @@ private:
             return "stale custody stamp";
         if (core.loggingOut || core.retiring)
             return "owner is logging out or retiring";
+        if (_k.forwardPermit && !_k.forwardPermit())
+            return "forward write not permitted (ledger access/pending intent)";
         return {};
     }
 

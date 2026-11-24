@@ -71,7 +71,10 @@ struct Item
 
 enum class Actor { Executor, Hook, Core };
 enum class EventKind { Remove, Insert, Merge, Destroy, Mail, Clone, StaleUse, MutationWhileClosed,
-    HookCall };
+    HookCall,
+    PendingIntent,  // a callback registered a deferred logout/save intent (recorded by the test)
+    UseAfterUnlink  // SYNTHETIC in-call effect helper ran after its item was unlinked
+};
 struct Event
 {
     Actor actor;
@@ -101,6 +104,13 @@ public:
     int phase = -1;           // set by executors for ledger attribution only
 
     std::function<bool(Core&, std::uint16_t pos, bool swap)> onPlayerCanUnequipItem;
+    // SYNTHETIC analogue of the in-call boundary Codex reported (#51 7131425394):
+    // _ApplyItemMods -> _ApplyItemBonuses -> OnPlayerCustomScalingStatValueBefore,
+    // then three effect helpers still receive the original item. Fires after an
+    // insertion into an equipment slot. Not a claim about any installed module.
+    std::function<void(Core&, Item*)> onApplyItemMods;
+    int effectHelpersAfterCallback = 3;
+    void RecordPendingIntent() { Record(Actor::Hook, EventKind::PendingIntent, 0, Pos{}); }
     std::map<int, InsertFault> insertFaults; // by insertion ordinal (0-based)
     std::map<int, RemoveFault> removeFaults; // by removal ordinal (0-based)
 
@@ -518,6 +528,16 @@ private:
         }
         Link(item, p);
         Record(actor, EventKind::Insert, item->guid, p);
+        if (p.IsEquipment() && onApplyItemMods)
+        {
+            Actor saved = actor;
+            actor = Actor::Hook;
+            onApplyItemMods(*this, item);
+            actor = saved;
+            for (int h = 0; h < effectHelpersAfterCallback; ++h)
+                if (!Live(item) || item->pos != p)
+                    Record(Actor::Core, EventKind::UseAfterUnlink, item->guid, p);
+        }
         if (f == InsertFault::InsertThenThrow)
             throw InjectedFailure("injected throw after insertion");
         return item;
