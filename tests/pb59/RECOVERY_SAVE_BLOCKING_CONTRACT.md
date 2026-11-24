@@ -67,6 +67,9 @@ save/release caller, persistence policy or speculative effect model is introduce
   Mutation was corrected to explicitly discard that parameter without disabling warnings.
 - The final fixture adds non-std exceptional delivery. The final ordinary/NDEBUG and four-mutant
   rerun was NOT executed: automatic approval review hit a usage limit. No final186/4 PASS claim.
+- CPP style retains only the four inherited diagnostics (BattlegroundAV.h56/797,
+  MoveSpline.cpp224, Spell.cpp3901); whitespace is clean. SQL style was attempted but its
+  required git fetch failed DNS resolution in the sandbox; no current SQL style PASS claim.
 - No configured approved native development build was identified in the inspected workspace/PATH;
   the existing compiler was reused for header/fixture tests. Native compilation's existing Boost
   dependency gate is not retried here. See NATIVE_RECOVERY_RELEASE_GATES.md.
