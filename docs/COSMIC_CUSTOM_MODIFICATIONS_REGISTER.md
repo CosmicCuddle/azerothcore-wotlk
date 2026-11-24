@@ -160,3 +160,23 @@
 - **Rollback:** discard isolated draft or revert coherent executor/dependent adapter commits
   together before activation. Any future deployment requires source/module inventory,
   recoverable DB/config/binary backups, restoration proof and separate owner approval.
+
+## Core dormant AutoGear recovery evidence/proof prototype (24 November 2026)
+
+- **Intent/owner:** CosmicCuddle; ordered Core handback in coordination #81 comment7138488409.
+  Bounded value-only recovery inspection, independent native-proof claims and per-owner
+  retirement observation. No mutation, reset, unlock, replay or persistence implementation.
+- **Source:** isolated `feature/codex-pb59-recovery-evidence-20261124`, exact Core76 parent
+  `e90600d4d30c5d5d2a904a5fd4e9df2dc4f321c1`; preserve Core74 c779e7b4 and PB53/PB54 pins.
+  Retains Core76 exact-pointer diagnostic separately from the unchanged baseline.
+- **Files:** PB59RecoveryEvidence.h, PB59RecoveryProof.h, standalone recovery-evidence tests
+  and [contract/source trace](../tests/pb59/RECOVERY_EVIDENCE_PROTOTYPE.md). No runtime consumer.
+- **Limits/tests:** fixed 19-item/512-text-byte bounds, fail-closed unknown/stale/missing facts,
+  empty-GUID effects uncertainty, pending intents; separate memory and persistence labels.
+  Native collector, exact full build/DB/gameplay and safe shutdown remain unproven. See
+  source-pinned PR evidence for executable counts; prototype claims cannot authorize Finish.
+- **Dependencies/live/rollback:** native operation/lifetime/custody/effects/queue collectors
+  and operation-bound DB provenance require contract review. New persistence or global
+  shutdown policy requires owner review before wiring. No schema/IO/config/SQL/DBC/client,
+  activation, live operation or hosted CI. Discard child to roll back; original branches
+  and established custom features remain intact.
