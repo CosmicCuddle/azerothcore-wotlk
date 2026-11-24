@@ -180,3 +180,25 @@
   shutdown policy requires owner review before wiring. No schema/IO/config/SQL/DBC/client,
   activation, live operation or hosted CI. Discard child to roll back; original branches
   and established custom features remain intact.
+
+## Dormant native recovery collection/provenance adapter (24 November 2026)
+
+- **Owner/assignment:** CosmicCuddle / #51 comment7139518657. Private static Player
+  observation helpers, no runtime caller or Playerbots API. No mutation/release authority.
+- **Source:** `feature/codex-pb59-native-recovery-collector-20261124`, exact Core78 parent
+  `9bfe0d6ffbfe8204b62cd64f2af02eabb638a476`. Existing Core/PB build tuple unchanged.
+- **Files/dependencies:** Player.h static declarations; PlayerPB59Recovery.cpp;
+  PB59NativeRecoveryCollection.h; PB59RecoverySaveProvenance.h; standalone tests and
+  [native collection contract/source trace](../tests/pb59/NATIVE_RECOVERY_COLLECTION.md).
+  Depends on actual ledger scope, native stamp/slot observation and existing save records.
+- **Behaviour/limits:** pre-reserved bounded scratch, actual Core ticket/revision,
+  sentinel/currentness-before-read, creator-thread check, owned value export. Journal/queue
+  observations remain Unknown/Uncertain. Save execution/membership never become durable
+  recovery proof; missing/stale/ambiguous data remains unverified. No native collector hook.
+- **Evidence:** 64 extracted collector checks ordinary/NDEBUG; real save-record constexpr
+  contracts and eight static mutants per mode. Explicit engine doubles, no real Worldserver/
+  DB/gameplay/durability proof. Source-pinned PR records exact results and open build gates.
+- **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
+  SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
+  binding/full reconciliation and any new persistence/global policy need review before
+  wiring. Discard isolated child to roll back; original branches/pins remain preserved.

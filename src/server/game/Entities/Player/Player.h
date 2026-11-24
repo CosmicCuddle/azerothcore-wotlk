@@ -49,6 +49,7 @@
 #include "PB59OriginalPointerCustody.h"
 #include "PB59OriginalCombatEffects.h"
 #include "PB59TransactionAdmission.h"
+#include "PB59NativeRecoveryCollection.h"
 #include "WorldSession.h"
 #include <set>
 #include <string>
@@ -3092,6 +3093,13 @@ private:
         PB59::ExactStorageReservation const* exact = nullptr);
     // Private exact restoration insertion; no runtime caller until ownership is proven.
     Item* _EquipItem(uint16 pos, Item* pItem, bool update, PB59::ExactStorageReservation const* exact);
+    // Dormant read-only collector: no runtime call site or public PB API.
+    static std::unique_ptr<PB59::Recovery::NativeCollection> PreparePB59RecoveryCollection(
+        Player const& owner, std::span<PB59::InventoryBatchMove const> moves);
+    static PB59::Recovery::CollectionStatus BindPB59RecoveryCollection(PB59::Recovery::NativeCollection& buffer,
+        PB59::TransactionAdmission::MutationScope const& scope);
+    static PB59::Recovery::CollectionStatus CollectPB59RecoveryEvidence(PB59::Recovery::NativeCollection& buffer,
+        PB59::TransactionAdmission::MutationScope const& scope, PB59::InventoryBatchResult const& failure);
     // Private queue-only handoff. The enclosing transaction must own the
     // original Item, forbid saves/retirement and reconcile links/effects.
     struct PB59OriginalQueueHold
