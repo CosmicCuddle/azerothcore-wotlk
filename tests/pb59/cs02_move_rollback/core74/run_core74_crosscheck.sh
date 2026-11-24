@@ -5,13 +5,14 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 c74="$(cd "${1:?usage: $0 <core74-checkout> [sysinc...]}" && pwd)"; shift
-PIN_HEAD=27b6135909826434d9d5856237a68e7bfc6612f2
+# 27b61359 = original pin; fa674825 = later Core74 head with the same two blobs.
+PIN_HEADS="27b6135909826434d9d5856237a68e7bfc6612f2 fa67482573e9426b701adb9b546a44a6d6113237"
 declare -A PIN_BLOB=(
   [src/server/game/Entities/Player/PB59InventoryBatchPlan.h]=cb5574ab902334431ac42067013a8feb6d2fe57b
   [src/server/game/Entities/Player/PB59TransactionAdmission.h]=6c3bf34b767f58c72232145c143263cc66d60fdd
 )
 head="$(git -C "$c74" rev-parse HEAD)"
-[[ $head == "$PIN_HEAD" ]] || { echo "Core74 head $head != pinned $PIN_HEAD"; exit 2; }
+[[ " $PIN_HEADS " == *" $head "* ]] || { echo "Core74 head $head is not a pinned head ($PIN_HEADS)"; exit 2; }
 for f in "${!PIN_BLOB[@]}"; do
   b="$(git -C "$c74" hash-object "$c74/$f")"
   [[ $b == "${PIN_BLOB[$f]}" ]] || { echo "$f blob $b != pinned ${PIN_BLOB[$f]}"; exit 2; }
