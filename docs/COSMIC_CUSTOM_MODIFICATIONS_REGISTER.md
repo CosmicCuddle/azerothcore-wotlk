@@ -220,3 +220,23 @@
   remain unvalidated. No native state writes, unlock, Finish, IO, SQL/schema/config or policy.
 - **Live/rollback:** dormant development only; no activation/deployment/CI dispatch or existing
   feature removal. Discard isolated child to roll back; parent and existing executor preserved.
+
+## Dormant recovery update-state observations (24 November 2026)
+
+- **Owner/scope:** CosmicCuddle / #51 assignment7139518657, continuing Core native-observation
+  work. Private Item mask reader and dormant Player collector; no runtime call sites or PB change.
+- **Source:** `feature/codex-pb59-recovery-update-observation-20261124`, exact Core81 parent
+  `62f54266395d4715c34464ff592ec09043f457bf`; no integration tuple repin.
+- **Files/dependencies:** PB59RecoveryUpdateObservation.h value copier, Item.h private helper,
+  PB59NativeRecoveryCollection.h, PlayerPB59Recovery.cpp, collector fixture/runner and protocol.
+  Uses actual UpdateMask GetCount/GetBit, native dirty state and original Map update set.
+- **Behaviour:** bounded item/container masks256 fields and owner2048 fields; fixed scratch
+  <=512 KiB before admission. Records queue item state/world/pending/map membership and owner
+  update state; validates before-image at bind, records changes/invalidity at recovery. Unknown
+  unchanged, Uncertain changed/inconsistent; no authorization or native writes/restoration.
+- **Tests/limits:**373 ordinary +373 optimized NDEBUG extracted-native checks; nine deliberate
+  faults caught in NDEBUG. Actual mask class/private helper, explicit engine/serialization
+  doubles; full Player/Game build/gameplay, unqueued objects, field values, effects and persistence
+  remain unproven. See source-pinned PR/protocol for exact results and fixture limits.
+- **Live/rollback:** dormant only, no migration/config/SQL/DBC/client, IO, unlock, policy,
+  CI dispatch, activation or deployment. Discard isolated child to roll back; preserve ancestors.

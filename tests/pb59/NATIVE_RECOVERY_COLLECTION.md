@@ -4,7 +4,9 @@ Owner: CosmicCuddle. Assignment: coordination #51 comment7139518657.
 Original collector branch `feature/codex-pb59-native-recovery-collector-20261124`, exact Core78
 parent `9bfe0d6ffbfe8204b62cd64f2af02eabb638a476`. Queue identity follow-up branch
 `feature/codex-pb59-recovery-queue-beforeimage-20261124`, exact Core79 parent
-`d293650c77a9ce233f6e792c41632daed8e2b167`. Existing branches and PB53/PB54 build pins
+`d293650c77a9ce233f6e792c41632daed8e2b167`. Update observation follow-up branch
+`feature/codex-pb59-recovery-update-observation-20261124`, exact Core81 parent
+`62f54266395d4715c34464ff592ec09043f457bf`. Existing branches and PB53/PB54 build pins
 remain preserved. No integration repin or native runtime caller is introduced.
 
 ## Collection protocol
@@ -51,7 +53,7 @@ Prepare captures each queue index, including null tombstones, with private origi
 pointer and owned GUID/owner/queue-position values. Zero/duplicate GUIDs, foreign owners,
 incorrect queue positions and over-capacity queues refuse before admission. Duplicate
 GUID validation uses bounded quadratic comparison (at most 4096 entries); the adapter is dormant.
-Scratch is heap-reserved before admission and statically bounded to 256 KiB including the
+Scratch is heap-reserved before admission and statically bounded to 512 KiB including the
 private image; exported CollectedValues contains no native addresses.
 
 Bind checks the full image against the current queue after obtaining a genuine scope ticket.
@@ -69,13 +71,42 @@ queueCompared is true only after the entire bounded comparison; queueUnchanged i
 only when queueCompared is true. Counts and partial samples do not imply complete observation
 after an early context/lifetime failure. Collected describes observation completion and may
 contain queue changes; any changed/inconsistent queue has Uncertain proof. Unchanged identities
-remain Unknown: item update masks, dirty values, map registration and combat effects still lack
-full restoration proof. Metadata changes are outside this identity comparison. No consumer,
+remain Unknown: observed update masks and map registrations do not prove dirty values or
+combat effects restored. Metadata values are outside this comparison. No consumer,
 original executor Applied result, Playerbots behavior, release authority or persistence changes.
 
 This does not answer whole-inventory custody by inference. Core74 verifies planned links and
 depends on supported owner-wide mutation producers for unrelated items; fixture raw-field
 bypasses do not establish native reachability. See coordination #51 comment7140735652.
+
+## Dirty state, update masks and registration follow-up
+
+Each non-null queue entry now includes native ItemUpdateState, IsInWorld, object-update pending,
+registration in the original owner's map update set and a complete bounded copy of its update
+mask bits. The owner Player has separate before/current mask, world, pending and map registration
+values. A private Item helper reads the protected native mask; no Object API, mutator or caller
+outside the dormant collector is added. The helper uses a standalone, allocation-free value copier.
+
+Maximum mask capacities are 256 item/container fields and 2048 owner fields. The native source
+statically checks CONTAINER_END/PLAYER_END fit. Native field count must be nonzero, bounded and
+match UpdateMask.GetCount before any GetBit access. Output words are canonical (zero tail/padding),
+including unsigned shifts at bit31. Invalid inputs leave the old mask output intact. No native
+SetBit, Clear, field value write, update registration or mask restoration is performed.
+
+Prepare refuses malformed masks or inconsistent pending/registration state before opening a scope.
+Bind validates the entire prepared owner and queue update observations alongside identities.
+Collection guards each observation with the retained scope checks, records complete mask/state
+differences and detects pending/registration inconsistencies. Malformed current masks remain
+incomplete; failed/partial scans cannot claim queueCompared. Owner availability/consistency/change
+flags are separate. Unchanged queue entries plus changed owner masks/registration still produce
+Uncertain; even unchanged observations remain Unknown, never Verified.
+
+The domain is the owner Player and items present in the native item-save queue at preparation or
+collection. Unqueued objects (including unqueued planned originals/bags), item field values,
+registration in other maps, combat/aura/cooldown state and persistence are not established. A
+changed value under an already-set mask bit may leave this observation unchanged; no restoration
+or whole-inventory proof follows. Allocation-failure injection passes for this fixture's capture
+path, not all real engine getters. Process/lifetime/concurrency limits above are unchanged.
 
 ## Read-only save provenance
 
@@ -112,7 +143,7 @@ later absence is not proof of success/failure. No observer hook or save bypass i
 
 ## Executable evidence and limits
 
-- GCC16.2/C++20/-Wall/-Wextra/-Werror: 175 extracted native collector checks pass ordinary
+- GCC16.2/C++20/-Wall/-Wextra/-Werror: 373 extracted native collector checks pass ordinary
   and optimized NDEBUG. Actual collector/stamp/admission bodies and PB59 headers are used;
   engine, slot capture, map/session/item infrastructure are explicit reused doubles.
   Cases cover allocation/capacity refusal, actual ticket/revision, wrong/missing scope,
@@ -120,9 +151,14 @@ later absence is not proof of success/failure. No observer hook or save bypass i
   missing originals, pending intent, queue/journal uncertainty and no writes/unlock. Follow-up
   cases cover malformed/stale prepared queues, metadata versus identity, same-value pointer
   replacement, missing/added/reordered entries, 4096 changes with 19 exported samples, and
-  sentinel loss at an Item GUID getter with no subsequent owner read. Five deliberate queue
-  guard mutants are rejected by runtime assertions in optimized NDEBUG mode; compile/launch
-  failures do not count as a killed mutant.
+  sentinel loss at an Item GUID getter with no subsequent owner read. Added real UpdateMask
+  implementation and extracted private Item helper, mask boundaries/canonical tails/mismatches,
+  native dirty/world/registration changes, malformed capture and map-getter sentinel loss.
+  Nine deliberate queue/update guard mutants are rejected by runtime assertions in optimized
+  NDEBUG mode; compile/launch failures do not count as a killed mutant.
+  The fixture uses a fixed underlying ItemUpdateState type to make deliberately unknown-state
+  fault injections defined; the native enum is unchanged. ByteBuffer serialization dependencies,
+  Player/Item layouts and map infrastructure remain doubles; actual mask class is copied verbatim.
 - Actual save-record/transaction-result constexpr contracts pass ordinary/NDEBUG; eight
   one-defect mutants fail static assertions in each mode. No executable/DB is involved.
 - Inherited Core78 model: NDEBUG now executes 158 checks and rejects eight runtime mutants.
@@ -149,7 +185,8 @@ that mode was not run locally. No deliberate crash/shutdown or live stack test w
 ## Remaining boundary and rollback
 
 No runtime collection wiring, reset/unlock, replay, forced retirement, schema/IO/config/SQL/
-DBC/client change, hosted CI, merge or deployment. Full native effects/queue before-images
-and operation-bound save provenance remain open. New persistence or global shutdown policy
+DBC/client change, hosted CI, merge or deployment. Native effects, field values and update-state
+before-images outside the observed queue/owner domain, and operation-bound save provenance remain
+open. New persistence or global shutdown policy
 still requires owner review before wiring. Discard this child to roll back; original source
 branches/pins and established custom features remain intact.

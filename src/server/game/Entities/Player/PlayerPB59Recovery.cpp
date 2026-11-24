@@ -22,6 +22,7 @@ std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCol
     Player const& owner, std::span<PB59::InventoryBatchMove const> moves)
 {
     using namespace PB59::Recovery;
+    static_assert(CONTAINER_END <= MaximumItemUpdateFields && PLAYER_END <= MaximumOwnerUpdateFields);
     // Caller already owns the serialized native context. Prepare before scope
     // admission: refusal/allocation failure cannot strand a native mutation.
     try
@@ -43,6 +44,14 @@ std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCol
             return {};
         buffer->_preparedStamp = *stamp;
         auto& values = buffer->_values;
+        auto& ownerUpdate = values.ownerUpdateBefore;
+        if (!CopyUpdateMask(owner._changesMask, owner.m_valuesCount, ownerUpdate.mask))
+            return {};
+        ownerUpdate.inWorld = owner.IsInWorld();
+        ownerUpdate.objectPending = owner.m_objectUpdated;
+        ownerUpdate.mapRegistered = buffer->_map->PB59HasUpdateObject(&owner);
+        if (ownerUpdate.objectPending != ownerUpdate.mapRegistered)
+            return {};
         values.evidence.operation = {guid, incarnation, sessionIncarnation, 0}; // ticket only comes from Bind
         values.evidence.revision = stamp->revision;
         values.evidence.originalCount = static_cast<std::uint8_t>(moves.size());
@@ -53,10 +62,20 @@ std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCol
             entry.item = owner.m_itemUpdateQueue[index];
             if (!entry.item)
                 continue; // a native queue tombstone is a position, not a missing capture
-            entry.value = {entry.item->GetGUID().GetRawValue(), entry.item->GetOwnerGUID().GetRawValue(),
-                entry.item->uQueuePos, true};
+            entry.value.guid = entry.item->GetGUID().GetRawValue();
+            entry.value.owner = entry.item->GetOwnerGUID().GetRawValue();
+            entry.value.position = entry.item->uQueuePos;
+            entry.value.present = true;
+            entry.value.itemState = static_cast<std::uint32_t>(entry.item->GetState());
+            auto& update = entry.value.updates;
+            if (!entry.item->PB59CopyUpdateMask(update.mask))
+                return {};
+            update.inWorld = entry.item->IsInWorld();
+            update.objectPending = entry.item->PB59HasObjectUpdatePending();
+            update.mapRegistered = buffer->_map->PB59HasUpdateObject(entry.item);
             if (!entry.value.guid || entry.value.owner != guid ||
-                entry.value.position != static_cast<std::int32_t>(index))
+                entry.value.position != static_cast<std::int32_t>(index) || entry.value.itemState > ITEM_REMOVED ||
+                update.objectPending != update.mapRegistered)
                 return {};
             for (std::size_t previous = 0; previous < index; ++previous)
                 if (buffer->_queueBefore[previous].value.present &&
@@ -147,6 +166,15 @@ PB59::Recovery::CollectionStatus Player::BindPB59RecoveryCollection(PB59::Recove
         }
         // The prepared image must still be exact at admission. Do not bind a
         // stale image to a new native ticket, even if the planned slots match.
+        OwnerUpdateFacts ownerUpdate;
+        bool copied = false;
+        if (!read([&] { copied = CopyUpdateMask(owner->_changesMask, owner->m_valuesCount, ownerUpdate.mask); }) ||
+            !copied || !read([&] { ownerUpdate.inWorld = owner->IsInWorld(); }) ||
+            !read([&] { ownerUpdate.objectPending = owner->m_objectUpdated; }) ||
+            !read([&] { ownerUpdate.mapRegistered = buffer._map->PB59HasUpdateObject(owner); }) ||
+            ownerUpdate != output.ownerUpdateBefore)
+            return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
+                CollectionStatus::OwnerUnavailable;
         std::size_t queueSize = 0;
         if (!read([&] { queueSize = owner->m_itemUpdateQueue.size(); }) ||
             queueSize != output.summary.preparedQueueEntries)
@@ -164,6 +192,16 @@ PB59::Recovery::CollectionStatus Player::BindPB59RecoveryCollection(PB59::Recove
                 !read([&] { entry.owner = item->GetOwnerGUID().GetRawValue(); }) ||
                 !read([&] { entry.position = item->uQueuePos; })))
                 return output.summary.status = CollectionStatus::OwnerUnavailable;
+            if (item)
+            {
+                if (!read([&] { entry.itemState = static_cast<std::uint32_t>(item->GetState()); }) ||
+                    !read([&] { copied = item->PB59CopyUpdateMask(entry.updates.mask); }) || !copied ||
+                    !read([&] { entry.updates.inWorld = item->IsInWorld(); }) ||
+                    !read([&] { entry.updates.objectPending = item->PB59HasObjectUpdatePending(); }) ||
+                    !read([&] { entry.updates.mapRegistered = buffer._map->PB59HasUpdateObject(item); }))
+                    return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
+                        CollectionStatus::OwnerUnavailable;
+            }
             if (entry != buffer._queueBefore[index].value)
                 return output.summary.status = CollectionStatus::ContextUnavailable;
         }
@@ -321,9 +359,23 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
         }
         output.summary.journalsObserved = true;
         evidence.effects = output.summary.nonFreshJournalMask ? ProofState::Uncertain : ProofState::Unknown;
+        auto& ownerUpdate = output.ownerUpdateNow;
+        bool copied = false;
+        if (!read([&] { copied = CopyUpdateMask(owner->_changesMask, owner->m_valuesCount, ownerUpdate.mask); }))
+            return unavailable();
+        if (!copied)
+            return output.summary.status = CollectionStatus::Incomplete;
+        if (!read([&] { ownerUpdate.inWorld = owner->IsInWorld(); }) ||
+            !read([&] { ownerUpdate.objectPending = owner->m_objectUpdated; }) ||
+            !read([&] { ownerUpdate.mapRegistered = buffer._map->PB59HasUpdateObject(owner); }))
+            return unavailable();
+        output.summary.ownerUpdateObserved = true;
+        output.summary.ownerUpdateConsistent = ownerUpdate.objectPending == ownerUpdate.mapRegistered;
+        output.summary.ownerUpdateUnchanged = ownerUpdate == output.ownerUpdateBefore;
         if (!read([&] { output.summary.observedQueueEntries = owner->m_itemUpdateQueue.size(); }))
             return unavailable();
         output.summary.queueObserved = true;
+        evidence.queues = ProofState::Uncertain; // partial scans cannot establish unchanged update state
         output.summary.queueConsistent = output.summary.observedQueueEntries <= MaximumQueueObservations;
         if (output.summary.queueConsistent)
         {
@@ -340,10 +392,22 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
                 {
                     if (!read([&] { now.guid = item->GetGUID().GetRawValue(); }) ||
                         !read([&] { now.owner = item->GetOwnerGUID().GetRawValue(); }) ||
-                        !read([&] { now.position = item->uQueuePos; }))
+                        !read([&] { now.position = item->uQueuePos; }) ||
+                        !read([&] { now.itemState = static_cast<std::uint32_t>(item->GetState()); }) ||
+                        !read([&] { copied = item->PB59CopyUpdateMask(now.updates.mask); }))
+                        return unavailable();
+                    if (!copied)
+                    {
+                        output.summary.queueConsistent = false;
+                        return output.summary.status = CollectionStatus::Incomplete;
+                    }
+                    if (!read([&] { now.updates.inWorld = item->IsInWorld(); }) ||
+                        !read([&] { now.updates.objectPending = item->PB59HasObjectUpdatePending(); }) ||
+                        !read([&] { now.updates.mapRegistered = buffer._map->PB59HasUpdateObject(item); }))
                         return unavailable();
                     if (!now.guid || now.position != static_cast<std::int32_t>(index) ||
-                        now.owner != evidence.operation.owner)
+                        now.owner != evidence.operation.owner || now.itemState > ITEM_REMOVED ||
+                        now.updates.objectPending != now.updates.mapRegistered)
                         output.summary.queueConsistent = false;
                 }
                 auto const& before = buffer._queueBefore[index];
@@ -360,18 +424,19 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
             output.summary.queueCompared = true;
             output.summary.queueUnchanged = output.summary.changedQueueEntries == 0;
         }
-        // Queue shape and journal phases are observations, not original full
-        // queue/update-mask or combat/aura before-images. Never promote them.
+        // Complete copied masks do not prove field values, unqueued objects or
+        // native combat/aura restoration. Never promote unchanged to Verified.
         evidence.queues = output.summary.queueCompared && output.summary.queueConsistent &&
-            output.summary.queueUnchanged ? ProofState::Unknown : ProofState::Uncertain;
+            output.summary.queueUnchanged && output.summary.ownerUpdateConsistent &&
+            output.summary.ownerUpdateUnchanged ? ProofState::Unknown : ProofState::Uncertain;
         bool pendingSave = false, pendingLogout = false;
         if (!read([&] { pendingSave = owner->_pb59Transaction.PendingSave(); }) ||
             !read([&] { pendingLogout = owner->_pb59Transaction.PendingLogout(); }))
             return unavailable();
         evidence.pendingSave = evidence.pendingSave || pendingSave;
         evidence.pendingLogout = evidence.pendingLogout || pendingLogout;
-        return output.summary.status = complete && output.summary.queueConsistent ? CollectionStatus::Collected :
-            CollectionStatus::Incomplete;
+        return output.summary.status = complete && output.summary.queueConsistent &&
+            output.summary.ownerUpdateConsistent ? CollectionStatus::Collected : CollectionStatus::Incomplete;
     }
     catch (...)
     {
