@@ -50,7 +50,9 @@ extras = declarations + r'''
     mutable std::function<void()> collectionHook;
     void NoteCollectionRead() const { ++collectionReads; if (collectionStopped) ++readsAfterCollectionStop; }
     void ArmCollection() {
-        std::array<void const*, 1> pointers{GetItemByPos(65280)};
+        auto* original = GetItemByPos(65280);
+        if (!original && !ownership.empty()) original = ownership.front().get();
+        std::array<void const*, 1> pointers{original};
         if (!_pb59Equipment.PrepareInventoryReservation(GetGUID().GetRawValue(), pointers)) std::abort();
         _pb59Equipment.SetInventoryQuarantined(true); _pb59Equipment.Invalidate();
     }
@@ -72,10 +74,13 @@ fixture = prefix + actor_fixture
 fixture = fixture.replace("class Item {\npublic:", "class Item {\npublic:\n" + r'''
     UpdateMask _changesMask;
     std::uint16_t m_valuesCount = 64;
+    std::array<std::uint32_t, PB59::Recovery::MaximumItemUpdateFields> rawFields{};
+    mutable unsigned collectionFieldReads = 0;
+    std::uint32_t GetUInt32Value(std::uint16_t index) const { ++collectionFieldReads; return rawFields.at(index); }
     mutable unsigned collectionQueueReads = 0;
     mutable std::function<void()> collectionQueueHook;
     void NoteQueueRead() const { ++collectionQueueReads; if (collectionQueueHook) collectionQueueHook(); }
-''' + function(item_header, "    bool PB59CopyUpdateMask("))
+''' + function(item_header, "    bool PB59CopyUpdateMask(") + function(item_header, "    bool PB59CopyFieldValues("))
 fixture = fixture.replace("facts.guid = guid;", "_changesMask.SetCount(m_valuesCount); facts.guid = guid;")
 fixture = fixture.replace("    Player() {", "    Player() { _changesMask.SetCount(m_valuesCount);")
 fixture = fixture.replace("struct Map {", "struct Map { mutable unsigned collectionMapReads = 0; "
@@ -101,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
         "CombatEffects.inc": function(storage, "PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects("),
         "ItemMods.inc": function(player, "void Player::_ApplyItemMods("),
         "Executor.inc": "",  # this suite does not re-run the movement executor
-        "UpdateMask.inc": "constexpr int CONTAINER_END = 138;\n"
+        "UpdateMask.inc": "constexpr int CONTAINER_END = 138, INVENTORY_SLOT_BAG_START = 19;\n"
                           "struct ByteBuffer { template<typename T> ByteBuffer& operator<<(T) { return *this; } };\n"
                           "#define ASSERT(value) do { if (!(value)) std::abort(); } while (false)\n" +
                           function(mask_header, "class UpdateMask\n") + ";\n",
@@ -139,14 +144,20 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
                 "false ||"),
             "bind image not validated": original[:bind_start] + original[bind_end:],
             "identity promoted to proof": original.replace(
-                "output.summary.ownerUpdateUnchanged ? ProofState::Unknown",
-                "output.summary.ownerUpdateUnchanged ? ProofState::Verified"),
+                "!output.summary.changedWatchedItems ? ProofState::Unknown",
+                "!output.summary.changedWatchedItems ? ProofState::Verified"),
             "item registration inconsistency ignored": original.replace(
                 "now.updates.objectPending != now.updates.mapRegistered", "false"),
             "owner changes ignored": original.replace(
                 "ownerUpdate == output.ownerUpdateBefore", "true"),
             "owner bind image ignored": original.replace(
                 "ownerUpdate != output.ownerUpdateBefore", "false"),
+            "watched field values ignored at bind": original.replace(
+                "now != observation.before", "now.state != observation.before.state"),
+            "watched field differences ignored": original.replace(
+                "observation.now == observation.before", "observation.now.state == observation.before.state"),
+            "watched original pointer ignored": original.replace(
+                "item && item == watched.item", "item != nullptr"),
         }
         for name, body in mutants.items():
             if body == original:

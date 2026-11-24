@@ -16,6 +16,7 @@
  */
 
 #include "Player.h"
+#include "Bag.h"
 #include "Map.h"
 
 std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCollection(
@@ -23,6 +24,7 @@ std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCol
 {
     using namespace PB59::Recovery;
     static_assert(CONTAINER_END <= MaximumItemUpdateFields && PLAYER_END <= MaximumOwnerUpdateFields);
+    static_assert(INVENTORY_SLOT_BAG_END - INVENTORY_SLOT_BAG_START <= 4);
     // Caller already owns the serialized native context. Prepare before scope
     // admission: refusal/allocation failure cannot strand a native mutation.
     try
@@ -91,6 +93,40 @@ std::unique_ptr<PB59::Recovery::NativeCollection> Player::PreparePB59RecoveryCol
             buffer->_originals[index] = owner.GetItemByPos(moves[index].source.position);
             if (!buffer->_originals[index])
                 return {};
+        }
+        auto watch = [&](Item const* item, std::uint16_t position, std::uint16_t alternate, bool container)
+        {
+            if (!item)
+                return false;
+            for (std::size_t index = 0; index < values.summary.watchedItems; ++index)
+                if (buffer->_watched[index].item == item)
+                    return container && buffer->_watched[index].observation.container &&
+                        buffer->_watched[index].observation.position == position;
+            if (values.summary.watchedItems == MaximumWatchedItems)
+                return false;
+            auto& watched = buffer->_watched[values.summary.watchedItems];
+            watched.item = item;
+            auto& observation = watched.observation;
+            observation.position = position;
+            observation.alternate = alternate;
+            observation.container = container;
+            if (!CopyPB59RecoveryItemValues(&owner, item, buffer->_map, observation.before,
+                values.evidence.operation, nullptr))
+                return false;
+            for (std::size_t index = 0; index < values.summary.watchedItems; ++index)
+                if (buffer->_watched[index].observation.before.state.guid == observation.before.state.guid)
+                    return false;
+            ++values.summary.watchedItems;
+            return true;
+        };
+        for (std::size_t index = 0; index < moves.size(); ++index)
+        {
+            if (!watch(buffer->_originals[index], moves[index].source.position,
+                moves[index].destination.position, false))
+                return {};
+            for (auto const* slot : {&moves[index].source, &moves[index].destination})
+                if (slot->bag && !watch(owner.GetBagByPos(slot->position >> 8), slot->position >> 8, 0, true))
+                    return {};
         }
         return buffer;
     }
@@ -161,6 +197,21 @@ PB59::Recovery::CollectionStatus Player::BindPB59RecoveryCollection(PB59::Recove
                 !read([&] { item = owner->GetItemByPos(observed.position); }) || item != buffer._originals[index] ||
                 !read([&] { native = owner->CapturePB59InventorySlot(output.destinations[index].before.position); }) ||
                 !native || !CopySlot(*native, observed) || observed != output.destinations[index].before)
+                return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
+                    CollectionStatus::OwnerUnavailable;
+        }
+        for (std::size_t index = 0; index < output.summary.watchedItems; ++index)
+        {
+            auto const& watched = buffer._watched[index];
+            Item const* item = nullptr;
+            auto const& observation = watched.observation;
+            if (!read([&] { item = observation.container ? owner->GetBagByPos(observation.position) :
+                    owner->GetItemByPos(observation.position); }) || item != watched.item)
+                return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
+                    CollectionStatus::OwnerUnavailable;
+            WatchedItemValues now;
+            if (!CopyPB59RecoveryItemValues(owner, item, buffer._map, now, evidence.operation, &scope) ||
+                now != observation.before)
                 return output.summary.status = alive() ? CollectionStatus::ContextUnavailable :
                     CollectionStatus::OwnerUnavailable;
         }
@@ -346,6 +397,34 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
             else
                 complete = false;
         }
+        for (std::size_t index = 0; index < output.summary.watchedItems; ++index)
+        {
+            auto& watched = buffer._watched[index];
+            auto& observation = watched.observation;
+            Item const* item = nullptr;
+            if (!read([&] { item = observation.container ? owner->GetBagByPos(observation.position) :
+                    owner->GetItemByPos(observation.position); }))
+                return unavailable();
+            if (!observation.container && item != watched.item &&
+                !read([&] { item = owner->GetItemByPos(observation.alternate); }))
+                return unavailable();
+            // Re-resolve at bounded known locations. Never read a saved raw
+            // Item/Bag pointer when its native link cannot be re-established.
+            observation.sameNativeInstance = item && item == watched.item;
+            if (!observation.sameNativeInstance || !CopyPB59RecoveryItemValues(owner, item, buffer._map,
+                observation.now, evidence.operation, &scope))
+            {
+                if (!alive())
+                    return unavailable();
+                complete = false;
+                continue;
+            }
+            observation.observed = true;
+            ++output.summary.observedWatchedItems;
+            observation.unchanged = observation.now == observation.before;
+            if (!observation.unchanged)
+                ++output.summary.changedWatchedItems;
+        }
         static_assert(EQUIPMENT_SLOT_END <= 32);
         for (std::size_t slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
         {
@@ -428,7 +507,8 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
         // native combat/aura restoration. Never promote unchanged to Verified.
         evidence.queues = output.summary.queueCompared && output.summary.queueConsistent &&
             output.summary.queueUnchanged && output.summary.ownerUpdateConsistent &&
-            output.summary.ownerUpdateUnchanged ? ProofState::Unknown : ProofState::Uncertain;
+            output.summary.ownerUpdateUnchanged && output.summary.observedWatchedItems == output.summary.watchedItems &&
+            !output.summary.changedWatchedItems ? ProofState::Unknown : ProofState::Uncertain;
         bool pendingSave = false, pendingLogout = false;
         if (!read([&] { pendingSave = owner->_pb59Transaction.PendingSave(); }) ||
             !read([&] { pendingLogout = owner->_pb59Transaction.PendingLogout(); }))
@@ -444,4 +524,47 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
             return unavailable();
         return output.summary.status = CollectionStatus::Incomplete;
     }
+}
+
+bool Player::CopyPB59RecoveryItemValues(Player const* owner, Item const* item, Map const* map,
+    PB59::Recovery::WatchedItemValues& output, PB59::Recovery::Operation const& operation,
+    PB59::TransactionAdmission::MutationScope const* scope)
+{
+    using namespace PB59::Recovery;
+    using Access = PB59::TransactionAdmission::Access;
+    auto alive = [&]
+    {
+        return !scope || (scope->GetTicket() == operation.ticket &&
+            (scope->CanAccess(operation.ownerIncarnation, Access::Forward) ||
+                scope->CanAccess(operation.ownerIncarnation, Access::Recovery)));
+    };
+    auto read = [&](auto&& getter)
+    {
+        if (!alive())
+            return false;
+        getter();
+        return alive();
+    };
+    if (!owner || !item || !map)
+        return false;
+    auto& state = output.state;
+    bool copied = false, queued = false;
+    std::size_t queueSize = 0;
+    if (!read([&] { state.guid = item->GetGUID().GetRawValue(); }) ||
+        !read([&] { state.owner = item->GetOwnerGUID().GetRawValue(); }) ||
+        !read([&] { state.position = item->uQueuePos; }) ||
+        !read([&] { state.itemState = static_cast<std::uint32_t>(item->GetState()); }) ||
+        !read([&] { copied = item->PB59CopyUpdateMask(state.updates.mask); }) || !copied ||
+        !read([&] { copied = item->PB59CopyFieldValues(output.values); }) || !copied ||
+        !read([&] { state.updates.inWorld = item->IsInWorld(); }) ||
+        !read([&] { state.updates.objectPending = item->PB59HasObjectUpdatePending(); }) ||
+        !read([&] { state.updates.mapRegistered = map->PB59HasUpdateObject(item); }) ||
+        !read([&] { queueSize = owner->m_itemUpdateQueue.size(); }) || queueSize > MaximumQueueObservations ||
+        !read([&] { queued = PB59::ExactOriginalQueue(owner->m_itemUpdateQueue, item, state.position,
+            state.position >= 0); }))
+        return false;
+    state.present = true;
+    return state.guid && state.owner == operation.owner && state.itemState <= ITEM_REMOVED && queued &&
+        state.updates.objectPending == state.updates.mapRegistered &&
+        output.values.fieldCount == state.updates.mask.fieldCount;
 }

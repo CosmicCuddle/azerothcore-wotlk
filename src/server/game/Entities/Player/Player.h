@@ -3100,6 +3100,9 @@ private:
         PB59::TransactionAdmission::MutationScope const& scope);
     static PB59::Recovery::CollectionStatus CollectPB59RecoveryEvidence(PB59::Recovery::NativeCollection& buffer,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::InventoryBatchResult const& failure);
+    static bool CopyPB59RecoveryItemValues(Player const* owner, Item const* item, Map const* map,
+        PB59::Recovery::WatchedItemValues& output, PB59::Recovery::Operation const& operation,
+        PB59::TransactionAdmission::MutationScope const* scope);
     // Private queue-only handoff. The enclosing transaction must own the
     // original Item, forbid saves/retirement and reconcile links/effects.
     struct PB59OriginalQueueHold

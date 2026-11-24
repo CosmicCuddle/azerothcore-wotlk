@@ -43,4 +43,24 @@ struct ObjectUpdateFacts
 };
 using ItemUpdateMask = UpdateMaskFacts<MaximumItemUpdateFields>;
 using OwnerUpdateFacts = ObjectUpdateFacts<MaximumOwnerUpdateFields>;
+
+struct ItemFieldValues
+{
+    std::uint32_t fieldCount = 0;
+    std::array<std::uint32_t, MaximumItemUpdateFields> fields{};
+    bool operator==(ItemFieldValues const&) const = default;
+};
+
+template<typename Getter>
+bool CopyItemFieldValues(std::uint32_t count, Getter&& getter, ItemFieldValues& output)
+{
+    if (!count || count > MaximumItemUpdateFields)
+        return false;
+    ItemFieldValues value;
+    value.fieldCount = count;
+    for (std::uint32_t index = 0; index < count; ++index)
+        value.fields[index] = getter(index);
+    output = value;
+    return true;
+}
 }

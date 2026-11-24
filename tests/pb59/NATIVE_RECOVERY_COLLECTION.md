@@ -6,7 +6,9 @@ parent `9bfe0d6ffbfe8204b62cd64f2af02eabb638a476`. Queue identity follow-up bran
 `feature/codex-pb59-recovery-queue-beforeimage-20261124`, exact Core79 parent
 `d293650c77a9ce233f6e792c41632daed8e2b167`. Update observation follow-up branch
 `feature/codex-pb59-recovery-update-observation-20261124`, exact Core81 parent
-`62f54266395d4715c34464ff592ec09043f457bf`. Existing branches and PB53/PB54 build pins
+`62f54266395d4715c34464ff592ec09043f457bf`. Original/bag field-value follow-up branch
+`feature/codex-pb59-recovery-original-values-20261124`, exact Core82 parent
+`afd670fc7fc2bc8244a67718ca8cc38e975d7556`. Existing branches and PB53/PB54 build pins
 remain preserved. No integration repin or native runtime caller is introduced.
 
 ## Collection protocol
@@ -101,12 +103,45 @@ incomplete; failed/partial scans cannot claim queueCompared. Owner availability/
 flags are separate. Unchanged queue entries plus changed owner masks/registration still produce
 Uncertain; even unchanged observations remain Unknown, never Verified.
 
-The domain is the owner Player and items present in the native item-save queue at preparation or
-collection. Unqueued objects (including unqueued planned originals/bags), item field values,
-registration in other maps, combat/aura/cooldown state and persistence are not established. A
-changed value under an already-set mask bit may leave this observation unchanged; no restoration
-or whole-inventory proof follows. Allocation-failure injection passes for this fixture's capture
+The queue update domain is the owner Player and items present in the native item-save queue at
+preparation or collection. The next section extends observation to original items and affected
+bags. Other unqueued objects, unrelated item field values, registration in other maps,
+combat/aura/cooldown state and persistence are not established. A changed unrelated value under
+an already-set mask bit may leave queue observation unchanged; no whole-inventory proof follows.
+Allocation-failure injection passes for this fixture's capture
 path, not all real engine getters. Process/lifetime/concurrency limits above are unchanged.
+
+## Original items and affected bags, including unqueued instances
+
+Prepare now captures each planned original and deduplicates the source/destination carried bag
+containers (at most19+4 watched instances). Each watched before-image includes full bounded raw
+update-field values, dirty state, mask, queue membership, world/pending and original-map update
+registration. Field copying is allocation-free, validates nonzero count<=256 before any getter,
+zeros unused tail words and leaves previous output intact on failure. Bag field bounds are
+checked against native CONTAINER_END; native Bag.h is explicitly included for its real hierarchy.
+
+Bind re-resolves each watched primary link and compares the original pointer and complete value
+image. Collection resolves originals only at their planned source/destination and containers by
+their carried bag index. Missing/replaced links remain incomplete; saved addresses are never
+dereferenced during binding/recovery. Thus even a same-GUID replacement cannot become original
+field evidence. A found original at its planned destination can still be observed. Native scope
+ticket/incarnation/access checks surround every getter in the shared private Player observer.
+
+CopyValues exports watched totals, observation totals and changed totals. CopyWatchedItem(index)
+returns an owned bounded optional observation for that one instance; invalid indices return empty.
+This avoids embedding large before/current field arrays into every CopyValues stack copy.
+Check observed and sameNativeInstance before using now; fields may be partial after failure.
+All copy access retains the same coordinated/quiescent scratch requirement as CopyValues.
+
+Changed watched fields make queue/recovery evidence Uncertain even if the item-save queue and
+mask bits stayed unchanged. Unchanged complete images still remain Unknown, never Verified.
+Missing originals previously allowed complete slot observations; their missing raw-value image
+now makes the extended collection Incomplete. Native executor outcomes are unchanged.
+
+This closes the bounded raw-field/update-state observation gap for planned originals/affected
+bags. Non-field metadata, native combat effects, unrelated objects/field values, durable storage
+and complete gameplay remain unproven. See [native compile/persistence release-gate handoff](
+NATIVE_RECOVERY_RELEASE_GATES.md) for the concrete environment and operation-bound IO blockers.
 
 ## Read-only save provenance
 
@@ -143,7 +178,7 @@ later absence is not proof of success/failure. No observer hook or save bypass i
 
 ## Executable evidence and limits
 
-- GCC16.2/C++20/-Wall/-Wextra/-Werror: 373 extracted native collector checks pass ordinary
+- GCC16.2/C++20/-Wall/-Wextra/-Werror: 479 extracted native collector checks pass ordinary
   and optimized NDEBUG. Actual collector/stamp/admission bodies and PB59 headers are used;
   engine, slot capture, map/session/item infrastructure are explicit reused doubles.
   Cases cover allocation/capacity refusal, actual ticket/revision, wrong/missing scope,
@@ -154,11 +189,14 @@ later absence is not proof of success/failure. No observer hook or save bypass i
   sentinel loss at an Item GUID getter with no subsequent owner read. Added real UpdateMask
   implementation and extracted private Item helper, mask boundaries/canonical tails/mismatches,
   native dirty/world/registration changes, malformed capture and map-getter sentinel loss.
-  Nine deliberate queue/update guard mutants are rejected by runtime assertions in optimized
+  Twelve deliberate queue/update guard mutants are rejected by runtime assertions in optimized
   NDEBUG mode; compile/launch failures do not count as a killed mutant.
   The fixture uses a fixed underlying ItemUpdateState type to make deliberately unknown-state
   fault injections defined; the native enum is unchanged. ByteBuffer serialization dependencies,
   Player/Item layouts and map infrastructure remain doubles; actual mask class is copied verbatim.
+  New tests cover raw-field bounds/tails, already-set-bit changes, stale binding, missing/replaced
+  originals/containers, both move directions, shared bag deduplication and all17 supported combat
+  slots plus all four bags. Raw field getter/storage and bag lookup remain explicit doubles.
 - Actual save-record/transaction-result constexpr contracts pass ordinary/NDEBUG; eight
   one-defect mutants fail static assertions in each mode. No executable/DB is involved.
 - Inherited Core78 model: NDEBUG now executes 158 checks and rejects eight runtime mutants.
@@ -185,8 +223,8 @@ that mode was not run locally. No deliberate crash/shutdown or live stack test w
 ## Remaining boundary and rollback
 
 No runtime collection wiring, reset/unlock, replay, forced retirement, schema/IO/config/SQL/
-DBC/client change, hosted CI, merge or deployment. Native effects, field values and update-state
-before-images outside the observed queue/owner domain, and operation-bound save provenance remain
+DBC/client change, hosted CI, merge or deployment. Native effects, non-field state, unrelated
+field values/update-state observations outside the bounded domain, and operation-bound save provenance remain
 open. New persistence or global shutdown policy
 still requires owner review before wiring. Discard this child to roll back; original source
 branches/pins and established custom features remain intact.

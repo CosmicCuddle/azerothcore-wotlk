@@ -240,3 +240,24 @@
   remain unproven. See source-pinned PR/protocol for exact results and fixture limits.
 - **Live/rollback:** dormant only, no migration/config/SQL/DBC/client, IO, unlock, policy,
   CI dispatch, activation or deployment. Discard isolated child to roll back; preserve ancestors.
+
+## Dormant original/bag raw-field recovery observations (24 November 2026)
+
+- **Owner/priority:** CosmicCuddle / CS01 #81 comment7141476499, native recovery completion only.
+- **Source:** `feature/codex-pb59-recovery-original-values-20261124`, exact Core82 parent
+  `afd670fc7fc2bc8244a67718ca8cc38e975d7556`; existing Core74/PB56 acceptance pins unchanged.
+- **Files:** Item.h private field copier; PB59RecoveryUpdateObservation.h value type/copier;
+  NativeRecoveryCollection header, Player.h private helper, PlayerPB59Recovery.cpp and native
+  collector tests/protocol. NATIVE_RECOVERY_RELEASE_GATES.md records minimum compile/IO path.
+- **Behaviour:** bounded raw update-field and update-state before/current observations for
+  planned originals and deduplicated affected carried bags, including unqueued instances.
+  Re-resolves source/destination/bag links before native instance reads; replacements/missing
+  links remain incomplete. CopyWatchedItem exports one owned record; no native pointer export.
+- **Evidence/limits:**479 checks ordinary +479 optimized NDEBUG, twelve guard mutants caught
+  under NDEBUG; actual collector/Item helper/UpdateMask bodies, explicit remaining engine doubles.
+  Real-header exploratory compilation stops at missing Boost flat_map.hpp; no real Player/Game
+  build PASS. Quarantine save admission and missing recovery-ticket/revision commit association
+  prevent persistence proof; no ordinary save bypass is introduced. Effects/non-field metadata,
+  unrelated objects, gameplay and durability remain unproven.
+- **Live/rollback:** dormant/no runtime caller, Finish/unlock/replay/IO, schema/config/SQL/DBC/
+  client, CI dispatch, activation, merge or deployment. Discard child; custom behavior preserved.

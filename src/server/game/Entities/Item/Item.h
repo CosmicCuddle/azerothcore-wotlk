@@ -434,6 +434,11 @@ private:
     {
         return PB59::Recovery::CopyUpdateMask(_changesMask, m_valuesCount, output);
     }
+    bool PB59CopyFieldValues(PB59::Recovery::ItemFieldValues& output) const
+    {
+        return PB59::Recovery::CopyItemFieldValues(m_valuesCount,
+            [&](uint32 index) { return GetUInt32Value(static_cast<uint16>(index)); }, output);
+    }
     bool CreateInternal(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner, bool notify);
     std::string m_text;
     uint8 m_slot;
