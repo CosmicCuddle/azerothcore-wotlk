@@ -23,6 +23,7 @@
 #include "ItemTemplate.h"
 #include "LootMgr.h"
 #include "Object.h"
+#include "PB59RecoveryUpdateObservation.h"
 #include <memory>
 
 class SpellInfo;
@@ -429,6 +430,10 @@ private:
     // queue. An interrupted RemoveFromWorld may leave this bit set, and
     // AddToWorld would ASSERT rather than restore safely.
     [[nodiscard]] bool PB59HasObjectUpdatePending() const noexcept { return m_objectUpdated; }
+    bool PB59CopyUpdateMask(PB59::Recovery::ItemUpdateMask& output) const
+    {
+        return PB59::Recovery::CopyUpdateMask(_changesMask, m_valuesCount, output);
+    }
     bool CreateInternal(ObjectGuid::LowType guidlow, uint32 itemid, Player const* owner, bool notify);
     std::string m_text;
     uint8 m_slot;

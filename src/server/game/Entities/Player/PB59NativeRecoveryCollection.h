@@ -2,6 +2,7 @@
 
 #include "EquipmentCaptureState.h"
 #include "PB59RecoveryEvidence.h"
+#include "PB59RecoveryUpdateObservation.h"
 #include <memory>
 #include <thread>
 
@@ -28,6 +29,8 @@ struct QueueEntry
     std::uint64_t guid = 0, owner = 0;
     std::int32_t position = -1;
     bool present = false;
+    std::uint32_t itemState = 0;
+    ObjectUpdateFacts<MaximumItemUpdateFields> updates;
     bool operator==(QueueEntry const&) const = default;
 };
 struct QueueDifference
@@ -42,6 +45,7 @@ struct CollectionSummary
     bool ticketBound = false, revisionObserved = false, intentsObserved = false;
     bool queueObserved = false, queueConsistent = false, journalsObserved = false;
     bool queueBeforeObserved = false, queueCompared = false, queueUnchanged = false;
+    bool ownerUpdateObserved = false, ownerUpdateConsistent = false, ownerUpdateUnchanged = false;
     std::size_t preparedQueueEntries = 0, observedQueueEntries = 0;
     std::size_t changedQueueEntries = 0;
     std::uint8_t queueDifferenceCount = 0;
@@ -55,6 +59,7 @@ struct CollectedValues
     // All indices are compared; only the first MaximumOriginals differences are
     // exported. changedQueueEntries retains the total, including truncation.
     std::array<QueueDifference, MaximumOriginals> queueDifferences{};
+    OwnerUpdateFacts ownerUpdateBefore, ownerUpdateNow;
 };
 
 // Synchronous native scratch only. Borrowed pointers are private, never exported
@@ -85,5 +90,5 @@ private:
     CollectedValues _values;
 };
 static_assert(std::is_trivially_copyable_v<CollectedValues>);
-static_assert(sizeof(NativeCollection) <= 256 * 1024);
+static_assert(sizeof(NativeCollection) <= 512 * 1024);
 }
