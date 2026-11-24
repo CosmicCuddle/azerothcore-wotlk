@@ -137,15 +137,8 @@ inline Inspection Inspect(Evidence const& evidence, Operation const& expected) n
 {
     Inspection result;
     auto add = [&](Issue issue) { result.issues |= static_cast<std::uint32_t>(issue); };
-    if (evidence.version != 1 || !evidence.operation.Valid() || !evidence.revision ||
-        evidence.outcome != InventoryBatchOutcome::RecoveryRequired || !evidence.originalCount ||
-        evidence.failure <= InventoryBatchFailure::None || evidence.failure > InventoryBatchFailure::Restoration ||
-        evidence.originalCount > MaximumOriginals || evidence.reportedCount > MaximumOriginals ||
-        evidence.effects > ProofState::Uncertain || evidence.queues > ProofState::Uncertain)
-    {
-        add(Issue::InvalidRecord);
-        return result;
-    }
+    // Scalar context/intent facts remain diagnosable even when the record's
+    // structure is malformed. Do not inspect arrays until bounds are checked.
     if (!expected.Valid() || evidence.operation != expected)
         add(Issue::StaleOperation);
     if (!evidence.ownerPresent)
@@ -164,6 +157,15 @@ inline Inspection Inspect(Evidence const& evidence, Operation const& expected) n
         add(Issue::EffectsUnproven);
     if (evidence.queues != ProofState::Verified)
         add(Issue::QueuesUnproven);
+    if (evidence.version != 1 || !evidence.operation.Valid() || !evidence.revision ||
+        evidence.outcome != InventoryBatchOutcome::RecoveryRequired || !evidence.originalCount ||
+        evidence.failure <= InventoryBatchFailure::None || evidence.failure > InventoryBatchFailure::Restoration ||
+        evidence.originalCount > MaximumOriginals || evidence.reportedCount > MaximumOriginals ||
+        evidence.effects > ProofState::Uncertain || evidence.queues > ProofState::Uncertain)
+    {
+        add(Issue::InvalidRecord);
+        return result;
+    }
     for (std::size_t index = 0; index < evidence.originalCount; ++index)
     {
         auto const& original = evidence.originals[index];

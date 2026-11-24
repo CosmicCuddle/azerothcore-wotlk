@@ -28,6 +28,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-recovery-evidence-") as temporary:
         ("PB59RecoveryProof.h", " && durable.commitSequence", ""),
         ("PB59RecoveryEvidence.h", "if (evidence.effects != ProofState::Verified)", "if (false)"),
         ("PB59RecoveryEvidence.h", "original.instance != InstanceState::ExactNativeInstance", "false"),
+        ("PB59RecoveryEvidence.h", "add(Issue::InvalidRecord);\n        return result;",
+         "result.issues = static_cast<std::uint32_t>(Issue::InvalidRecord);\n        return result;"),
     ]
     # Keep the proof header alongside each candidate so quoted includes bind
     # to a mutated evidence header rather than the original header's directory.

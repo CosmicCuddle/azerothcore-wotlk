@@ -126,6 +126,33 @@ int main()
         InspectionStatus::InvalidEvidence);
     CHECK(inspect([](auto& v) { v.effects = static_cast<ProofState>(255); }).status ==
         InspectionStatus::InvalidEvidence);
+    // Malformed structure must not erase independently known lifecycle facts.
+    // None of these records may reach native proof review or index bad counts.
+    for (unsigned defect = 0; defect < 6; ++defect)
+    {
+        auto malformed = record;
+        malformed.ownerPresent = malformed.sessionPresent = false;
+        malformed.pendingSave = malformed.pendingLogout = true;
+        malformed.queues = ProofState::Unknown;
+        switch (defect)
+        {
+            case 0: malformed.version = 0; break;
+            case 1: malformed.originalCount = 0; break;
+            case 2: malformed.originalCount = 20; break;
+            case 3: malformed.reportedCount = 255; break;
+            case 4: malformed.failure = PB59::InventoryBatchFailure::None; break;
+            case 5: malformed.effects = static_cast<ProofState>(255); break;
+        }
+        auto const before = malformed;
+        auto stale = expected;
+        ++stale.ticket;
+        auto const result = Inspect(malformed, stale);
+        CHECK(result.status == InspectionStatus::InvalidEvidence && result.Has(Issue::InvalidRecord));
+        CHECK(result.Has(Issue::PendingSave) && result.Has(Issue::PendingLogout));
+        CHECK(result.Has(Issue::OwnerUnavailable) && result.Has(Issue::SessionUnavailable));
+        CHECK(result.Has(Issue::StaleOperation) && result.Has(Issue::QueuesUnproven));
+        CHECK(malformed == before && result.unprovenCount == 0);
+    }
     // Every scalar field copied from the actual native instance participates in
     // equality. This cannot be replaced by GUID-only or item-entry-only proof.
     for (auto member : {&PB59::InventoryInstanceFacts::entry, &PB59::InventoryInstanceFacts::count,

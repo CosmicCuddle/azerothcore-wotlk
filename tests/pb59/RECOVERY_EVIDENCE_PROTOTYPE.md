@@ -40,6 +40,8 @@ reported GUID membership/duplicates and canonical facts. It retains every issue 
 uses this deterministic primary-status order: invalid, stale, owner unavailable, session
 unavailable, missing facts, custody unproven, effects unproven, queues unproven, pending
 intents, then InMemoryCandidate. Derived unproven GUIDs retain original record order.
+Known scalar context/intent issues are retained even on an invalid version/count/failure;
+malformed arrays are not inspected and do not yield invented GUID observations.
 
 Empty reported GUIDs do not imply clean effects. Missing observations remain unknown,
 not empty inventory. Even InMemoryCandidate is an inspection classification of a
@@ -131,6 +133,14 @@ validation. The local Windows environment has a standalone workspace GCC; Docker
 were not found and WSL reports not installed. An exact Core/PB54 disposable native build
 cannot be performed in this environment. No system installation or hosted CI was attempted.
 The previously reported Core74/PB54 build remains evidence for its own immutable tuple.
+
+Malformed-record diagnostic follow-up: added six invalid-structure cases that retain
+pending save/logout, lost owner/session and stale identity flags without array access,
+plus a mutant that erases those flags. Local GCC syntax checks are separate from runtime
+evidence: Windows currently denies execution of newly compiled fixtures (WinError 5), in
+both temporary and workspace artifact paths. This follow-up's expanded runtime matrix
+and eight-mutant run are pending an executable test environment; do not carry forward
+the earlier 128/7 runtime result as proof of the changed candidate.
 
 No runtime include/caller, schema, external IO, config/SQL/DBC/client change or gameplay
 rule change. Development rollback: discard this child, retaining Core76 and original
