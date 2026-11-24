@@ -1,0 +1,65 @@
+# CS02 PB59 AutoGear move-rollback failure-injection harness (draft, test-only)
+
+Owner lane: CS02/Grok, independent tests only (coordination #52 7118592534 / 7118630018 / 7118646677, #59 7118593397,
+checklist `integration-build/AUTOGEAR-P0-ACCEPTANCE-20261124.md` @ b5c6e1bb). Base: Core53 `79b0b1fe2d0fac93227c28329508553cfec15c4d`.
+No native source is changed; no CI workflow is added; nothing here runs on a server or database.
+
+## What is real and what is synthetic
+
+| Part | Status |
+|---|---|
+| `SyntheticInventoryCore.h` | **SYNTHETIC** value model of the Core53 PlayerStorage paths (CanUnequipItem runs `OnPlayerCanUnequipItem` first; StoreItem may return a different pointer and delete the source, incl. the self-merge branch; RemoveItem; AutoUnequipOffhandIfNeed mail path). |
+| `MoveRollbackContract.h` | **PROPOSED** contract from Claude's #51 7118628149 and CS01's classes; not an agreed native interface. |
+| `MoveRollbackOracle.h` | Independent oracle. Uses the **real** Core53 `PB59InventorySlotFacts.h` (`InventorySlotFacts`, `SameInventoryInstance`, `ValidInventorySlot`). |
+| `Executors.h` | `ReferenceExecutor` = CS02's synthetic satisfiability baseline (not a Core proposal); `Knobs` = one-defect mutants; `Pb44StripExecutor` = transcription of PB44 `1a9e4801` TrainerAction.cpp:692-704. Uses the **real** `ExactStorageGate.h` predicates. |
+| `core53_api_shape_probe.cpp` | Compile-only `static_assert`s on the **real** Core53 `Player.h`/`ScriptMgr.h` signatures and slot constants the model copies. Not a worldserver build, nothing linked. |
+
+Every result line the binary prints is labelled `[SYNTHETIC]`. A pass means "classification consistent with the model",
+never native success, lifetime safety or durable DB atomicity.
+
+## Outcomes the oracle derives from state (never from the executor's report)
+
+- **Refused**: no executor mutation, state unchanged.
+- **Applied**: every item at its exact planned destination with identical instance facts; links/effects coherent; nothing mailed.
+- **Restored**: effects happened, final state identical to the start, coherent.
+- **RecoveryRequired**: anything else; the report must list exactly the GUIDs not at their original position.
+Also always flagged: stale `Item*` use, mutation after logout/retirement began, mail, identity loss without RecoveryRequired,
+rollback not in exact reverse order, incoherent slot field / visible field / item mods / duration registrations.
+
+## Matrix
+
+- P01-P28 preflight refusals (owner, incarnation, stamp, logout, retirement, re-entry, same slot/different GUID, moved item,
+  foreign owner, duplicates, occupied/mergeable/invalid/NULL_SLOT destinations, trade, loot, combat, callback refusal,
+  callback side effects, bags one short, bag items, two-hander next to off-hand).
+- A01-A10 applied (N = 1..5, exact fit, bag destinations, equip from bag, off-hand out before a two-hander, fenced nested call).
+- F: every forward failure position for N = 1..4 x {insert refuse, throw, insert-then-throw, wrong place, replacement pointer,
+  remove no-op, remove throw}.
+- R: every rollback failure position for N = 2..4 (insert refuse/throw/replacement pointer, remove throw) plus double failures.
+- H1-H8 CS01's PB44 hazard as scenarios (callback deletes, relocates, swaps GUID, starts logout, re-enters, refuses mid-strip;
+  replacement pointer; bags run out). Expected red for the PB44 transcription; the fix is Claude's.
+- Main-hand-first restore after an off-hand-first strip; M4 mail path for a naive two-hander sequence.
+- 14 mutants (negative controls), each must be killed.
+
+## Run
+
+```
+PATH=/path/to/toolchain/bin:$PATH tests/pb59/cs02_move_rollback/run_local.sh            # g++/clang++, plain + ASan/UBSan
+tests/pb59/cs02_move_rollback/check_core53_headers.sh <boost-include> <mysql-include>   # compile-only real-header probe
+```
+
+## Adapting to Codex's native interface
+
+Add a `NativeAdapter` satisfying `MoveExecutor` (maps `Request` to the agreed call and its result enum to `Outcome`) and a
+native `Capture` that fills `PB59::InventorySlotFacts` from a real `Player`. Fault positions then come from Codex's own
+injection seam; the scenario names and expected outcomes stay. This harness does not test Codex's internals and should not
+duplicate Codex's own native tests.
+
+## Open questions (for #51/#52)
+
+1. Is a destination that an earlier move in the same batch vacates allowed? The reference refuses it (strict "currently empty").
+2. Should a callback that only refuses be `Refused`, and any callback side effect at all also be `Refused` (current oracle), or
+   should unrelated-slot side effects be tolerated?
+3. Exceptions: may native insert/remove throw after partial effects? The model injects both and expects RecoveryRequired only
+   when identity or position is not provably restored.
+4. Two-hander displacement: the reference refuses any plan that pairs a two-hander with an occupied off-hand at any step,
+   so the M4 mail path is unreachable. Confirm this is the intended contract.
