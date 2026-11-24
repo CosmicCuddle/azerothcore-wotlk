@@ -60,6 +60,11 @@ observations, including unqueued instances. Missing/replaced objects remain inco
 Unchanged values do not prove auras, cooldowns, non-field state, complete queues or persistence.
 No runtime call site or release path is implemented by this handoff.
 
+A subsequent isolated test child exercises this ordering with temporary hooks in the actual
+extracted executor and the real collector, alongside an uninstrumented control. See
+[the handoff fixture](EXECUTOR_RECOVERY_HANDOFF.md). This validates executable fixture flow,
+not the blocked real Player/Game build, native effects ABI or runtime activation.
+
 ## Operation-bound persistence gate
 
 Current SaveToDB(bool,bool) records a pending standalone-save request while quarantined,

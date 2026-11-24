@@ -1,6 +1,7 @@
 """Compile actual dormant collector/stamp/admission bodies with real PB59 headers.
 
-Reuses the existing explicit engine doubles; does not repeat executor/PB suites.
+Reuses existing explicit engine doubles. --bridge adds the explicit test-only
+executor handoff and actual-body control; no Playerbots suite is repeated.
 --syntax-only never launches a generated executable. Runtime results are separate.
 """
 import argparse
@@ -13,6 +14,7 @@ parser.add_argument("--compiler", nargs="+", required=True)
 parser.add_argument("--syntax-only", action="store_true")
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--sanitizers", action="store_true")
+parser.add_argument("--bridge", action="store_true", help="Exercise a test-only executor-to-collector handoff")
 parser.add_argument("--mutants", action="store_true",
                     help="Require queue-identity guard mutants to fail runtime checks")
 args = parser.parse_args()
@@ -97,6 +99,57 @@ assert fixture.count(before) == 1
 fixture = fixture.replace(before, "        auto value = PB59::InventorySlotFacts{1, bag, pos, item ? std::optional{item->facts} : std::nullopt};\n"
                           "        if (collectionHook) collectionHook();\n        return value;")
 fixture = fixture.replace('#include "Checks.inc"', '#include "Collector.inc"\n#include "NativeRecoveryChecks.inc"')
+executor_body = ""
+if args.bridge:
+    declaration = "    PB59::InventoryBatchResult ExecutePB59InventoryBatchPlanControl(uint64, uint64, uint64, "
+    declaration += "PB59::Stamp const&, std::span<PB59::InventoryBatchMove const>);\n"
+    fixture = fixture.replace("class Player {\npublic:\n", "class Player {\npublic:\n" + declaration)
+    fixture = fixture.replace('#include "Executor.inc"',
+                              '#include "executor_recovery_bridge_hooks.h"\n#include "Executor.inc"')
+    executor_body = function((native / "PlayerPB59Inventory.cpp").read_text(encoding="utf-8"),
+                             "PB59::InventoryBatchResult Player::ExecutePB59InventoryBatchPlan(")
+    original_executor = executor_body
+    replacements = [
+        ("    if (!_pb59Equipment.PrepareInventoryReservation(owner, protectedItems, protectedCounters))",
+         "    auto bridgeCollection = PreparePB59RecoveryCollection(*this, request);\n"
+         "    Bridge.prepared = bool(bridgeCollection);\n"
+         "    if (!bridgeCollection) return result;\n"
+         "    if (!_pb59Equipment.PrepareInventoryReservation(owner, protectedItems, protectedCounters))"),
+        ("        return result;\n    };\n    auto cooldownsSame = [&]()",
+         "        ++Bridge.recoveryCalls;\n"
+         "        if (Bridge.beforeCapture) Bridge.beforeCapture(scope);\n"
+         "        Bridge.scopeLiveBefore = live();\n"
+         "        if (context(true))\n"
+         "        {\n"
+         "            try { Bridge.effectsObserved = captureEffects(after);\n"
+         "                Bridge.effectsSame = Bridge.effectsObserved && before == after; }\n"
+         "            catch (...) { Bridge.effectsObserved = false; }\n"
+         "        }\n"
+         "        Bridge.collectStatus = CollectPB59RecoveryEvidence(*bridgeCollection, scope, result);\n"
+         "        Bridge.values = bridgeCollection->CopyValues();\n"
+         "        Bridge.scopeLiveAfter = live();\n"
+         "        return result;\n    };\n"
+         "    if (Bridge.beforeBind) Bridge.beforeBind();\n"
+         "    Bridge.nativeTicket = ticket;\n"
+         "    Bridge.bindStatus = BindPB59RecoveryCollection(*bridgeCollection, scope);\n"
+         "    if (Bridge.bindStatus != PB59::Recovery::CollectionStatus::Bound) return recoveryResult();\n"
+         "    auto cooldownsSame = [&]()"),
+    ]
+    for before, after in replacements:
+        if executor_body.count(before) != 1:
+            raise RuntimeError("Executor instrumentation boundary changed")
+        executor_body = executor_body.replace(before, after)
+    restored_executor = executor_body
+    for before, after in reversed(replacements):
+        restored_executor = restored_executor.replace(after, before)
+    if restored_executor != original_executor:
+        raise RuntimeError("Instrumented executor cannot reproduce its exact original body")
+    control = original_executor.replace("Player::ExecutePB59InventoryBatchPlan(",
+                                        "Player::ExecutePB59InventoryBatchPlanControl(", 1)
+    if control.replace("Player::ExecutePB59InventoryBatchPlanControl(",
+                       "Player::ExecutePB59InventoryBatchPlan(", 1) != original_executor:
+        raise RuntimeError("Control executor differs beyond its qualified function name")
+    executor_body = control + "\n" + executor_body
 charm = (root / "src/server/game/Entities/Unit/CharmInfo.h").read_text(encoding="utf-8")
 with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
     work = Path(temporary)
@@ -105,16 +158,21 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
         "InventoryStamp.inc": function(storage, "std::optional<PB59::Stamp> Player::CapturePB59InventoryStamp("),
         "CombatEffects.inc": function(storage, "PB59::OriginalCombatEffects::Result Player::ReconcilePB59OriginalCombatEffects("),
         "ItemMods.inc": function(player, "void Player::_ApplyItemMods("),
-        "Executor.inc": "",  # this suite does not re-run the movement executor
+        "Executor.inc": executor_body,  # empty except the explicit test-only --bridge protocol
         "UpdateMask.inc": "constexpr int CONTAINER_END = 138, INVENTORY_SLOT_BAG_START = 19;\n"
                           "struct ByteBuffer { template<typename T> ByteBuffer& operator<<(T) { return *this; } };\n"
                           "#define ASSERT(value) do { if (!(value)) std::abort(); } while (false)\n" +
                           function(mask_header, "class UpdateMask\n") + ";\n",
         "GlobalCooldownMgr.inc": function(charm, "class GlobalCooldownMgr ") + ";\n",
         "Collector.inc": collector[collector.index("std::unique_ptr<PB59::Recovery::NativeCollection>"):],
-        "NativeRecoveryChecks.inc": Path(__file__).with_name("native_recovery_collection_checks.cpp").read_text(encoding="utf-8"),
+        "NativeRecoveryChecks.inc": Path(__file__).with_name(
+            "executor_recovery_bridge_checks.cpp" if args.bridge else "native_recovery_collection_checks.cpp"
+        ).read_text(encoding="utf-8"),
         "fixture.cpp": fixture,
     }
+    if args.bridge:
+        files["executor_recovery_bridge_hooks.h"] = Path(__file__).with_name(
+            "executor_recovery_bridge_hooks.h").read_text(encoding="utf-8")
     for name, body in files.items():
         (work / name).write_text(body, encoding="utf-8")
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pthread"]
@@ -127,10 +185,42 @@ with tempfile.TemporaryDirectory(prefix="pb59-native-collector-") as temporary:
     subprocess.run(args.compiler + flags + ["-I", str(native), "-I", str(work), str(work / "fixture.cpp")] + output,
                    check=True)
     if args.syntax_only:
-        print("Actual collector/stamp/admission bodies + native headers syntax PASS (engine doubles; not executed)")
+        mode = "Test-instrumented executor/control + collector" if args.bridge else "Collector/stamp/admission bodies"
+        print(mode + " + native headers syntax PASS (engine doubles; not executed)")
     else:
         subprocess.run([str(binary)], check=True)
-    if args.mutants:
+    if args.mutants and args.bridge:
+        original = files["Executor.inc"][len(control) + 1:]
+        capture = "Bridge.collectStatus = CollectPB59RecoveryEvidence(*bridgeCollection, scope, result);"
+        mutants = {
+            "binding omitted": original.replace(
+                "Bridge.bindStatus = BindPB59RecoveryCollection(*bridgeCollection, scope);",
+                "Bridge.bindStatus = PB59::Recovery::CollectionStatus::Prepared;"),
+            "capture omitted": original.replace(capture,
+                "Bridge.collectStatus = PB59::Recovery::CollectionStatus::Prepared;"),
+            "capture before failure report": original.replace(
+                "        result.outcome = Outcome::RecoveryRequired;", "        " + capture +
+                "\n        result.outcome = Outcome::RecoveryRequired;"),
+            "capture after scope released": original.replace(capture,
+                "(void)scope.Finish({true, true, true, true}); " + capture),
+            "effects read without context": original.replace("        if (context(true))\n",
+                "        if (true)\n"),
+            "equal effects promoted to proof": original.replace(
+                "Bridge.values = bridgeCollection->CopyValues();",
+                "Bridge.values = bridgeCollection->CopyValues(); "
+                "if (Bridge.effectsSame) Bridge.values->evidence.effects = PB59::Recovery::ProofState::Verified;"),
+        }
+        for name, body in mutants.items():
+            if body == original:
+                raise RuntimeError("Bridge mutation did not change source: " + name)
+            (work / "Executor.inc").write_text(control + "\n" + body, encoding="utf-8")
+            subprocess.run(args.compiler + flags + ["-I", str(native), "-I", str(work), str(work / "fixture.cpp"),
+                                                   "-o", str(binary)], check=True)
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            if result.returncode != 1 or "bridge line " not in result.stderr:
+                raise RuntimeError(f"Bridge mutant not rejected by a fixture assertion: {name}: {result.returncode}")
+        print(f"{len(mutants)}/{len(mutants)} executor/collector handoff mutants rejected by runtime checks")
+    elif args.mutants:
         original = files["Collector.inc"]
         bind_start = original.index("        // The prepared image must still be exact at admission.")
         bind_end = original.index("        auto const boundStamp = *stamp;", bind_start)
