@@ -201,6 +201,24 @@ inline Verdict Judge(Core const& core, Snapshot const& s0, Request const& r, Rep
             v.violations.push_back("executor mutated inventory after logout/retirement began (guid " +
                 std::to_string(e.guid) + ")");
     }
+    // CS01 #51 7131372670: a pending logout/save intent is not permission to
+    // continue, even while the scope's CanAccess(Forward) is true. Any forward
+    // (phase 1) executor write after a recorded pending intent is a violation.
+    {
+        bool pending = false;
+        for (auto const& e : core.ledger)
+        {
+            if (e.kind == EventKind::PendingIntent)
+                pending = true;
+            else if (pending && e.actor == Actor::Executor && e.phase == 1 &&
+                (e.kind == EventKind::Remove || e.kind == EventKind::Insert))
+            {
+                v.violations.push_back("executor kept writing forward after a pending logout/save intent (guid " +
+                    std::to_string(e.guid) + ")");
+                break;
+            }
+        }
+    }
     int mutations = ExecutorMutations(core);
     bool restoredState = s1 == s0 && incoherent.empty();
     bool appliedState = s1 == p && incoherent.empty() && !mailed;

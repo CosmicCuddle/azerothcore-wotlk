@@ -13,3 +13,9 @@ SYNTHETIC inventory core. They are not built into any server target from here an
 
 The StripToBags lambdas (TrainerAction.cpp:700-773) and the hook-relevant parts of PrepareEquipmentStorage /
 ValidateEquipmentStorage (PlayerbotFactory.cpp:4155-4366) are transcribed, not copied, in `../Pb50StripAdapter.h`.
+
+## Reuse for Claude's PB50 child (PR51) at 43320882
+At `43320882ed18c97ec1f0898318fd152d38f2204f` (branch `claude/pb50-hook-safety-20261124`, draft PR51) the three
+files above have the same blobs (ff8ae579 / 781e100d / b8818d0b) and PlayerbotFactory.cpp/.h are unchanged, so these
+copies are reused as-is. The changed StripToBags (TrainerAction.cpp) and the per-bot command fence are transcribed in
+`../Pb50ChildStripAdapter.h`. H1-H8, the fault matrix and the controls run unchanged against both adapters.

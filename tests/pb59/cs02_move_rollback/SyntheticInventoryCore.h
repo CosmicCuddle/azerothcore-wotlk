@@ -71,7 +71,12 @@ struct Item
 
 enum class Actor { Executor, Hook, Core };
 enum class EventKind { Remove, Insert, Merge, Destroy, Mail, Clone, StaleUse, MutationWhileClosed,
-    HookCall };
+    HookCall,
+    PendingIntent,  // a callback registered a deferred logout/save intent (recorded by the test)
+    UseAfterUnlink, // SYNTHETIC in-call effect helper ran after its item was unlinked
+    EffectHelper,   // SYNTHETIC effect helper ran (opt-in effect chain only)
+    EffectStopped   // SYNTHETIC effect chain stopped by effectCheck (opt-in effect chain only)
+};
 struct Event
 {
     Actor actor;
@@ -101,6 +106,59 @@ public:
     int phase = -1;           // set by executors for ledger attribution only
 
     std::function<bool(Core&, std::uint16_t pos, bool swap)> onPlayerCanUnequipItem;
+    // SYNTHETIC analogue of the in-call boundary Codex reported (#51 7131425394):
+    // _ApplyItemMods -> _ApplyItemBonuses -> OnPlayerCustomScalingStatValueBefore,
+    // then three effect helpers still receive the original item. Fires after an
+    // insertion into an equipment slot. Not a claim about any installed module.
+    std::function<void(Core&, Item*)> onApplyItemMods;
+    int effectHelpersAfterCallback = 3;
+    // SYNTHETIC opt-in analogue of the Core74 fa674825 Player.cpp call sites of
+    // PB59::EffectBoundary::Check(this): at _ApplyItemMods entry, after the
+    // scaling hook, before each later helper and after the last one. When set,
+    // equip insertions (and, with effectsOnUnequip, equipment removals) run
+    // RunEffectChain instead of the plain callback above. Unset: unchanged.
+    std::function<bool(Core&)> effectCheck;
+    bool effectsOnUnequip = false;
+    // Fixture-only hook mutations (actor Hook) used by effect callbacks.
+    bool HookReplaceBag(std::uint8_t bagSlot, std::uint64_t newGuid, std::uint8_t newSize = 0)
+    {
+        Item* old = BagAt(bagSlot);
+        if (!old || BagNotEmpty(old))
+            return false;
+        Pos park{};
+        bool found = false;
+        for (std::uint8_t s = PACK_START; s < PACK_END && !found; ++s)
+            if (!base[s])
+            {
+                park = Pos{BAG0, s};
+                found = true;
+            }
+        if (!found)
+            return false;
+        Actor saved = actor;
+        actor = Actor::Hook;
+        Unlink(old);
+        Link(old, park);
+        Record(actor, EventKind::Insert, old->guid, park);
+        auto& nb = Alloc(newGuid, old->entry + 1);
+        nb.isBag = true;
+        nb.bagSize = newSize ? newSize : old->bagSize;
+        bags[bagSlot].assign(nb.bagSize, nullptr);
+        Link(&nb, Pos{BAG0, bagSlot});
+        Record(actor, EventKind::Insert, nb.guid, Pos{BAG0, bagSlot});
+        actor = saved;
+        return true;
+    }
+    Item* HookCreate(std::uint32_t entry, std::uint64_t guid, Pos at)
+    {
+        Actor saved = actor;
+        actor = Actor::Hook;
+        Item* it = Create(entry, guid, at);
+        Record(actor, EventKind::Insert, guid, at);
+        actor = saved;
+        return it;
+    }
+    void RecordPendingIntent() { Record(Actor::Hook, EventKind::PendingIntent, 0, Pos{}); }
     std::map<int, InsertFault> insertFaults; // by insertion ordinal (0-based)
     std::map<int, RemoveFault> removeFaults; // by removal ordinal (0-based)
 
@@ -279,7 +337,10 @@ public:
         Item* it = GetItemByPos(bag, slot);
         if (!it)
             return;
+        Pos const was = it->pos;
         Unlink(it);
+        if (effectCheck && effectsOnUnequip && was.IsEquipment())
+            RunEffectChain(it, was, /*apply*/ false);
     }
 
     // Returns the stored item; after a merge it differs from `item` and
@@ -447,6 +508,45 @@ private:
         durations.insert(it->guid);
         updateQueue.insert(it->guid);
     }
+    // _ApplyItemMods shape at Core74 fa674825: Check; [_ApplyItemBonuses: scaling
+    // hook; Check]; Check; ammo; Check; equip spell; Check; dependent auras; Check;
+    // weapon auras; Check; enchantment; Check.
+    void RunEffectChain(Item* item, Pos p, bool apply)
+    {
+        auto check = [&] {
+            Actor saved = actor;
+            actor = Actor::Core;
+            bool const ok = effectCheck(*this);
+            actor = saved;
+            if (!ok)
+                Record(Actor::Core, EventKind::EffectStopped, item->guid, p);
+            return ok;
+        };
+        auto helper = [&] {
+            Record(Actor::Core, EventKind::EffectHelper, item->guid, p);
+            if (apply ? (!Live(item) || item->pos != p) : !Live(item))
+                Record(Actor::Core, EventKind::UseAfterUnlink, item->guid, p);
+        };
+        if (!check())
+            return;
+        helper(); // _ApplyItemBonuses (pre-hook part)
+        if (onApplyItemMods)
+        {
+            Actor saved = actor;
+            actor = Actor::Hook;
+            onApplyItemMods(*this, item);
+            actor = saved;
+        }
+        if (!check())
+            return;
+        for (int h = 0; h < 5; ++h) // bonuses rest, ammo, equip spell, dependent auras, weapon auras + enchantment
+        {
+            if (!check())
+                return;
+            helper();
+        }
+        (void)check();
+    }
     void Unlink(Item* it)
     {
         Pos p = it->pos;
@@ -518,6 +618,18 @@ private:
         }
         Link(item, p);
         Record(actor, EventKind::Insert, item->guid, p);
+        if (p.IsEquipment() && effectCheck)
+            RunEffectChain(item, p, /*apply*/ true);
+        else if (p.IsEquipment() && onApplyItemMods)
+        {
+            Actor saved = actor;
+            actor = Actor::Hook;
+            onApplyItemMods(*this, item);
+            actor = saved;
+            for (int h = 0; h < effectHelpersAfterCallback; ++h)
+                if (!Live(item) || item->pos != p)
+                    Record(Actor::Core, EventKind::UseAfterUnlink, item->guid, p);
+        }
         if (f == InsertFault::InsertThenThrow)
             throw InjectedFailure("injected throw after insertion");
         return item;
