@@ -1,0 +1,101 @@
+PB53 96c579e86443c86780d6f9cd8ef51b7c252b09f8 + Core74 c779e7b4f735cab048f5b351ca6b9053f188787a; 26 blobs verified
+SRC S1 default-OFF in code                       expected=GetOption(...,false)         observed=false                        as-expected PlayerbotAIConfig.cpp:748
+SRC S2 default-OFF in conf.dist                  expected== 0                          observed=0                            as-expected playerbots.conf.dist:675
+SRC S3 command returns early when OFF            expected=!AutoGearIPCapEnable -> false observed=present                      as-expected TrainerAction.cpp:1086
+SRC S4 outer caller revalidates bot/sender after Execute expected=revalidation before use      observed=none; uses at 1177,1182,1187,1194,1197,1199... DIVERGENCE TrainerAction.cpp:1172
+SCN A1 strip main+off through real executor      expected=Done; off-hand first         observed=Done; order=off,main         as-expected
+SCN A2 second link refused (Core Restored)       expected=Restored; layout original    observed=Restored; core=Restored      as-expected
+SCN A3 Core RecoveryRequired                     expected=RecoveryRequired             observed=RecoveryRequired; core=RecoveryRequired guids=1 as-expected
+SCN A3p Player reads after Core RR (CS01 oracle) expected=0                            observed=50 [CaptureSlotx37,GetBagByPosx4,GetItemByPosx6,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE TrainerAction.cpp RunCoreBatch post-return Fingerprint/AllAtDestination/log
+SCN A4 owner context lost inside Core            expected=not Done                     observed=RecoveryRequired; core=RecoveryRequired as-expected
+SCN A4p Player reads after owner loss (CS01 oracle) expected=0                            observed=6 [CaptureSlotx3,GetSessionx1,IsAlivex1,IsInWorldx1] DIVERGENCE no live Player pointer may be assumed from a recovery result
+SCN A5 Core Refused + unrelated change           expected=RecoveryRequired             observed=RecoveryRequired; core=Refused as-expected
+SCN A6 Core Restored + unrelated change          expected=RecoveryRequired             observed=RecoveryRequired; core=Restored as-expected
+SCN A7 Core Applied + unrelated change           expected=RecoveryRequired (CS02 independent) observed=Done; core=Applied           DIVERGENCE PB contract believes Applied on destinations only
+SCN A8 Core RR with empty GUID list (throwMods=1) expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+SCN A9 RestoreToSlot main then off               expected=true,true; layout original   observed=true,true                    as-expected
+SCN A10 RestoreToSlot with Core refusing the link expected=false; item still owned once observed=false                        as-expected
+SCN A11 empty mask / no free slot                expected=Refused,NoSpace; 0 Core calls observed=Refused,NoSpace; core=0      as-expected
+SCN A12 nested strip from a hook inside Core     expected=inner Refused; outer Done    observed=inner=Refused outer=Done     as-expected
+SCN A12b nested strip touches nothing            expected=inner: 0 Player reads, 0 Core calls observed=reads=0 core=0               as-expected
+SCN A13 one masked slot unobservable             expected=Refused; 0 Core calls; layout original observed=Refused; core=0; layout original as-expected
+SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE CS01 #52 7137340399
+SCN B1 failed factory restore: post-stop inventory reads expected=0                            observed=41 [DestroyItemx1,GetBagByPosx4,GetItemByPosx37] DIVERGENCE AutoGearCappedExecution.h:224-256
+SCN B1 failed factory restore: post-stop writes (Core/Destroy) expected=0                            observed=1 destroyCalls=1             DIVERGENCE
+SCN B1 failed factory restore: post-stop finishers expected=0                            observed=0                            as-expected
+SCN B2 BiS restore failed: outcome               expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=1 new=1 revoked=1 stripped=0 missing=0 DIVERGENCE CS01 #52 7137340399
+SCN B2 BiS restore failed: post-stop inventory reads expected=0                            observed=41 [DestroyItemx1,GetBagByPosx4,GetItemByPosx37] DIVERGENCE AutoGearCappedExecution.h:224-256
+SCN B2 BiS restore failed: post-stop writes (Core/Destroy) expected=0                            observed=1 destroyCalls=1             DIVERGENCE
+SCN B2 BiS restore failed: post-stop finishers   expected=0                            observed=0                            as-expected
+SCN B3 displaced off-hand, BiS equip fails       expected=Succeeded; layout original; order off,main,main,off observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 order ok as-expected
+SCN B4 zero-strip (nothing over cap), later BiS  expected=Succeeded; strips=0 factory=1 bis=1 finishers=1 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 strips=0 f=1 b=1 fin=1 as-expected
+SCN B5 empty reset, later BiS                    expected=Succeeded; strips=0 core=0 finishers=1 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 strips=0 core=0 as-expected
+SCN B6 reset strip then BiS                      expected=Succeeded; stripped=3 one Core call observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=3 missing=0 core=1 as-expected
+SCN B7 Altbot over cap                           expected=Succeeded; retained=3 strips=0 observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=0 retained=3 strips=0 as-expected
+SCN B8 owned off-hand leaves inventory           expected=RecoveryRequired missing=1   observed=refusal=9 ran=1 capHeld=1 new=0 revoked=0 stripped=0 missing=1 as-expected
+SCN B9 reset strip RecoveryRequired              expected=RecoveryRequired ran=0; factory=0 observed=refusal=9 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 f=0 as-expected
+MATRIX C1 ToStripResult: 64 rows, 64 agree with the independent oracle
+SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+SCN C2 unknown native outcome 7                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+SCN C2 unknown native outcome 255                expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+SCN C3 Restored/Applied with recovery count 19   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C3 Restored/Applied with recovery count 20   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C3 Restored/Applied with recovery count 1000 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C3 Restored/Applied with recovery count 18446744073709551615 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C4 RecoveryRequired with empty GUID list     expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+SCN C5 no-fallback gate                          expected=MayMove(false)=0 MayMove(true)=1 observed=MayMove(false)=0 MayMove(true)=1 as-expected
+SCN C6 Altbot plan                               expected=reset refused; no over-cap strip observed=reset=4 stripOverCap=0       as-expected
+CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations
+SCN D1 OFF: reset                                expected=StripRefused; layout original; factory=0 observed=refusal=6 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 f=0 as-expected
+SCN D2 OFF: RestoreToSlot                        expected=false; 0 Core calls          observed=false core=0                 as-expected
+SCN D3 OFF: random bot over cap                  expected=StripRefused; layout original observed=refusal=6 ran=0 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected
+MATRIX C1 ToStripResult: 64 rows, 64 agree with the independent oracle
+SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+SCN C2 unknown native outcome 7                  expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+SCN C2 unknown native outcome 255                expected=RecoveryRequired/Unknown     observed=RecoveryRequired/Unknown     as-expected
+SCN C3 Restored/Applied with recovery count 19   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C3 Restored/Applied with recovery count 20   expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C3 Restored/Applied with recovery count 1000 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C3 Restored/Applied with recovery count 18446744073709551615 expected=RecoveryRequired,RecoveryRequired observed=RecoveryRequired,RecoveryRequired as-expected
+SCN C4 RecoveryRequired with empty GUID list     expected=RecoveryRequired             observed=RecoveryRequired             as-expected
+SCN C5 no-fallback gate                          expected=MayMove(false)=0 MayMove(true)=1 observed=MayMove(false)=0 MayMove(true)=1 as-expected
+SCN C6 Altbot plan                               expected=reset refused; no over-cap strip observed=reset=4 stripOverCap=0       as-expected
+CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations
+SCN F1 keepOwned=1 (capped AutoGear finishers)   expected=old ammo kept; new stocked   observed=kept destroyed=0 stored=1 ammo=21 as-expected
+SCN F2 keepOwned=0 control (legacy factory)      expected=both obsolete stacks destroyed observed=destroyed=2                  as-expected
+SCN F3 DisplacesOffhand: no off-hand             expected=keeps                        observed=keeps                        as-expected
+SCN F3 DisplacesOffhand: 2H axe, shield, no Titan's Grip expected=displaces                    observed=displaces                    as-expected
+SCN F3 DisplacesOffhand: 1H axe, shield          expected=keeps                        observed=keeps                        as-expected
+SCN F3 DisplacesOffhand: 1H axe, off-hand weapon, no dual wield expected=displaces                    observed=displaces                    as-expected
+SCN F3 DisplacesOffhand: 1H axe, off-hand weapon, dual wield expected=keeps                        observed=keeps                        as-expected
+SCN F3 DisplacesOffhand: staff, holdable, Titan's Grip expected=displaces                    observed=displaces                    as-expected
+SCN F3 DisplacesOffhand: polearm, off-hand 2H, Titan's Grip expected=displaces                    observed=displaces                    as-expected
+SCN F3 DisplacesOffhand: 2H axe, off-hand 2H axe, Titan's Grip expected=keeps                        observed=keeps                        as-expected
+SCN F3 DisplacesOffhand: 1H axe, off-hand 2H, no Titan's Grip expected=displaces                    observed=displaces                    as-expected
+CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations
+g++-plain: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+g++-asan-ubsan: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+clang++-plain: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+clang++-asan-ubsan: exits [0, 0, 0]; CS02 layer3 adapter: 109 checks, 0 property failures, 9 divergences from pre-registered expectations | CS02 layer3 adapter: 77 checks, 0 property failures, 0 divergences from pre-registered expectations | CS02 layer3 factory: 11 checks, 0 property failures, 0 divergences from pre-registered expectations; identical to first toolchain
+[SABOTAGE] P1 Refused believed without fingerprint            killed  first change: SCN A5 Core Refused + unrelated change           expected=RecoveryRequired             observed=Refused; core=Refused        DIVERGENCE
+[SABOTAGE] P2 recovery GUIDs ignored                          killed  first change: SCN C1 Refused bits=9                            expected=RecoveryRequired             observed=Refused                      DIVERGENCE
+[SABOTAGE] P3 Applied ignores Core failure                    killed  first change: SCN C1 Applied bits=6                            expected=RecoveryRequired             observed=Done                         DIVERGENCE
+[SABOTAGE] P4 unknown native outcome read as Refused          killed  first change: SCN C2 unknown native outcome 4                  expected=RecoveryRequired/Unknown     observed=Refused/Refused              DIVERGENCE
+[SABOTAGE] P5 Restored believed without fingerprint           killed  first change: SCN A6 Core Restored + unrelated change          expected=RecoveryRequired             observed=Restored; core=Restored      DIVERGENCE
+[SABOTAGE] P6 strip order: off-hand not first                 killed  first change: SCN A1 strip main+off through real executor      expected=Done; off-hand first         observed=Done; order=other            DIVERGENCE
+[SABOTAGE] P7 nested-strip guard removed                      killed  first change: SCN A12b nested strip touches nothing            expected=inner: 0 Player reads, 0 Core calls observed=reads=54 core=0              DIVERGENCE
+[SABOTAGE] P8 RunCoreBatch: fingerprint always unchanged      killed  first change: SCN A5 Core Refused + unrelated change           expected=RecoveryRequired             observed=Refused; core=Refused        DIVERGENCE
+[SABOTAGE] P9 RestoreToSlot accepts Restored                  killed  first change: SCN A10 RestoreToSlot with Core refusing the link expected=false; item still owned once observed=true                         DIVERGENCE
+[SABOTAGE] P10 Execute ignores owned items leaving            killed  first change: SCN B8 owned off-hand leaves inventory           expected=RecoveryRequired missing=1   observed=refusal=0 ran=1 capHeld=1 new=0 revoked=0 stripped=0 m
+[SABOTAGE] P11 InitAmmo destroys owned ammo again             killed  first change: SCN F1 keepOwned=1 (capped AutoGear finishers)   expected=old ammo kept; new stocked   observed=destroyed destroyed=2 stored=1 ammo=21 DIVERGENCE
+[SABOTAGE] P12 DisplacesOffhand forgets staves/polearms       killed  first change: SCN F3 DisplacesOffhand: staff, holdable, Titan's Grip expected=displaces                    observed=keeps                        DIVERGENCE
+[SABOTAGE] P13 strip with any empty observation proceeds      SURVIVED
+[FIX-PROBE] FIX-PROBE CS01 early return after factory/BiS stop: rows that changed:
+   SCN B1 failed factory restore: outcome           expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected CS01 #52 7137340399
+   SCN B1 failed factory restore: post-stop inventory reads expected=0                            observed=0 [none]                     as-expected AutoGearCappedExecution.h:224-256
+   SCN B1 failed factory restore: post-stop writes (Core/Destroy) expected=0                            observed=0 destroyCalls=0             as-expected
+   SCN B2 BiS restore failed: outcome               expected=RecoveryRequired ran=1 capHeld=0 observed=refusal=9 ran=1 capHeld=0 new=0 revoked=0 stripped=0 missing=0 as-expected CS01 #52 7137340399
+   SCN B2 BiS restore failed: post-stop inventory reads expected=0                            observed=0 [none]                     as-expected AutoGearCappedExecution.h:224-256
+   SCN B2 BiS restore failed: post-stop writes (Core/Destroy) expected=0                            observed=0 destroyCalls=0             as-expected
+   CS02 layer3 adapter: 109 checks, 0 property failures, 3 divergences from pre-registered expectations
+[SABOTAGE] 12/13 killed
