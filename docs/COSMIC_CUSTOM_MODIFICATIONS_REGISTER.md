@@ -311,3 +311,20 @@
   environment/module pins remain pending tester confirmation; no real Game/Worldserver/DB proof.
 - **Live/rollback:** Core74/PB56 acceptance unchanged; no activation, IO/release, environment
   install, CI dispatch, merge/deploy or live/config/SQL/DBC/client change. Discard child to roll back.
+
+## Protected save receipt ownership (24 November 2026)
+
+- **Owner and scope:** CosmicCuddle, CS01 #81 comment 7147882367. Adds a dormant ownership mode to the
+  actual save observer. The isolated branch starts at Core89 `892a7ee24ee6f2721618336c77329c658a016156`.
+- **Behavior:** a protected reservation shares the observer's fixed capacity and issues a move-only
+  handle with an instance identity and exact store ticket. Ordinary reports and pressure reclamation
+  skip protected slots. The exact consumer gets the typed terminal record once and frees its slot.
+  A dropped handle or missing future leaves the slot held. An unsealed capture can be marked incomplete
+  by its exact owner. Receipt consumption copies the record before acknowledging it.
+- **Evidence and dependencies:** real observer, evidence store and typed futures exercised by
+  `tests/pb59/test_recovery_receipt_retention.py`, 203 checks in each of ordinary and optimized modes.
+  Future wiring still needs a trusted native producer, recovery-operation binding and a retained
+  consumer. The caller supplies the future, and the receipt carries the observed execution outcome.
+- **Live status and rollback:** dormant and unmerged. Core88 remains the native build target. Drop the
+  isolated child to roll back this observer and fixture change. Runtime activation and shutdown
+  handling for protected receipts require a separate lifecycle decision.
