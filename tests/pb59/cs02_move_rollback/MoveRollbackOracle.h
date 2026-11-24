@@ -257,6 +257,16 @@ inline Verdict Judge(Core const& core, Snapshot const& s0, Request const& r, Rep
             if (e.phase == 2 && e.kind == EventKind::Remove)
                 rev.push_back(e.guid);
         }
+        // Only the executor's own completed moves have an order to honour; an
+        // executor that also (verifiably) undoes a callback's relocation is
+        // judged by the final state, not by this order check.
+        {
+            std::vector<std::uint64_t> own;
+            for (auto g : rev)
+                if (std::find(fwd.begin(), fwd.end(), g) != fwd.end())
+                    own.push_back(g);
+            rev.swap(own);
+        }
         std::vector<std::uint64_t> want;
         for (auto it = fwd.rbegin(); it != fwd.rend(); ++it)
             if (std::find(rev.begin(), rev.end(), *it) != rev.end())

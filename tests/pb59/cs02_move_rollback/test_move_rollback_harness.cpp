@@ -7,6 +7,7 @@
 //
 // Build/run: tests/pb59/cs02_move_rollback/run_local.sh (no CI workflow).
 #include "Executors.h"
+#include "Pb50StripAdapter.h"
 
 #include <cstdio>
 #include <functional>
@@ -503,6 +504,78 @@ int main()
         Pb44StripExecutor pb44;
         Run run = Execute(s, pb44);
         CHECK(run.verdict.ok() && run.rep.outcome == Outcome::Refused, s.name + "\n" + run.verdict.Text());
+    }
+
+    // 3b. PB50 ebc3a710 StripToBags through the MoveExecutor seam (findings, not harness failures).
+    int pb50Rows = 0, pb50Clean = 0, pb50Findings = 0;
+    {
+        std::printf("[SYNTHETIC] PB50 ebc3a710 StripToBags (real PlayerbotsAutoGearStorage::Execute, transcribed lambdas)\n");
+        std::printf("[SYNTHETIC] %-4s %-6s %-17s %-17s %s\n", "case", "hook#", "PB50 StripResult", "oracle truth", "verdict");
+        g_hazard.nested = [](Synthetic::Core& core) {
+            Pb50StripAdapter nested; // PB50 re-entering its own strip
+            nested.Execute(core, Strip(core, {2}));
+        };
+        auto hazards50 = [] { return HookHazardScenarios(); };
+        std::size_t const count = hazards50().size();
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            bool const hookCase = i < 6; // H1-H6 depend on which callback fires
+            for (int fire = 1; fire <= (hookCase ? 3 : 1); ++fire)
+            {
+                g_hazard.fireOnCall = fire;
+                Scenario s = hazards50()[i];
+                Pb50StripAdapter pb50;
+                Run run = Execute(s, pb50);
+                // PB50's StripResult carries no GUID list: list-mismatch lines are ignored below.
+                ++pb50Rows;
+                bool clean = run.verdict.violations.empty() ||
+                    std::all_of(run.verdict.violations.begin(), run.verdict.violations.end(),
+                        [](std::string const& x) { return x.rfind("RecoveryRequired list", 0) == 0; });
+                pb50Clean += clean;
+                pb50Findings += !clean;
+                std::string verdict = "clean";
+                if (!clean)
+                    for (auto const& x : run.verdict.violations)
+                        if (x.rfind("RecoveryRequired list", 0) != 0)
+                        {
+                            verdict = "FINDING: " + x;
+                            break;
+                        }
+                std::printf("[SYNTHETIC] %-4s %-6s %-17s %-17s %s\n", s.name.substr(0, 2).c_str(),
+                    hookCase ? std::to_string(fire).c_str() : "-", Name(pb50.last), Name(run.verdict.truth),
+                    verdict.c_str());
+            }
+        }
+        g_hazard = HazardControl{};
+        // Controls: fault-free strips must commit cleanly.
+        for (int n = 1; n <= 5; ++n)
+        {
+            Scenario s{"PB50 control strip " + std::to_string(n),
+                [n](Synthetic::Core& c) { return Strip(c, FirstSlots(n)); }, Outcome::Applied};
+            Pb50StripAdapter pb50;
+            Run run = Execute(s, pb50);
+            CHECK(run.verdict.ok() && pb50.last == Pb50StripResult::Done, s.name + "\n" + run.verdict.Text());
+        }
+        // Wider: the forward and rollback fault matrices (strip plans) against PB50.
+        int matrix = 0, matrixClean = 0;
+        std::vector<std::string> matrixFindings;
+        for (auto group : {ForwardFaultScenarios(), RollbackFaultScenarios()})
+            for (auto const& s : group)
+            {
+                Pb50StripAdapter pb50;
+                Run run = Execute(s, pb50);
+                ++matrix;
+                bool clean = std::all_of(run.verdict.violations.begin(), run.verdict.violations.end(),
+                    [](std::string const& x) { return x.rfind("RecoveryRequired list", 0) == 0; });
+                matrixClean += clean;
+                if (!clean)
+                    matrixFindings.push_back(s.name + " -> " + Name(pb50.last) + ": " + run.verdict.violations.front());
+            }
+        std::printf("[SYNTHETIC] PB50 hazard rows: %d, oracle-clean %d, findings %d\n", pb50Rows, pb50Clean, pb50Findings);
+        std::printf("[SYNTHETIC] PB50 F+R fault matrix: %d/%d oracle-clean (GUID list not checked; PB50 StripResult has none)\n",
+            matrixClean, matrix);
+        for (auto const& f : matrixFindings)
+            std::printf("[SYNTHETIC]   PB50 matrix finding: %s\n", f.c_str());
     }
 
     // 4. M4: two-hander equip then AutoUnequipOffhandIfNeed with full bags mails the off-hand.
