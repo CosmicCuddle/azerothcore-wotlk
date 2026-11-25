@@ -6,6 +6,7 @@
 #include "PB59NativeRecoveryCollection.h"
 #include "PB59CharacterSaveObserver.h"
 #include "PB59InventoryWriteFence.h"
+#include "PB59PendingInventoryWrites.h"
 #include "PB59TransactionAdmission.h"
 #include <algorithm>
 #include <array>
@@ -91,7 +92,7 @@ public:
     inline static unsigned Live = 0;
 };
 
-struct FixtureDatabase
+struct FixtureDatabase : DatabaseWorkerPool<CharacterDatabaseConnection>
 {
     enum class DispatchFault { None, BeforeQueue, AfterQueue };
 
@@ -130,18 +131,32 @@ struct FixtureDatabase
     {
         if (dispatchFault == DispatchFault::BeforeQueue)
             throw std::bad_alloc();
-        typedPool.AsyncCommitPreparedTransactionWithTransferredOutcome(std::move(prepared));
+        DatabaseWorkerPool<CharacterDatabaseConnection>::AsyncCommitPreparedTransactionWithTransferredOutcome(
+            std::move(prepared));
         if (dispatchFault == DispatchFault::AfterQueue)
             throw std::runtime_error("injected loss of admission result");
     }
 
-    DatabaseWorkerPool<CharacterDatabaseConnection> typedPool;
     DispatchFault dispatchFault = DispatchFault::None;
     int failOn = -1;
     unsigned preparedCalls = 0;
     std::function<void()> beforePrepare;
     std::shared_ptr<InspectTransaction> committed;
 } CharacterDatabase;
+
+struct FixtureConfig
+{
+    template<typename Value>
+    Value GetOption(std::string_view, Value fallback) const { return fallback; }
+};
+
+static FixtureConfig Config;
+static FixtureConfig const* sConfigMgr = &Config;
+
+template<typename... Values>
+static void LOG_ERROR(std::string_view, std::string_view, Values const&...)
+{
+}
 
 class Bag;
 
@@ -255,12 +270,19 @@ public:
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
     class PB59PendingRecoverySaves;
+    class PB59InventorySaveService;
     using PB59RecoveryWriteFence = PB59::InventoryWriteFence<256>;
+    using PB59TrackedInventoryWrites = PB59::PendingInventoryWrites<256, 256, CharacterDatabaseConnection>;
+    PB59::InventoryWriteSubmission TryPB59TrackedStandaloneSave(
+        PB59TrackedInventoryWrites& writes, bool create, bool logout);
+    static bool PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes);
+    static bool DrainPB59TrackedStandaloneSavesForShutdown(PB59TrackedInventoryWrites& writes);
     static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
         PB59RecoveryWriteFence& fence, Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
     static int CheckRecoveryPayload();
     static int CheckPendingRecoverySaves();
+    static int CheckSharedSaveService();
     std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
     Item* GetItemByPos(uint16 pos) const;
     Item* GetItemByPos(uint8 bag, uint8 slot) const;
@@ -274,6 +296,13 @@ public:
     bool IsAlive() const { return true; }
     bool IsBeingTeleportedFar() const { return false; }
     bool IsBeingTeleportedNear() const { return false; }
+    bool HasPB59UnsettledOriginals() const { return false; }
+    void SaveToDBWithEvidence(CharacterDatabaseTransaction transaction, bool, bool, PB59::SaveEvidence*)
+    {
+        transaction->Append(new TrackedStatement(CHAR_REP_INVENTORY_ITEM, 4));
+        if (duringStandaloneBuild)
+            duringStandaloneBuild();
+    }
     bool ArmRecovery(PB59::TransactionAdmission::Ticket ticket)
     {
         if (!_pb59Equipment.PrepareInventoryReservation(owner.value, {}))
@@ -291,6 +320,7 @@ public:
     std::vector<Item*> m_itemUpdateQueue;
     PB59::EquipmentCaptureState _pb59Equipment;
     PB59::TransactionAdmission _pb59Transaction;
+    std::function<void()> duringStandaloneBuild;
     unsigned* ownerReads = nullptr;
     std::array<Item*, CURRENCYTOKEN_SLOT_END> m_items{};
     std::array<ObjectGuid, CURRENCYTOKEN_SLOT_END> fields{};
@@ -485,9 +515,16 @@ static int CheckInventoryLinks()
 
 struct InventoryBatchFixture
 {
-    InventoryBatchFixture()
+    explicit InventoryBatchFixture(uint64 guid = 0)
     {
         auto& player = inventory.player;
+        if (guid)
+        {
+            player.owner = {guid};
+            base.owner = base.contained = player.owner;
+            inventory.bag.owner = inventory.bag.contained = player.owner;
+            inventory.item.owner = player.owner;
+        }
         inventory.bag.uState = ITEM_UNCHANGED;
         inventory.item.uQueuePos = 2;
         base.guid = {0x4000000000000032};
@@ -861,7 +898,9 @@ int Player::CheckPendingRecoverySaves()
             ++player.session.incarnation;
         if (fault == 2)
             pending.CloseAdmission();
-        ITEM_CHECK(!pending.TrySubmit(std::move(prepared), &player, scope));
+        auto const refused = fault == 2
+            ? PB59::InventoryWriteAdmission::Closed : PB59::InventoryWriteAdmission::Declined;
+        ITEM_CHECK(pending.TrySubmit(std::move(prepared), &player, scope) == refused);
         ITEM_CHECK(pending.Idle() && !pending.PollOne() && RecoveryQueue->Empty());
         ITEM_CHECK(stagingFence.TryTrackWrite(expected.owner) && TrackedStatement::Live == 0);
     }
@@ -896,9 +935,9 @@ int Player::CheckPendingRecoverySaves()
             if (reject)
                 RecoveryQueue->Shutdown();
             CharacterDatabase.dispatchFault = scenario.fault;
-            bool const submitted = pending.TrySubmit(std::move(prepared), &player, scope);
+            auto const submitted = pending.TrySubmit(std::move(prepared), &player, scope);
             CharacterDatabase.dispatchFault = Fault::None;
-            ITEM_CHECK(submitted && !prepared && !pending.Idle());
+            ITEM_CHECK(submitted == PB59::InventoryWriteAdmission::Tracking && !prepared && !pending.Idle());
             ITEM_CHECK(RecoveryQueue->Size() == (queued ? 1u : 0u));
             ITEM_CHECK(!fence.TryTrackWrite(expected.owner) && !CharacterDatabase.committed);
             ITEM_CHECK(player.m_itemUpdateQueue == queue && !fixture.base.stateChanges &&
@@ -945,6 +984,134 @@ int Player::CheckPendingRecoverySaves()
         ITEM_CHECK(RecoveryQueue->Empty() && TrackedStatement::Live == 0);
     }
     std::cout << Checks - before << " PB59 pending protected recovery checks PASS\n";
+    return 0;
+}
+
+int Player::CheckSharedSaveService()
+{
+    using Ledger = PB59::TransactionAdmission;
+    using Admission = PB59::InventoryWriteAdmission;
+    using Settlement = PB59RecoveryWriteFence::RecoverySettlement;
+    unsigned const before = Checks;
+    auto operation = [](Player const& player, Ledger::MutationScope const& scope)
+    {
+        return PB59::Recovery::Operation{player.owner.value, player.GetPB59OwnerIncarnation(),
+            player.session.incarnation, scope.GetTicket()};
+    };
+    auto runNextTask = []
+    {
+        SQLOperation* task = nullptr;
+        if (!RecoveryQueue->Pop(task))
+            return std::size_t{0};
+        std::unique_ptr<SQLOperation> ownedTask(task);
+        MySQLConnection executor;
+        task->SetConnection(&executor);
+        task->call();
+        return executor.statements;
+    };
+    {
+        PB59InventorySaveService service;
+        PB59::Recovery::Operation expected;
+        uint64 standaloneGuid = 0;
+        {
+            InventoryBatchFixture conflict;
+            auto& ordinary = conflict.inventory.player;
+            standaloneGuid = ordinary.owner.value;
+            ITEM_CHECK(service.TryStandalone(ordinary, false, false).status == Admission::Tracking);
+            Ledger::MutationScope ordinaryScope(ordinary._pb59Transaction);
+            ITEM_CHECK(ordinary.ArmRecovery(ordinaryScope.GetTicket()));
+            ITEM_CHECK(service.TryRecovery(&ordinary, operation(ordinary, ordinaryScope),
+                ordinaryScope, conflict.stamp) == Admission::Declined);
+
+            InventoryBatchFixture recovery(401);
+            auto& player = recovery.inventory.player;
+            Ledger::MutationScope scope(player._pb59Transaction);
+            ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+            expected = operation(player, scope);
+            ITEM_CHECK(service.TryRecovery(&player, expected, scope, recovery.stamp) == Admission::Tracking);
+            auto const progress = service.PollShutdown();
+            ITEM_CHECK(!progress.drained && !progress.recovery && RecoveryQueue->Size() == 2);
+            Player newOwner;
+            ITEM_CHECK(service.TryStandalone(newOwner, false, false).status == Admission::Closed);
+            ITEM_CHECK(service.TryStandalone(newOwner, true, false).status == Admission::Closed);
+            ITEM_CHECK(service.TryRecovery(&player, expected, scope, recovery.stamp) == Admission::Closed);
+        }
+        ITEM_CHECK(runNextTask() == 1);
+        auto progress = service.PollShutdown();
+        ITEM_CHECK(!progress.drained && !progress.recovery && service._fence.TryTrackWrite(standaloneGuid));
+        ITEM_CHECK(runNextTask() == 4);
+        progress = service.PollShutdown();
+        ITEM_CHECK(progress.drained && progress.recovery && progress.recovery->operation == expected);
+        ITEM_CHECK(progress.recovery->record.result.IsCommitted() &&
+            progress.recovery->settlement == Settlement::NeedsVerification);
+        ITEM_CHECK(!service._fence.TryTrackWrite(expected.owner) && !service.PollShutdown().recovery);
+        ITEM_CHECK(RecoveryQueue->Empty() && TrackedStatement::Live == 0);
+    }
+    {
+        PB59InventorySaveService service;
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const expected = operation(player, scope);
+        bool entered = false;
+        bool waitedForProducer = false;
+        CharacterDatabase.beforePrepare = [&]
+        {
+            if (entered)
+                return;
+            entered = true;
+            auto const progress = service.PollShutdown();
+            waitedForProducer = !progress.drained && !progress.recovery && RecoveryQueue->Empty();
+        };
+        auto const result = service.TryRecovery(&player, expected, scope, fixture.stamp);
+        CharacterDatabase.beforePrepare = {};
+        ITEM_CHECK(entered && waitedForProducer && result == Admission::Closed);
+        ITEM_CHECK(service.PollShutdown().drained && service._fence.TryTrackWrite(expected.owner));
+        ITEM_CHECK(RecoveryQueue->Empty() && TrackedStatement::Live == 0);
+    }
+    {
+        PB59InventorySaveService service;
+        Player owner;
+        bool pendingDuringBuild = false;
+        owner.duringStandaloneBuild = [&]
+        {
+            auto const progress = service.PollShutdown();
+            pendingDuringBuild = !progress.drained && !progress.recovery && RecoveryQueue->Empty();
+        };
+        auto const sent = service.TryStandalone(owner, false, false);
+        ITEM_CHECK(pendingDuringBuild && sent.status == Admission::Tracking);
+        ITEM_CHECK(!service.PollShutdown().drained && RecoveryQueue->Size() == 1);
+        ITEM_CHECK(runNextTask() == 1 && service.PollShutdown().drained && RecoveryQueue->Empty());
+    }
+    {
+        PB59InventorySaveService service;
+        for (uint64 guid = 1; guid <= 256; ++guid)
+        {
+            InventoryBatchFixture fixture(guid);
+            auto& player = fixture.inventory.player;
+            Ledger::MutationScope scope(player._pb59Transaction);
+            ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+            auto const expected = operation(player, scope);
+            ITEM_CHECK(service.TryRecovery(&player, expected, scope, fixture.stamp) == Admission::Tracking);
+            ITEM_CHECK(runNextTask() == 4);
+            auto const result = service.PollReady();
+            ITEM_CHECK(result && result->operation == expected && result->settlement == Settlement::NeedsVerification);
+        }
+        InventoryBatchFixture extra(257);
+        auto& player = extra.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const preparedCalls = CharacterDatabase.preparedCalls;
+        ITEM_CHECK(service.TryRecovery(&player, operation(player, scope), scope, extra.stamp) == Admission::Full);
+        ITEM_CHECK(RecoveryQueue->Empty() && CharacterDatabase.preparedCalls == preparedCalls);
+        Player held;
+        held.owner = {1};
+        ITEM_CHECK(service.TryStandalone(held, false, false).status == Admission::WriterUnavailable);
+        ITEM_CHECK(service.PollShutdown().drained && !service._fence.TryTrackWrite(1) &&
+            !service._fence.TryTrackWrite(256) && TrackedStatement::Live == 0);
+    }
+    std::cout << Checks - before << " PB59 shared save lifecycle checks PASS\n";
     return 0;
 }
 
@@ -1064,5 +1231,7 @@ int main()
         return status;
     if (auto const status = Player::CheckRecoveryPayload())
         return status;
-    return Player::CheckPendingRecoverySaves();
+    if (auto const status = Player::CheckPendingRecoverySaves())
+        return status;
+    return Player::CheckSharedSaveService();
 }

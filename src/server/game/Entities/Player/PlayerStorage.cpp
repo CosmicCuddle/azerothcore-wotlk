@@ -8408,19 +8408,35 @@ std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySav
 class Player::PB59PendingRecoverySaves final
 {
 public:
+    using Admission = PB59::InventoryWriteAdmission;
+    using Completion = PB59PreparedRecoverySave::Completion;
+
     explicit PB59PendingRecoverySaves(PB59RecoveryWriteFence& fence) noexcept : _fence(fence) {}
 
+    [[nodiscard]] std::optional<Admission> AdmissionRefusal() const
+    {
+        std::lock_guard lock(_mutex);
+        if (_closed)
+            return Admission::Closed;
+        if (std::ranges::all_of(_saves, [](auto const& save) { return bool(save); }))
+            return Admission::Full;
+        return std::nullopt;
+    }
+
     // Upon acceptance this owner handles the exact completion, including queue rejection.
-    [[nodiscard]] bool TrySubmit(std::unique_ptr<PB59PreparedRecoverySave> prepared, Player const* owner,
+    [[nodiscard]] Admission TrySubmit(std::unique_ptr<PB59PreparedRecoverySave> prepared, Player const* owner,
         PB59::TransactionAdmission::MutationScope const& scope)
     {
         std::lock_guard lock(_mutex);
-        if (_closed || !prepared || &prepared->fence != &_fence)
-            return false;
+        if (_closed)
+            return Admission::Closed;
+        if (!prepared || &prepared->fence != &_fence)
+            return Admission::Declined;
         auto slot = std::ranges::find_if(_saves, [](auto const& save) { return !save; });
-        if (slot == _saves.end() || !prepared->BindCompletion(owner, scope) ||
-            !prepared->MarkPossiblySubmitted(owner, scope))
-            return false;
+        if (slot == _saves.end())
+            return Admission::Full;
+        if (!prepared->BindCompletion(owner, scope) || !prepared->MarkPossiblySubmitted(owner, scope))
+            return Admission::Declined;
 
         *slot = std::move(prepared);
         auto& save = **slot;
@@ -8433,10 +8449,10 @@ public:
             // The observer still owns the exact outcome, even if queue admission throws.
         }
         save.task.reset();
-        return true;
+        return Admission::Tracking;
     }
 
-    [[nodiscard]] std::optional<PB59PreparedRecoverySave::Completion> PollOne()
+    [[nodiscard]] std::optional<Completion> PollOne()
     {
         std::lock_guard lock(_mutex);
         for (std::size_t count = 0; count < _saves.size(); ++count)
@@ -8536,6 +8552,107 @@ bool Player::DrainPB59TrackedStandaloneSavesForShutdown(PB59TrackedInventoryWrit
         continue;
     return writes.Idle();
 }
+
+// Dormant owner. Keep it alive through producer retirement, pool shutdown and recovery verification.
+class Player::PB59InventorySaveService final
+{
+    class Producer final
+    {
+    public:
+        explicit Producer(PB59InventorySaveService& service)
+        {
+            std::lock_guard lock(service._mutex);
+            if (service._closed)
+                return;
+            ++service._producers;
+            _service = &service;
+        }
+
+        Producer(Producer const&) = delete;
+        Producer& operator=(Producer const&) = delete;
+
+        ~Producer()
+        {
+            if (_service)
+            {
+                std::lock_guard lock(_service->_mutex);
+                --_service->_producers;
+            }
+        }
+
+        [[nodiscard]] explicit operator bool() const noexcept { return _service != nullptr; }
+
+    private:
+        PB59InventorySaveService* _service = nullptr;
+    };
+
+public:
+    using Admission = PB59::InventoryWriteAdmission;
+    using RecoveryCompletion = PB59PendingRecoverySaves::Completion;
+
+    struct ShutdownProgress
+    {
+        std::optional<RecoveryCompletion> recovery;
+        bool drained;
+    };
+
+    PB59InventorySaveService() : _standalone(_fence, CharacterDatabase), _recovery(_fence) {}
+
+    [[nodiscard]] PB59::InventoryWriteSubmission TryStandalone(Player& owner, bool create, bool logout)
+    {
+        Producer const producer(*this);
+        if (!producer)
+            return {Admission::Closed};
+        return owner.TryPB59TrackedStandaloneSave(_standalone, create, logout);
+    }
+
+    [[nodiscard]] Admission TryRecovery(Player const* owner, PB59::Recovery::Operation operation,
+        PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp)
+    {
+        Producer const producer(*this);
+        if (!producer)
+            return Admission::Closed;
+        if (auto refusal = _recovery.AdmissionRefusal())
+            return *refusal;
+        auto prepared = PreparePB59RecoverySavePayload(_fence, owner, operation, scope, stamp);
+        return _recovery.TrySubmit(std::move(prepared), owner, scope);
+    }
+
+    [[nodiscard]] std::optional<RecoveryCompletion> PollReady()
+    {
+        PollPB59TrackedStandaloneSave(_standalone);
+        return _recovery.PollOne();
+    }
+
+    // Process the returned completion even on the final successful drain step.
+    [[nodiscard]] ShutdownProgress PollShutdown()
+    {
+        {
+            std::lock_guard lock(_mutex);
+            if (!_closed)
+            {
+                _closed = true;
+                _standalone.CloseAdmission();
+                _recovery.CloseAdmission();
+            }
+        }
+
+        bool const standaloneDrained = DrainPB59TrackedStandaloneSavesForShutdown(_standalone);
+        auto recovery = _recovery.PollOne();
+        std::lock_guard lock(_mutex);
+        return {std::move(recovery), _producers == 0 && standaloneDrained && _recovery.Idle()};
+    }
+
+private:
+    friend class Player;
+
+    PB59RecoveryWriteFence _fence;
+    PB59TrackedInventoryWrites _standalone;
+    PB59PendingRecoverySaves _recovery;
+    std::mutex _mutex;
+    std::size_t _producers = 0;
+    bool _closed = false;
+};
 
 void Player::SaveToDB(bool create, bool logout)
 {
