@@ -288,6 +288,12 @@
   handoff reports its ticket immediately and keeps recovery blocked.
   The world service, native call sites, and persisted verification still
   need integration evidence.
+- **Standalone save shutdown drain (25 November 2026):** isolated Core103
+  child, parent `4de148633438eafda6bd7383e1685f3226f17b8f`. A dormant
+  drain step closes tracker admission and reports ready completions
+  without waiting for active builders. All tracked noncommitted results
+  report their ticket and original status even with detailed evidence
+  disabled. The pool still owns final queue shutdown and worker joins.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

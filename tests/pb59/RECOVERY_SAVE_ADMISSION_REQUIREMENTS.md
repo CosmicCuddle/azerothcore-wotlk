@@ -331,20 +331,27 @@ invokes save scripts and drains dirty maps.
 When character save diagnostics are enabled, the pending slot carries the
 owner and session incarnations, ticket sequence and bounded save membership.
 `PollOne` settles the writer and returns the original outcome. The existing
-reporter can then use the value snapshot after the player is gone. A
-pre-build refusal leaves dirty values with the caller. A builder or handoff
-failure returns `Uncertain` with the exact ticket and logs it immediately.
+reporter uses the value snapshot after the player is gone. Every tracked
+noncommitted result reports its ticket, status and execution code, including
+`Empty` and saves with evidence disabled. A pre-build refusal leaves dirty
+values with the caller. A builder or handoff failure returns `Uncertain`
+with the exact ticket and logs it immediately.
 That ticket may have no pollable completion. Do not wait for one or fall
 back to legacy save. Even a typed no-write completion keeps capture blocked
 after a native builder may have consumed dirty state.
 
 Creation and logout need their own lifecycle handling. The existing world
 tick drains diagnostics, and `StopDB` closes CharacterDatabase before its
-final diagnostic drain. A future tracked service must close admission while
-the pool remains available, let admitted producers finish, and drain the
-pending store before closing the pool. A poll from a running producer must
-return without waiting for its own task. The standalone fixture exercises
-this ordering with a local queue. Actual world service wiring is still open.
+final legacy diagnostic drain. The dormant
+`DrainPB59TrackedStandaloneSavesForShutdown` step closes admission, reports
+ready completions and returns whether the tracker has drained. It can
+return while admitted work runs, including when called inside that work.
+The future service must outlive callers and keep the pool and shared GUID
+fence available until active producers return and the tracked work drains.
+The database pool then performs its own graceful queue stop and worker join.
+An accepted task with a lost handoff result can still be in that queue
+after the tracker drains. Outstanding protected holds need their own
+lifecycle, and persisted proof needs separate verification.
 
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,

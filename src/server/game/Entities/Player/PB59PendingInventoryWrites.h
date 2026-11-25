@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PB59CharacterSaveEvidence.h"
+#include "PB59InventoryWriteSubmission.h"
 #include "PB59PreparedInventoryWrite.h"
 #include <algorithm>
 #include <array>
@@ -23,20 +24,9 @@ class PendingInventoryWrites final
     using Pool = DatabaseWorkerPool<Connection>;
 
 public:
-    struct Ticket
-    {
-        std::uint64_t guid = 0;
-        std::uint64_t sequence = 0;
-        bool operator==(Ticket const&) const = default;
-    };
-
-    enum class Admission { Tracking, Closed, Full, SequenceExhausted, WriterUnavailable, Declined, Uncertain };
-
-    struct Submission
-    {
-        Admission status;
-        Ticket ticket{};
-    };
+    using Ticket = InventoryWriteTicket;
+    using Admission = InventoryWriteAdmission;
+    using Submission = InventoryWriteSubmission;
 
     struct NativeSaveDiagnostics
     {

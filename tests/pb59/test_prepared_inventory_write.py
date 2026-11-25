@@ -11,6 +11,7 @@ parser.add_argument("--mutants", action="store_true")
 parser.add_argument("--completion-mutant", action="store_true")
 parser.add_argument("--native-save-mutants", action="store_true")
 parser.add_argument("--standalone-save-mutants", action="store_true")
+parser.add_argument("--shutdown-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -28,6 +29,9 @@ def section(filename, begin, end):
 pool = database / "DatabaseWorkerPool.cpp"
 transaction = database / "Transaction.cpp"
 storage = player / "PlayerStorage.cpp"
+worker = (database / "DatabaseWorker.cpp").read_text(encoding="utf-8")
+declarations = section(player / "Player.h", "    // Dormant adapter.",
+                       "    [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave>")
 definitions = [
     section(pool, "template <class T>\nSQLTransaction<T> DatabaseWorkerPool<T>::BeginTransaction(",
             "template <class T>\nvoid DatabaseWorkerPool<T>::CommitTransaction("),
@@ -36,10 +40,12 @@ definitions = [
             "DirectCommitTransaction("),
     section(transaction, "void TransactionBase::Append(std::string_view sql)", "//- Append a prepared statement"),
     section(transaction, "TransactionWithOutcomeTask::~TransactionWithOutcomeTask()", "bool TransactionCallback::"),
+    worker[worker.index("DatabaseWorker::DatabaseWorker("):],
 ]
 standalone = "\n".join([
     section(storage, "namespace\n{\n    void ReportPB59SaveResult(", "namespace\n{\n    using SaveObserver"),
-    section(storage, "auto Player::TryPB59TrackedStandaloneSave(", "void Player::SaveToDB(bool create, bool logout)"),
+    section(storage, "namespace\n{\n    using SaveObserver", "class Player::PB59PreparedRecoverySave"),
+    section(storage, "void Player::DrainPB59CharacterSaveEvidence(", "void Player::SaveToDB(bool create, bool logout)"),
 ])
 flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic", "-pthread"]
 if args.ndebug:
@@ -60,6 +66,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
     definition_file.write_text(native, encoding="utf-8")
     producer_file = work / "TrackedStandaloneSaveDefinitions.inc"
     producer_file.write_text(standalone, encoding="utf-8")
+    (work / "TrackedStandaloneSaveDeclarations.inc").write_text(declarations, encoding="utf-8")
     header_name = "PB59PreparedInventoryWrite.h"
     store_name = "PB59PendingInventoryWrites.h"
     bridge = (player / header_name).read_text(encoding="utf-8")
@@ -82,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
             raise RuntimeError(f"Expected ordinary dispatch to be caught. Got {result!r}")
         print("1/1 protected completion fault variant rejected by runtime assertion")
         definition_file.write_text(native, encoding="utf-8")
-    if args.mutants or args.native_save_mutants or args.standalone_save_mutants:
+    if args.mutants or args.native_save_mutants or args.standalone_save_mutants or args.shutdown_mutants:
         mutants = []
         if args.mutants:
             mutants += [
@@ -113,8 +120,18 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
                 (work / store_name, store, "slot->diagnostics = std::move(diagnostics);",
                  "slot->diagnostics = std::nullopt;"),
                 (producer_file, standalone, "create || logout || ", "((void)create, (void)logout, false) || "),
-                (producer_file, standalone, "if (submission.status == PB59TrackedInventoryWrites::Admission::Uncertain)",
+                (producer_file, standalone, "if (submission.status == PB59::InventoryWriteAdmission::Uncertain)",
                  "if (false)"),
+            ]
+        if args.shutdown_mutants:
+            mutants += [
+                (producer_file, standalone, "if (completed->result.IsCommitted())",
+                 "if (completed->result.IsCommitted() || completed->result.status == DatabaseTransactionStatus::Empty)"),
+                (producer_file, standalone, 'else\n        LOG_ERROR("entities.player", "PB59 tracked save GUID',
+                 'else if (false)\n        LOG_ERROR("entities.player", "PB59 tracked save GUID'),
+                (producer_file, standalone, "    writes.CloseAdmission();\n", ""),
+                (producer_file, standalone, "    while (PollPB59TrackedStandaloneSave(writes))\n        continue;",
+                 "    PollPB59TrackedStandaloneSave(writes);"),
             ]
         for target, original, before, after in mutants:
             if original.count(before) != 1:
