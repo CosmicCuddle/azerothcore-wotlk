@@ -145,6 +145,17 @@ public:
 
     [[nodiscard]] SQLTransaction<T> const& GetTransaction() const noexcept { return _transaction; }
 
+    // The receiver must leave the future untouched on refusal. Once it takes
+    // ownership, the ordinary submission API can no longer enqueue this task.
+    template<typename Receiver>
+    [[nodiscard]] bool TransferOutcome(Receiver&& receiver)
+    {
+        if (!_task || !_result.valid())
+            return false;
+        std::invoke(std::forward<Receiver>(receiver), std::move(_result));
+        return !_result.valid();
+    }
+
 private:
     friend class DatabaseWorkerPool<T>;
 

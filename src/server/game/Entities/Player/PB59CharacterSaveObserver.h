@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DatabaseEnvFwd.h"
 #include "PB59CharacterSaveEvidence.h"
 #include <chrono>
 #include <future>
@@ -91,6 +92,23 @@ public:
     {
         std::lock_guard lock(_mutex);
         return Owns(receipt) && AttachLocked(receipt._ticket, std::move(future));
+    }
+
+    // Bind the exact prepared task without exposing or duplicating its future.
+    // Failure leaves the reservation and the task's outcome unchanged.
+    template<typename Connection>
+    [[nodiscard]] bool BindPreparedOutcome(ProtectedReceipt const& receipt, SaveEvidence const& evidence,
+        PreparedTransactionWithOutcome<Connection>& task)
+    {
+        std::lock_guard lock(_mutex);
+        if (!Owns(receipt) || _futures[receipt._ticket.slot].valid())
+            return false;
+
+        return task.TransferOutcome([&](std::future<DatabaseTransactionResult>&& future)
+        {
+            if (_store.Seal(receipt._ticket, evidence))
+                _futures[receipt._ticket.slot] = std::move(future);
+        });
     }
 
     // Only reserved, unsealed captures can be abandoned. The exact consumer

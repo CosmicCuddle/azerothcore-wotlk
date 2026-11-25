@@ -3112,7 +3112,7 @@ private:
     [[nodiscard]] bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
-    [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave const> PreparePB59RecoverySavePayload(
+    [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
         Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
     // Dormant read-only collector: no runtime call site or public PB API.

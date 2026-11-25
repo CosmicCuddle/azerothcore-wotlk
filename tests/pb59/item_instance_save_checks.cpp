@@ -204,7 +204,7 @@ public:
     bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
-    static std::unique_ptr<PB59PreparedRecoverySave const> PreparePB59RecoverySavePayload(
+    static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
         Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
     static int CheckRecoveryPayload();
@@ -564,7 +564,7 @@ int Player::CheckRecoveryPayload()
         auto const queue = player.m_itemUpdateQueue;
         auto payload = Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp);
         ITEM_CHECK(payload && payload->operation == expected && payload->stamp == fixture.stamp);
-        ITEM_CHECK(payload->task.GetTransaction()->GetSize() == 4 && payload->receipt);
+        ITEM_CHECK(payload->task->GetTransaction()->GetSize() == 4 && payload->receipt);
         ITEM_CHECK(payload->membership.itemCount == 2 && !payload->membership.incomplete);
         ITEM_CHECK(payload->membership.items[0] == fixture.base.guid.value);
         ITEM_CHECK(payload->membership.items[1] == view.item.guid.value);
@@ -579,6 +579,21 @@ int Player::CheckRecoveryPayload()
             record->ticket.identity.player == expected.ownerIncarnation &&
             record->ticket.identity.session == expected.sessionIncarnation);
         ITEM_CHECK(!observer.ConsumeProtected(*payload->receipt));
+    }
+    {
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const expected = operation(player, scope);
+        auto prepared = Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp);
+        ITEM_CHECK(prepared && prepared->BindCompletion());
+        ITEM_CHECK(!prepared->BindCompletion() && !observer.ConsumeProtected(*prepared->receipt));
+        prepared->task.reset();
+        auto const result = observer.ConsumeProtected(*prepared->receipt);
+        ITEM_CHECK(result && result->result.status == DatabaseTransactionStatus::CancelledBeforeExecution);
+        ITEM_CHECK(result->ticket.identity.session == expected.sessionIncarnation && result->evidence.itemCount == 2);
+        ITEM_CHECK(!observer.ConsumeProtected(*prepared->receipt) && !CharacterDatabase.committed);
     }
     for (unsigned fault = 0; fault < 12; ++fault)
     {
@@ -680,7 +695,7 @@ int Player::CheckRecoveryPayload()
         auto const expected = operation(player, scope);
         {
             auto unused = Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp);
-            ITEM_CHECK(unused && unused->receipt);
+            ITEM_CHECK(unused && unused->receipt && unused->BindCompletion());
         }
         std::vector<SaveObserver::ProtectedReceipt> held;
         for (unsigned slot = 0; slot < 256; ++slot)
