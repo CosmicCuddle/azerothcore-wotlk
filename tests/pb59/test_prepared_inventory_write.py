@@ -45,7 +45,7 @@ definitions = [
 standalone = "\n".join([
     section(storage, "namespace\n{\n    void ReportPB59SaveResult(", "namespace\n{\n    using SaveObserver"),
     section(storage, "namespace\n{\n    using SaveObserver", "class Player::PB59PreparedRecoverySave"),
-    section(storage, "void Player::DrainPB59CharacterSaveEvidence(", "void Player::SaveToDB(bool create, bool logout)"),
+    section(storage, "void Player::DrainPB59CharacterSaveEvidence(", "// Dormant owner. Keep it alive"),
 ])
 flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic", "-pthread"]
 if args.ndebug:

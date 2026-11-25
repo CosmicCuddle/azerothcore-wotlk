@@ -3119,6 +3119,7 @@ private:
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
     class PB59PendingRecoverySaves;
+    class PB59InventorySaveService;
     using PB59RecoveryWriteFence = PB59::InventoryWriteFence<256>;
     using PB59TrackedInventoryWrites = PB59::PendingInventoryWrites<256, 256, CharacterDatabaseConnection>;
     // Dormant adapter. A future owner must provide the shared fence and drain its pending writes.

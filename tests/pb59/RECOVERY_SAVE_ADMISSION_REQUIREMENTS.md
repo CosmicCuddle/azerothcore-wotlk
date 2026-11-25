@@ -367,8 +367,32 @@ fence available until active producers return and the tracked work drains.
 The database pool then performs its own graceful queue stop and worker join.
 An accepted task with a lost handoff result can still be in that queue
 after the tracker drains. The protected owner has its own adoption and
-drain boundary. A future service needs to coordinate both boundaries and
-the final logout writer. Persisted proof needs separate verification.
+drain boundary. Persisted proof needs separate verification.
+
+## Owning both save trackers through shutdown
+
+The dormant save service owns the shared GUID fence and both trackers.
+Each producer enters before building or staging and retires after its
+submission and any unused payload cleanup. The shutdown poll closes
+both admission gates. An admitted standalone build can finish handoff
+to the open pool. A protected payload still staging at close is refused
+at adoption and releases its staged resources before the producer retires.
+The poll remains nonblocking, including when called by a running producer.
+
+The service can poll ready work in ordinary operation. During shutdown
+each step reports ready standalone work and returns at most one exact
+protected completion by value. The lifecycle caller consumes the returned
+completion even on the final step. Drained means every admitted producer
+has retired and both trackers have consumed their pending results.
+It still requires graceful pool shutdown to finish any accepted queue
+work whose ordinary handoff result was lost.
+
+The caller must retain the service and its fence while committed or
+uncertain protected holds are needed for verification. Those holds
+continue to occupy protected slots after drain. At 256 occupied slots a
+new protected request returns Full before staging, and final adoption
+rechecks capacity after staging. The legacy logout writer and world
+lifetime ordering remain separate integration work.
 
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,

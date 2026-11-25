@@ -12,6 +12,7 @@ parser.add_argument("--batch-mutants", action="store_true")
 parser.add_argument("--receipt-mutants", action="store_true")
 parser.add_argument("--hold-mutants", action="store_true")
 parser.add_argument("--pending-recovery-mutants", action="store_true")
+parser.add_argument("--shared-service-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -33,7 +34,11 @@ definitions = "\n".join([
     section(database / "Transaction.cpp", "TransactionWithOutcomeTask::~TransactionWithOutcomeTask()",
             "bool TransactionCallback::"),
     section(database / "DatabaseWorkerPool.cpp",
-            "template <class T>\nvoid DatabaseWorkerPool<T>::AsyncCommitPreparedTransactionWithTransferredOutcome(",
+            "template <class T>\nSQLTransaction<T> DatabaseWorkerPool<T>::BeginTransaction(",
+            "template <class T>\nvoid DatabaseWorkerPool<T>::CommitTransaction("),
+    section(database / "DatabaseWorkerPool.cpp",
+            "template <class T>\nstd::future<DatabaseTransactionResult> DatabaseWorkerPool<T>::"
+            "AsyncCommitPreparedTransactionWithOutcome(",
             "template <class T>\nvoid DatabaseWorkerPool<T>::DirectCommitTransaction("),
     section(item / "Item.cpp", "bool Item::AppendItemInstanceSave(", "bool Item::LoadFromDB("),
     section(item / "Item.cpp", "uint8 Item::GetBagSlot()", "bool Item::IsEquipped()"),
@@ -42,8 +47,12 @@ definitions = "\n".join([
     section(player / "PlayerStorage.cpp", "Bag* Player::GetBagByPos(", "uint32 Player::GetFreeInventorySpace()"),
     section(player / "PlayerStorage.cpp", "std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(",
             "bool Player::SuspendPB59OriginalQueue("),
+    section(player / "PlayerStorage.cpp", "namespace\n{\n    void ReportPB59SaveResult(",
+            "namespace\n{\n    using SaveObserver"),
     section(player / "PlayerStorage.cpp", "namespace\n{\n    using SaveObserver",
             "void Player::DrainPB59CharacterSaveEvidence("),
+    section(player / "PlayerStorage.cpp", "PB59::InventoryWriteSubmission Player::TryPB59TrackedStandaloneSave(",
+            "void Player::SaveToDB(bool create, bool logout)"),
 ])
 flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
 if args.ndebug:
@@ -67,7 +76,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
-    if args.mutants or args.batch_mutants or args.receipt_mutants or args.hold_mutants or args.pending_recovery_mutants:
+    if any((args.mutants, args.batch_mutants, args.receipt_mutants, args.hold_mutants,
+            args.pending_recovery_mutants, args.shared_service_mutants)):
         variants = []
         if args.mutants:
             variants += [
@@ -124,10 +134,20 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         if args.pending_recovery_mutants:
             variants += [
                 ("if (!prepared._task || prepared._result.valid())", "if (!prepared._task)"),
-                ("_closed || !prepared || &prepared->fence != &_fence", "_closed || !prepared"),
-                ("_closed || !prepared || &prepared->fence != &_fence", "!prepared || &prepared->fence != &_fence"),
+                ("!prepared || &prepared->fence != &_fence", "!prepared"),
+                ("        if (_closed)\n            return Admission::Closed;\n        if (!prepared",
+                 "        if (!prepared"),
                 ("if (result->settlement == PB59RecoveryWriteFence::RecoverySettlement::NoWrite)", "if (true)"),
                 ("return save && save->receipt;", "return bool(save);"),
+            ]
+        if args.shared_service_mutants:
+            variants += [
+                ("_producers == 0 && standaloneDrained", "standaloneDrained"),
+                ("                _recovery.CloseAdmission();\n", ""),
+                ("if (auto refusal = _recovery.AdmissionRefusal())\n            return *refusal;", ""),
+                ("return {std::move(recovery), _producers", "return {(void(recovery), std::nullopt), _producers"),
+                ("if (service._closed)\n                return;", "if (false)\n                return;"),
+                ("standaloneDrained && _recovery.Idle()", "standaloneDrained"),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:
