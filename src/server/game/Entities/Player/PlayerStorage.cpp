@@ -51,6 +51,7 @@
 #include "PB59VisibleEquipment.h"
 #include "PB59EffectBoundary.h"
 #include "PB59CharacterSaveObserver.h"
+#include "PB59NativeRecoveryCollection.h"
 #include "WorldSession.h"
 #include <algorithm>
 #include <limits>
@@ -632,14 +633,14 @@ std::optional<Player::PB59InventorySlotLinks> Player::ReadPB59InventorySlotLinks
     return PB59InventorySlotLinks{item, fieldGuid, containerGuid};
 }
 
-bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
-    Transaction<CharacterDatabaseConnection>& transaction) const
+std::optional<Player::PB59InventorySlotLinks> Player::CheckPB59InventoryItemSave(
+    uint16 pos, Item const* expected) const
 {
     if (!expected || m_itemUpdateQueueBlocked)
-        return false;
+        return std::nullopt;
     auto const links = ReadPB59InventorySlotLinks(pos);
     if (!links || links->item != expected)
-        return false;
+        return std::nullopt;
 
     auto const& item = *links->item;
     auto const state = item.GetState();
@@ -649,6 +650,15 @@ bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
         item.m_lootGenerated || itemGuid == GetLootGUID() || item.IsRefundable() || item.IsBOPTradable() ||
         m_refundableItems.contains(itemGuid) || (state == ITEM_NEW && item.IsWrapped()) ||
         std::ranges::any_of(m_enchantDuration, [&](auto const& timer) { return timer.item == &item; }))
+        return std::nullopt;
+    return links;
+}
+
+bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
+    Transaction<CharacterDatabaseConnection>& transaction) const
+{
+    auto const links = CheckPB59InventoryItemSave(pos, expected);
+    if (!links)
         return false;
 
     std::unique_ptr<CharacterDatabasePreparedStatement> link(
@@ -656,10 +666,84 @@ bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
     link->SetData(0, GetGUID().GetRawValue());
     link->SetData(1, links->containerGuid.GetCounter());
     link->SetData(2, uint8(pos & 255));
-    link->SetData(3, itemGuid.GetCounter());
+    link->SetData(3, links->item->GetGUID().GetCounter());
     transaction.Append(link.get());
     (void)link.release();
-    return item.AppendItemInstanceSave(transaction);
+    return links->item->AppendItemInstanceSave(transaction);
+}
+
+bool Player::AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
+    Transaction<CharacterDatabaseConnection>& transaction) const
+{
+    auto eligible = [&]
+    {
+        auto const buyback = std::span(m_items).subspan(BUYBACK_SLOT_START, BUYBACK_SLOT_END - BUYBACK_SLOT_START);
+        return stamp.revision && _pb59Equipment.Current(stamp) && !m_itemUpdateQueueBlocked &&
+            m_refundableItems.empty() && m_enchantDuration.empty() &&
+            std::ranges::none_of(buyback, [](Item const* item) { return item != nullptr; });
+    };
+    if (transaction.GetSize() || m_itemUpdateQueue.empty() ||
+        m_itemUpdateQueue.size() > PB59::Recovery::MaximumQueueObservations || !eligible())
+        return false;
+
+    auto const queue = m_itemUpdateQueue;
+    std::vector<uint16> positions(queue.size());
+    std::set<ObjectGuid::LowType> ids;
+    auto rememberGuid = [&](Item const& item)
+    {
+        auto const id = item.GetGUID().GetCounter();
+        return id && ids.insert(id).second;
+    };
+    auto rememberPosition = [&](Item const* item, uint16 pos)
+    {
+        if (!item)
+            return true;
+        if (!rememberGuid(*item))
+            return false;
+        if (item->uQueuePos == -1)
+            return item->GetState() == ITEM_UNCHANGED;
+        auto const index = static_cast<std::size_t>(item->uQueuePos);
+        if (index >= queue.size() || queue[index] != item || positions[index])
+            return false;
+        positions[index] = pos;
+        return true;
+    };
+    auto pack = [](uint8 bag, uint8 slot) { return uint16((uint16(bag) << 8) | slot); };
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        if (slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD &&
+            !rememberPosition(GetItemByPos(INVENTORY_SLOT_BAG_0, slot), pack(INVENTORY_SLOT_BAG_0, slot)))
+            return false;
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        if (!rememberPosition(GetItemByPos(INVENTORY_SLOT_BAG_0, slot), pack(INVENTORY_SLOT_BAG_0, slot)))
+            return false;
+    for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+        if (auto const* container = GetBagByPos(bag))
+        {
+            auto const size = container->GetBagSize();
+            if (size > MAX_BAG_SIZE || container->GetState() != ITEM_UNCHANGED || !rememberGuid(*container))
+                return false;
+            for (uint8 slot = 0; slot < size; ++slot)
+                if (!rememberPosition(container->GetItemByPos(slot), pack(bag, slot)))
+                    return false;
+        }
+
+    bool hasWork = false;
+    for (std::size_t index = 0; index < queue.size(); ++index)
+        if (queue[index])
+        {
+            // An orphan queue pointer is compared only as a value. It never
+            // reaches an item getter without an independently located cell.
+            if (!positions[index] || !CheckPB59InventoryItemSave(positions[index], queue[index]))
+                return false;
+            hasWork = true;
+        }
+    if (!hasWork || !eligible() || m_itemUpdateQueue != queue)
+        return false;
+
+    for (std::size_t index = 0; index < queue.size(); ++index)
+        if (queue[index] && !AppendPB59InventoryItemSave(positions[index], queue[index], transaction))
+            return false;
+    return eligible() && m_itemUpdateQueue == queue;
 }
 
 bool Player::SuspendPB59OriginalQueue(PB59::InventorySlotFacts const& original,

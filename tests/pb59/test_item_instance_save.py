@@ -8,6 +8,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--compiler", nargs="+", required=True)
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--mutants", action="store_true")
+parser.add_argument("--batch-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -56,21 +57,35 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
-    if args.mutants:
-        variants = [
-            ("auto const owner = GetOwnerGUID().GetRawValue();", "auto const owner = GetOwnerGUID().GetCounter();"),
-            ("if (state == ITEM_CHANGED && IsWrapped())", "if (IsWrapped())"),
-            ("i < MAX_ENCHANTMENT_SLOT; ++i)\n    {\n        ssEnchants",
-             "i < MAX_ENCHANTMENT_SLOT - 1; ++i)\n    {\n        ssEnchants"),
-            ("instance->SetData(++index, GetItemRandomPropertyId());",
-             "instance->SetData(++index, static_cast<uint32>(GetItemRandomPropertyId()));"),
-            ("            (void)AppendItemInstanceSave(*trans);\n", ""),
-            ("if (!links || links->item != expected)", "if (!links || !links->item)"),
-            ("item->GetContainer() != container || item->GetPos() != pos ||", "item->GetPos() != pos ||"),
-            (" || GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != containerGuid", ""),
-            ("std::ranges::any_of(m_enchantDuration, [&](auto const& timer) { return timer.item == &item; })", "false"),
-            ("link->SetData(1, links->containerGuid.GetCounter());", "link->SetData(1, uint32{0});"),
-        ]
+    if args.mutants or args.batch_mutants:
+        variants = []
+        if args.mutants:
+            variants += [
+                ("auto const owner = GetOwnerGUID().GetRawValue();",
+                 "auto const owner = GetOwnerGUID().GetCounter();"),
+                ("if (state == ITEM_CHANGED && IsWrapped())", "if (IsWrapped())"),
+                ("i < MAX_ENCHANTMENT_SLOT; ++i)\n    {\n        ssEnchants",
+                 "i < MAX_ENCHANTMENT_SLOT - 1; ++i)\n    {\n        ssEnchants"),
+                ("instance->SetData(++index, GetItemRandomPropertyId());",
+                 "instance->SetData(++index, static_cast<uint32>(GetItemRandomPropertyId()));"),
+                ("            (void)AppendItemInstanceSave(*trans);\n", ""),
+                ("if (!links || links->item != expected)", "if (!links || !links->item)"),
+                ("item->GetContainer() != container || item->GetPos() != pos ||", "item->GetPos() != pos ||"),
+                (" || GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != containerGuid", ""),
+                ("std::ranges::any_of(m_enchantDuration, [&](auto const& timer) { return timer.item == &item; })",
+                 "false"),
+                ("link->SetData(1, links->containerGuid.GetCounter());", "link->SetData(1, uint32{0});"),
+            ]
+        if args.batch_mutants:
+            variants += [
+                ("!positions[index] || !CheckPB59InventoryItemSave(positions[index], queue[index])",
+                 "!positions[index]"),
+                ("return id && ids.insert(id).second;", "return id && (void(ids.insert(id)), true);"),
+                ("return eligible() && m_itemUpdateQueue == queue;", "return m_itemUpdateQueue == queue;"),
+                ("return eligible() && m_itemUpdateQueue == queue;", "return eligible();"),
+                ("if (!hasWork || !eligible() || m_itemUpdateQueue != queue)",
+                 "if ((void(hasWork), !eligible()) || m_itemUpdateQueue != queue)"),
+            ]
         for before, after in variants:
             if definitions.count(before) != 1:
                 raise RuntimeError(f"Expected one mutation site for {before}")
@@ -79,4 +94,4 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
             result = subprocess.run([str(binary)], capture_output=True, text=True, check=False, timeout=30)
             if result.returncode != 1 or not result.stderr.startswith("item instance save line "):
                 raise RuntimeError(f"Expected a fixture assertion after changing {before}. Got {result!r}")
-        print(f"{len(variants)}/{len(variants)} item and inventory-link variants rejected by runtime assertions")
+        print(f"{len(variants)}/{len(variants)} save variants rejected by runtime assertions")

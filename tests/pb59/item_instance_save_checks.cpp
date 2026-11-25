@@ -1,9 +1,11 @@
 #include "PreparedStatement.h"
 #include "Transaction.h"
 #include "PB59InventorySlotFacts.h"
+#include "PB59NativeRecoveryCollection.h"
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <set>
 #include <sstream>
@@ -57,6 +59,9 @@ struct FixtureDatabase
 
     CharacterDatabasePreparedStatement* GetPreparedStatement(Statement statement)
     {
+        ++preparedCalls;
+        if (beforePrepare)
+            beforePrepare();
         if (statement == failOn)
             throw std::bad_alloc();
         switch (statement)
@@ -81,6 +86,8 @@ struct FixtureDatabase
     }
 
     int failOn = -1;
+    unsigned preparedCalls = 0;
+    std::function<void()> beforePrepare;
     std::shared_ptr<InspectTransaction> committed;
 } CharacterDatabase;
 
@@ -93,7 +100,7 @@ public:
     bool AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction) const;
     void SaveToDB(CharacterDatabaseTransaction transaction);
 
-    ObjectGuid GetGUID() const { return guid; }
+    ObjectGuid GetGUID() const { if (guidReads) ++*guidReads; return guid; }
     ObjectGuid GetOwnerGUID() const { return owner; }
     ObjectGuid GetGuidValue(uint16 field) const
     {
@@ -139,6 +146,8 @@ public:
     ObjectGuid contained = owner;
     Bag* m_container = nullptr;
     uint8 slot = 0;
+    int32 uQueuePos = -1;
+    unsigned* guidReads = nullptr;
     bool bagItem = false, inTrade = false, refundable = false, tradable = false, m_lootGenerated = false;
 };
 
@@ -146,8 +155,8 @@ unsigned Item::Destroyed = 0;
 
 constexpr uint8 INVENTORY_SLOT_BAG_0 = 255, INVENTORY_SLOT_BAG_START = 19, INVENTORY_SLOT_BAG_END = 23;
 constexpr uint8 INVENTORY_SLOT_ITEM_START = 23, INVENTORY_SLOT_ITEM_END = 39;
-constexpr uint8 EQUIPMENT_SLOT_BODY = 3, EQUIPMENT_SLOT_TABARD = 18, EQUIPMENT_SLOT_END = 19;
-constexpr uint8 BANK_SLOT_BAG_START = 67, BANK_SLOT_BAG_END = 74, BUYBACK_SLOT_START = 74;
+constexpr uint8 EQUIPMENT_SLOT_START = 0, EQUIPMENT_SLOT_BODY = 3, EQUIPMENT_SLOT_TABARD = 18, EQUIPMENT_SLOT_END = 19;
+constexpr uint8 BANK_SLOT_BAG_START = 67, BANK_SLOT_BAG_END = 74, BUYBACK_SLOT_START = 74, BUYBACK_SLOT_END = 86;
 constexpr uint8 KEYRING_SLOT_START = 86, CURRENCYTOKEN_SLOT_END = 150, MAX_BAG_SIZE = 36;
 constexpr uint16 PLAYER_FIELD_INV_SLOT_HEAD = 10, CONTAINER_FIELD_SLOT_1 = 10;
 
@@ -184,7 +193,10 @@ class Player
 public:
     struct PB59InventorySlotLinks { Item const* item; ObjectGuid fieldGuid; ObjectGuid containerGuid; };
     std::optional<PB59InventorySlotLinks> ReadPB59InventorySlotLinks(uint16 pos) const;
+    std::optional<PB59InventorySlotLinks> CheckPB59InventoryItemSave(uint16 pos, Item const* expected) const;
     bool AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
+        Transaction<CharacterDatabaseConnection>& transaction) const;
+    bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         Transaction<CharacterDatabaseConnection>& transaction) const;
     std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
     Item* GetItemByPos(uint16 pos) const;
@@ -205,6 +217,8 @@ public:
     bool m_itemUpdateQueueBlocked = false;
     std::vector<Timer> m_enchantDuration;
     std::set<ObjectGuid> m_refundableItems;
+    std::vector<Item*> m_itemUpdateQueue;
+    PB59::EquipmentCaptureState _pb59Equipment;
     std::array<Item*, CURRENCYTOKEN_SLOT_END> m_items{};
     std::array<ObjectGuid, CURRENCYTOKEN_SLOT_END> fields{};
 };
@@ -389,6 +403,124 @@ static int CheckInventoryLinks()
     return 0;
 }
 
+struct InventoryBatchFixture
+{
+    InventoryBatchFixture()
+    {
+        auto& player = inventory.player;
+        inventory.bag.uState = ITEM_UNCHANGED;
+        inventory.item.uQueuePos = 2;
+        base.guid = {0x4000000000000032};
+        base.uState = ITEM_NEW;
+        base.slot = INVENTORY_SLOT_ITEM_START;
+        base.uQueuePos = 0;
+        player.m_items[base.slot] = &base;
+        player.fields[base.slot] = base.guid;
+        player.m_itemUpdateQueue = {&base, nullptr, &inventory.item};
+        player._pb59Equipment.Bind();
+        stamp = *player._pb59Equipment.Capture();
+    }
+
+    Inventory inventory{true};
+    Item base;
+    PB59::Stamp stamp;
+};
+
+static int CheckInventoryBatch()
+{
+    unsigned const before = Checks;
+    {
+        InventoryBatchFixture fixture;
+        auto& view = fixture.inventory;
+        auto const queue = view.player.m_itemUpdateQueue;
+        InspectTransaction transaction;
+        view.item.wrapped = true;
+        ITEM_CHECK(view.player.AppendPB59InventorySaveBatch(fixture.stamp, transaction));
+        ITEM_CHECK(transaction.GetSize() == 5);
+        ITEM_CHECK(transaction.StatementAt(0).GetIndex() == CHAR_REP_INVENTORY_ITEM);
+        ITEM_CHECK(transaction.StatementAt(1).GetIndex() == CHAR_REP_ITEM_INSTANCE);
+        ITEM_CHECK(transaction.StatementAt(2).GetIndex() == CHAR_REP_INVENTORY_ITEM);
+        ITEM_CHECK(transaction.StatementAt(3).GetIndex() == CHAR_UPD_ITEM_INSTANCE);
+        ITEM_CHECK(transaction.StatementAt(4).GetIndex() == CHAR_UPD_GIFT_OWNER);
+        ITEM_CHECK(!view.player.AppendPB59InventorySaveBatch(fixture.stamp, transaction) && transaction.GetSize() == 5);
+        ITEM_CHECK(view.player.m_itemUpdateQueue == queue && fixture.base.uQueuePos == 0 && view.item.uQueuePos == 2);
+        ITEM_CHECK(!fixture.base.stateChanges && !view.item.stateChanges && !CharacterDatabase.committed);
+    }
+    for (unsigned fault = 0; fault < 17; ++fault)
+    {
+        InventoryBatchFixture fixture;
+        auto& view = fixture.inventory;
+        auto& player = view.player;
+        Item detached;
+        unsigned orphanReads = 0;
+        detached.guidReads = &orphanReads;
+        switch (fault)
+        {
+            case 0: view.bag.links[view.item.slot] = {}; break;
+            case 1:
+                player.m_itemUpdateQueue[2] = &detached;
+                view.item.uState = ITEM_UNCHANGED;
+                view.item.uQueuePos = -1;
+                break;
+            case 2: player.m_itemUpdateQueue.push_back(&view.item); break;
+            case 3:
+                view.item.guid = {0x4001000000000032}; // different native GUID, same database counter
+                view.bag.links[view.item.slot] = view.item.guid;
+                break;
+            case 4: player.m_items[fixture.base.slot + 1] = &fixture.base; break;
+            case 5: view.item.uQueuePos = 1; break;
+            case 6: player.m_itemUpdateQueue[2] = nullptr; view.item.uQueuePos = -1; break;
+            case 7: player.m_refundableItems.insert(detached.guid); break;
+            case 8: player.m_enchantDuration.push_back({&detached, SlotZero, 77}); break;
+            case 9: player.m_items[BUYBACK_SLOT_START] = &detached; break;
+            case 10: player.m_itemUpdateQueueBlocked = true; break;
+            case 11: view.bag.uState = ITEM_CHANGED; break;
+            case 12: player.m_itemUpdateQueue.clear(); break;
+            case 13: player.m_itemUpdateQueue.assign(PB59::Recovery::MaximumQueueObservations + 1, nullptr); break;
+            case 14: ++fixture.stamp.revision; break;
+            case 15:
+                player.m_itemUpdateQueue.assign(3, nullptr);
+                fixture.base.uState = view.item.uState = ITEM_UNCHANGED;
+                fixture.base.uQueuePos = view.item.uQueuePos = -1;
+                break;
+            case 16: view.item.refundable = true; break;
+        }
+        auto const queue = player.m_itemUpdateQueue;
+        auto const prepares = CharacterDatabase.preparedCalls;
+        InspectTransaction transaction;
+        ITEM_CHECK(!player.AppendPB59InventorySaveBatch(fixture.stamp, transaction));
+        ITEM_CHECK(transaction.GetSize() == 0 && CharacterDatabase.preparedCalls == prepares && orphanReads == 0);
+        ITEM_CHECK(player.m_itemUpdateQueue == queue && !fixture.base.stateChanges && !view.item.stateChanges);
+    }
+    for (bool driftStamp : {false, true})
+    {
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        bool drifted = false;
+        CharacterDatabase.beforePrepare = [&]
+        {
+            if (drifted)
+                return;
+            drifted = true;
+            if (driftStamp)
+            {
+                PB59::EquipmentCaptureState::Mutation mutate(player._pb59Equipment);
+            }
+            else
+                player.m_itemUpdateQueue.push_back(nullptr);
+        };
+        {
+            InspectTransaction transaction;
+            bool const accepted = player.AppendPB59InventorySaveBatch(fixture.stamp, transaction);
+            CharacterDatabase.beforePrepare = {};
+            ITEM_CHECK(drifted && !accepted && transaction.GetSize() != 0 && !CharacterDatabase.committed);
+        }
+        ITEM_CHECK(TrackedStatement::Live == 0 && !fixture.base.stateChanges && !fixture.inventory.item.stateChanges);
+    }
+    std::cout << Checks - before << " PB59 complete inventory queue checks PASS\n";
+    return 0;
+}
+
 int main()
 {
     using Value = decltype(PreparedStatementData::data);
@@ -499,5 +631,7 @@ int main()
     }
     ITEM_CHECK(TrackedStatement::Live == 0);
     std::cout << Checks << " PB59 item-instance save checks PASS\n";
-    return CheckInventoryLinks();
+    if (auto const status = CheckInventoryLinks())
+        return status;
+    return CheckInventoryBatch();
 }
