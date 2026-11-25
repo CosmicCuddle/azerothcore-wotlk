@@ -306,8 +306,24 @@ owner/session/ticket and stamp. Once marked, polling consumes only the
 holder's protected outcome and settles its own lease. Polling requires no
 Player, session or mutation scope. Dropping an undispatched marked task
 can drain its exact cancellation. Missing delivery retains exclusivity.
-Actual submission, complete writer registration and persisted-custody
-verification remain separate integration requirements.
+
+## Owning pending protected tasks
+
+The dormant protected owner accepts a staged payload from its shared GUID
+fence. It reserves a slot, revalidates the live operation, binds the exact
+observer receipt and marks the hold before handing the task to the pool.
+The protected queue entry takes a task whose future has already moved to
+its consumer. Rejection and cancellation surface through that same receipt.
+
+After handoff, the owner can poll without the player or session. A definite
+no-write result clears the hold and frees the slot. A committed or uncertain
+result leaves the exact hold owned for later verification. The owner can
+report its adopted work drained while these settled holds are still present.
+Close admission before draining and retire producers with staged payloads
+before destroying the owner or closing the pool. The future lifecycle
+service must keep the same fence and pool available for both writer paths.
+Complete writer registration and persisted-custody verification remain
+separate integration requirements.
 
 ## Tracking native save builders
 
@@ -350,8 +366,9 @@ The future service must outlive callers and keep the pool and shared GUID
 fence available until active producers return and the tracked work drains.
 The database pool then performs its own graceful queue stop and worker join.
 An accepted task with a lost handoff result can still be in that queue
-after the tracker drains. Outstanding protected holds need their own
-lifecycle, and persisted proof needs separate verification.
+after the tracker drains. The protected owner has its own adoption and
+drain boundary. A future service needs to coordinate both boundaries and
+the final logout writer. Persisted proof needs separate verification.
 
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,

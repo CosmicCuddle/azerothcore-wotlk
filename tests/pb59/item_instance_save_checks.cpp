@@ -1,5 +1,7 @@
 #include "PreparedStatement.h"
 #include "Transaction.h"
+#include "DatabaseWorkerPool.h"
+#include "PCQueue.h"
 #include "PB59InventorySlotFacts.h"
 #include "PB59NativeRecoveryCollection.h"
 #include "PB59CharacterSaveObserver.h"
@@ -12,6 +14,7 @@
 #include <iostream>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 
 #define ASSERT(condition) do { if (!(condition)) std::abort(); } while (false)
 #define ABORT() std::abort()
@@ -19,6 +22,38 @@
 
 enum Statement { CHAR_REP_INVENTORY_ITEM, CHAR_REP_ITEM_INSTANCE, CHAR_UPD_ITEM_INSTANCE, CHAR_UPD_GIFT_OWNER,
     CHAR_DEL_ITEM_INSTANCE, CHAR_DEL_GIFT };
+
+class CharacterDatabaseConnection
+{
+public:
+    using Statements = Statement;
+};
+
+struct MySQLConnectionInfo {};
+
+class MySQLConnection
+{
+public:
+    int code = 0;
+    std::size_t statements = 0;
+};
+
+static ProducerConsumerQueue<SQLOperation*>* RecoveryQueue;
+
+template<class T>
+DatabaseWorkerPool<T>::DatabaseWorkerPool()
+    : _queue(std::make_unique<ProducerConsumerQueue<SQLOperation*>>()),
+      _async_threads(1), _synch_threads(0), _typedTransactionsReady(true)
+{
+    RecoveryQueue = _queue.get();
+}
+
+template<class T>
+DatabaseWorkerPool<T>::~DatabaseWorkerPool()
+{
+    _queue->Cancel();
+}
+
 enum ItemUpdateState { ITEM_UNCHANGED, ITEM_CHANGED, ITEM_NEW, ITEM_REMOVED };
 enum FieldIndex { ITEM_FIELD_CREATOR, ITEM_FIELD_GIFTCREATOR, ITEM_FIELD_DURATION, ITEM_FIELD_FLAGS,
     ITEM_FIELD_DURABILITY, ITEM_FIELD_CREATE_PLAYED_TIME, ITEM_FIELD_MAXDURABILITY, ITEM_FIELD_CONTAINED };
@@ -58,6 +93,8 @@ public:
 
 struct FixtureDatabase
 {
+    enum class DispatchFault { None, BeforeQueue, AfterQueue };
+
     auto BeginTransaction() { return std::make_shared<InspectTransaction>(); }
 
     CharacterDatabasePreparedStatement* GetPreparedStatement(Statement statement)
@@ -88,6 +125,18 @@ struct FixtureDatabase
         committed = std::static_pointer_cast<InspectTransaction>(std::move(transaction));
     }
 
+    void AsyncCommitPreparedTransactionWithTransferredOutcome(
+        PreparedTransactionWithOutcome<CharacterDatabaseConnection> prepared)
+    {
+        if (dispatchFault == DispatchFault::BeforeQueue)
+            throw std::bad_alloc();
+        typedPool.AsyncCommitPreparedTransactionWithTransferredOutcome(std::move(prepared));
+        if (dispatchFault == DispatchFault::AfterQueue)
+            throw std::runtime_error("injected loss of admission result");
+    }
+
+    DatabaseWorkerPool<CharacterDatabaseConnection> typedPool;
+    DispatchFault dispatchFault = DispatchFault::None;
     int failOn = -1;
     unsigned preparedCalls = 0;
     std::function<void()> beforePrepare;
@@ -205,11 +254,13 @@ public:
     bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
+    class PB59PendingRecoverySaves;
     using PB59RecoveryWriteFence = PB59::InventoryWriteFence<256>;
     static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
         PB59RecoveryWriteFence& fence, Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
     static int CheckRecoveryPayload();
+    static int CheckPendingRecoverySaves();
     std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
     Item* GetItemByPos(uint16 pos) const;
     Item* GetItemByPos(uint8 bag, uint8 slot) const;
@@ -275,7 +326,11 @@ struct Inventory
 };
 
 bool TransactionTask::Execute() { std::abort(); }
-int TransactionTask::ExecuteWithCode() { std::abort(); }
+int TransactionTask::ExecuteWithCode()
+{
+    m_conn->statements = m_trans->GetSize();
+    return m_conn->code;
+}
 
 #include "ItemInstanceSaveDefinitions.inc"
 
@@ -772,6 +827,127 @@ int Player::CheckRecoveryPayload()
     return 0;
 }
 
+int Player::CheckPendingRecoverySaves()
+{
+    using Ledger = PB59::TransactionAdmission;
+    using Result = DatabaseTransactionResult;
+    using Settlement = PB59RecoveryWriteFence::RecoverySettlement;
+    using Fault = FixtureDatabase::DispatchFault;
+    unsigned const before = Checks;
+    {
+        PreparedTransactionWithOutcome<CharacterDatabaseConnection> unbound(CharacterDatabase.BeginTransaction());
+        CharacterDatabase.AsyncCommitPreparedTransactionWithTransferredOutcome(std::move(unbound));
+        ITEM_CHECK(RecoveryQueue->Empty());
+    }
+    auto operation = [](Player const& player, Ledger::MutationScope const& scope)
+    {
+        return PB59::Recovery::Operation{player.owner.value, player.GetPB59OwnerIncarnation(),
+            player.session.incarnation, scope.GetTicket()};
+    };
+    for (unsigned fault = 0; fault < 3; ++fault)
+    {
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const expected = operation(player, scope);
+        PB59RecoveryWriteFence fence;
+        PB59RecoveryWriteFence differentFence;
+        PB59PendingRecoverySaves pending(fence);
+        auto& stagingFence = fault == 0 ? differentFence : fence;
+        auto prepared = PreparePB59RecoverySavePayload(stagingFence, &player, expected, scope, fixture.stamp);
+        ITEM_CHECK(prepared);
+        if (fault == 1)
+            ++player.session.incarnation;
+        if (fault == 2)
+            pending.CloseAdmission();
+        ITEM_CHECK(!pending.TrySubmit(std::move(prepared), &player, scope));
+        ITEM_CHECK(pending.Idle() && !pending.PollOne() && RecoveryQueue->Empty());
+        ITEM_CHECK(stagingFence.TryTrackWrite(expected.owner) && TrackedStatement::Live == 0);
+    }
+    struct Scenario
+    {
+        int code;
+        Fault fault = Fault::None;
+    };
+    for (auto const scenario : {Scenario{0}, Scenario{991}, Scenario{Result::EmptyCode},
+             Scenario{Result::NotEnqueuedCode}, Scenario{Result::CancelledBeforeExecutionCode},
+             Scenario{Result::CancelledBeforeExecutionCode, Fault::BeforeQueue}, Scenario{0, Fault::AfterQueue}})
+    {
+        PB59RecoveryWriteFence fence;
+        PB59PendingRecoverySaves pending(fence);
+        PB59::Recovery::Operation expected;
+        uint64 item = 0;
+        uint64 base = 0;
+        bool const reject = scenario.code == Result::NotEnqueuedCode;
+        bool const cancel = scenario.code == Result::CancelledBeforeExecutionCode;
+        bool const queued = !reject && scenario.fault != Fault::BeforeQueue;
+        {
+            InventoryBatchFixture fixture;
+            auto& player = fixture.inventory.player;
+            Ledger::MutationScope scope(player._pb59Transaction);
+            ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+            expected = operation(player, scope);
+            item = fixture.inventory.item.guid.value;
+            base = fixture.base.guid.value;
+            auto const queue = player.m_itemUpdateQueue;
+            auto prepared = PreparePB59RecoverySavePayload(fence, &player, expected, scope, fixture.stamp);
+            ITEM_CHECK(prepared);
+            if (reject)
+                RecoveryQueue->Shutdown();
+            CharacterDatabase.dispatchFault = scenario.fault;
+            bool const submitted = pending.TrySubmit(std::move(prepared), &player, scope);
+            CharacterDatabase.dispatchFault = Fault::None;
+            ITEM_CHECK(submitted && !prepared && !pending.Idle());
+            ITEM_CHECK(RecoveryQueue->Size() == (queued ? 1u : 0u));
+            ITEM_CHECK(!fence.TryTrackWrite(expected.owner) && !CharacterDatabase.committed);
+            ITEM_CHECK(player.m_itemUpdateQueue == queue && !fixture.base.stateChanges &&
+                !fixture.inventory.item.stateChanges);
+        }
+        pending.CloseAdmission();
+        MySQLConnection executor;
+        if (queued)
+        {
+            ITEM_CHECK(!pending.PollOne());
+            if (cancel)
+                RecoveryQueue->Cancel();
+            else
+            {
+                executor.code = scenario.code;
+                SQLOperation* task = nullptr;
+                ITEM_CHECK(RecoveryQueue->Pop(task) && task);
+                std::unique_ptr<SQLOperation> ownedTask(task);
+                ownedTask->SetConnection(&executor);
+                ownedTask->call();
+                ITEM_CHECK(executor.statements == 4);
+            }
+        }
+        RecoveryQueue->Reset();
+        ITEM_CHECK(!pending.Idle() && !fence.TryTrackWrite(expected.owner));
+        auto const completed = pending.PollOne();
+        ITEM_CHECK(completed && completed->operation == expected);
+        auto const result = Result::FromExecutionCode(scenario.code);
+        ITEM_CHECK(completed->record.result.status == result.status &&
+            completed->record.result.executionCode == scenario.code);
+        ITEM_CHECK(completed->record.ticket.identity.guid == expected.owner &&
+            completed->record.ticket.identity.player == expected.ownerIncarnation &&
+            completed->record.ticket.identity.session == expected.sessionIncarnation);
+        ITEM_CHECK(completed->record.evidence.itemCount == 2 && completed->record.evidence.items[0] == base &&
+            completed->record.evidence.items[1] == item);
+        auto const settlement = scenario.code == 0 ? Settlement::NeedsVerification :
+            (scenario.code == 991 ? Settlement::Uncertain : Settlement::NoWrite);
+        ITEM_CHECK(completed->settlement == settlement && pending.Idle() && !pending.PollOne());
+        ITEM_CHECK(bool(fence.TryTrackWrite(expected.owner)) == (settlement == Settlement::NoWrite));
+        ITEM_CHECK(std::ranges::any_of(pending._saves, [&](auto const& save)
+        {
+            return save && save->operation == expected && !save->receipt && !save->task;
+        }) == (settlement != Settlement::NoWrite));
+        ITEM_CHECK(RecoveryQueue->Empty() && TrackedStatement::Live == 0);
+    }
+    std::cout << Checks - before << " PB59 pending protected recovery checks PASS\n";
+    return 0;
+}
+
 int main()
 {
     using Value = decltype(PreparedStatementData::data);
@@ -886,5 +1062,7 @@ int main()
         return status;
     if (auto const status = CheckInventoryBatch())
         return status;
-    return Player::CheckRecoveryPayload();
+    if (auto const status = Player::CheckRecoveryPayload())
+        return status;
+    return Player::CheckPendingRecoverySaves();
 }

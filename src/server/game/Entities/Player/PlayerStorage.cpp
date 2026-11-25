@@ -8267,9 +8267,10 @@ namespace
 class Player::PB59PreparedRecoverySave final
 {
 public:
-    PB59PreparedRecoverySave(SaveObserver& observer, PB59::Recovery::Operation operation, PB59::Stamp stamp,
-        PB59RecoveryWriteFence::RecoveryWrite hold, CharacterDatabaseTransaction transaction)
-        : observer(observer), operation(operation), stamp(stamp), hold(std::move(hold)),
+    PB59PreparedRecoverySave(SaveObserver& observer, PB59RecoveryWriteFence const& fence,
+        PB59::Recovery::Operation operation, PB59::Stamp stamp, PB59RecoveryWriteFence::RecoveryWrite hold,
+        CharacterDatabaseTransaction transaction)
+        : observer(observer), fence(fence), operation(operation), stamp(stamp), hold(std::move(hold)),
           task(std::in_place, std::move(transaction)) {}
 
     ~PB59PreparedRecoverySave()
@@ -8292,9 +8293,11 @@ public:
 
 private:
     friend class Player;
+    friend class PB59PendingRecoverySaves;
 
     struct Completion
     {
+        PB59::Recovery::Operation operation;
         SaveObserver::Record record;
         PB59RecoveryWriteFence::RecoverySettlement settlement;
     };
@@ -8343,10 +8346,11 @@ private:
         if (!record)
             return std::nullopt;
         receipt.reset();
-        return Completion{*record, hold.Settle(record->result)};
+        return Completion{operation, *record, hold.Settle(record->result)};
     }
 
     SaveObserver& observer;
+    PB59RecoveryWriteFence const& fence;
     PB59::Recovery::Operation const operation;
     PB59::Stamp const stamp;
     PB59RecoveryWriteFence::RecoveryWrite hold;
@@ -8377,7 +8381,7 @@ std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySav
         if (!hold)
             return {};
         auto& observer = PB59SaveObserver();
-        auto prepared = std::make_unique<PB59PreparedRecoverySave>(observer, operation, stamp,
+        auto prepared = std::make_unique<PB59PreparedRecoverySave>(observer, fence, operation, stamp,
             std::move(*hold), CharacterDatabase.BeginTransaction());
         auto reservation = observer.ReserveProtected(
             operation.owner, operation.ownerIncarnation, operation.sessionIncarnation);
@@ -8398,6 +8402,81 @@ std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySav
         return {};
     }
 }
+
+// The service owns the shared fence and keeps the pool available through submission and drain.
+// CloseAdmission stops adoption. Retiring producers must also discard their unadopted payloads.
+class Player::PB59PendingRecoverySaves final
+{
+public:
+    explicit PB59PendingRecoverySaves(PB59RecoveryWriteFence& fence) noexcept : _fence(fence) {}
+
+    // Upon acceptance this owner handles the exact completion, including queue rejection.
+    [[nodiscard]] bool TrySubmit(std::unique_ptr<PB59PreparedRecoverySave> prepared, Player const* owner,
+        PB59::TransactionAdmission::MutationScope const& scope)
+    {
+        std::lock_guard lock(_mutex);
+        if (_closed || !prepared || &prepared->fence != &_fence)
+            return false;
+        auto slot = std::ranges::find_if(_saves, [](auto const& save) { return !save; });
+        if (slot == _saves.end() || !prepared->BindCompletion(owner, scope) ||
+            !prepared->MarkPossiblySubmitted(owner, scope))
+            return false;
+
+        *slot = std::move(prepared);
+        auto& save = **slot;
+        try
+        {
+            CharacterDatabase.AsyncCommitPreparedTransactionWithTransferredOutcome(std::move(*save.task));
+        }
+        catch (...)
+        {
+            // The observer still owns the exact outcome, even if queue admission throws.
+        }
+        save.task.reset();
+        return true;
+    }
+
+    [[nodiscard]] std::optional<PB59PreparedRecoverySave::Completion> PollOne()
+    {
+        std::lock_guard lock(_mutex);
+        for (std::size_t count = 0; count < _saves.size(); ++count)
+        {
+            auto& save = _saves[_nextPoll];
+            _nextPoll = (_nextPoll + 1) % _saves.size();
+            if (!save || !save->receipt)
+                continue;
+            auto result = save->PollCompletion();
+            if (!result)
+                continue;
+            if (result->settlement == PB59RecoveryWriteFence::RecoverySettlement::NoWrite)
+                save.reset();
+            return result;
+        }
+        return std::nullopt;
+    }
+
+    void CloseAdmission()
+    {
+        std::lock_guard lock(_mutex);
+        _closed = true;
+    }
+
+    // A settled hold pending verification remains owned after the queue work drains.
+    [[nodiscard]] bool Idle() const
+    {
+        std::lock_guard lock(_mutex);
+        return std::ranges::none_of(_saves, [](auto const& save) { return save && save->receipt; });
+    }
+
+private:
+    friend class Player;
+
+    PB59RecoveryWriteFence& _fence;
+    mutable std::mutex _mutex;
+    std::array<std::unique_ptr<PB59PreparedRecoverySave>, 256> _saves{};
+    std::size_t _nextPoll = 0;
+    bool _closed = false;
+};
 
 void Player::DrainPB59CharacterSaveEvidence(bool final)
 {

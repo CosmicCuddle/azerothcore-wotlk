@@ -311,11 +311,26 @@ std::future<DatabaseTransactionResult> DatabaseWorkerPool<T>::AsyncCommitPrepare
     auto result = std::move(prepared._result);
     if (!task || !result.valid())
         return result;
+    EnqueueTransactionWithOutcome(std::move(task));
+    return result;
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::AsyncCommitPreparedTransactionWithTransferredOutcome(
+    PreparedTransactionWithOutcome<T> prepared)
+{
+    if (!prepared._task || prepared._result.valid())
+        return;
+    EnqueueTransactionWithOutcome(std::move(prepared._task));
+}
+
+template <class T>
+void DatabaseWorkerPool<T>::EnqueueTransactionWithOutcome(std::unique_ptr<TransactionWithOutcomeTask> task)
+{
     if (_typedTransactionsReady && _queue->TryPush(task.get()))
         (void)task.release(); // queue/worker owns it after successful admission
     else
         task->Reject();
-    return result;
 }
 
 template <class T>
