@@ -61,6 +61,12 @@ using TransactionPromise = std::promise<bool>;
 template<typename T>
 class Transaction;
 
+template<typename T>
+class DatabaseWorkerPool;
+
+template<typename T>
+class PreparedTransactionWithOutcome;
+
 class TransactionCallback;
 
 template<typename T>
