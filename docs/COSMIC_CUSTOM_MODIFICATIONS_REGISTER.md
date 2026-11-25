@@ -294,6 +294,13 @@
   without waiting for active builders. All tracked noncommitted results
   report their ticket and original status even with detailed evidence
   disabled. The pool still owns final queue shutdown and worker joins.
+- **Pending protected save ownership (25 November 2026):** isolated Core104
+  child, parent `a178e07b005a94b7713d84bf5355770924658d76`. The dormant
+  owner retains the protected task receipt and its shared-fence hold after
+  the actor retires. One dedicated pool entry accepts the exact task after
+  transfer of its future. Definite no-write releases custody; committed
+  and uncertain results keep the hold for later verification. The world
+  service and verified release path remain open.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

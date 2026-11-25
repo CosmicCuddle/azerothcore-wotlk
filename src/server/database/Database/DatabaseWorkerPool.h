@@ -44,6 +44,7 @@ template <typename T>
 class ProducerConsumerQueue;
 
 class SQLOperation;
+class TransactionWithOutcomeTask;
 struct MySQLConnectionInfo;
 
 template <class T>
@@ -187,6 +188,9 @@ public:
     [[nodiscard]] std::future<DatabaseTransactionResult> AsyncCommitPreparedTransactionWithOutcome(
         PreparedTransactionWithOutcome<T> prepared);
 
+    //! Enqueue after the exact outcome has been taken by a separate consumer.
+    void AsyncCommitPreparedTransactionWithTransferredOutcome(PreparedTransactionWithOutcome<T> prepared);
+
     //! Directly executes a collection of one-way SQL operations (can be both adhoc and prepared). The order in which these operations
     //! were appended to the transaction will be respected during execution.
     void DirectCommitTransaction(SQLTransaction<T>& transaction);
@@ -235,6 +239,7 @@ private:
     unsigned long EscapeString(char* to, char const* from, unsigned long length);
 
     void Enqueue(SQLOperation* op);
+    void EnqueueTransactionWithOutcome(std::unique_ptr<TransactionWithOutcomeTask> task);
 
     //! Gets a free connection in the synchronous connection pool.
     //! Caller MUST call t->Unlock() after touching the MySQL context to prevent deadlocks.

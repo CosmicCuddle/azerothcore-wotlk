@@ -11,6 +11,7 @@ parser.add_argument("--mutants", action="store_true")
 parser.add_argument("--batch-mutants", action="store_true")
 parser.add_argument("--receipt-mutants", action="store_true")
 parser.add_argument("--hold-mutants", action="store_true")
+parser.add_argument("--pending-recovery-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -31,6 +32,9 @@ definitions = "\n".join([
             "bool TransactionTask::Execute()"),
     section(database / "Transaction.cpp", "TransactionWithOutcomeTask::~TransactionWithOutcomeTask()",
             "bool TransactionCallback::"),
+    section(database / "DatabaseWorkerPool.cpp",
+            "template <class T>\nvoid DatabaseWorkerPool<T>::AsyncCommitPreparedTransactionWithTransferredOutcome(",
+            "template <class T>\nvoid DatabaseWorkerPool<T>::DirectCommitTransaction("),
     section(item / "Item.cpp", "bool Item::AppendItemInstanceSave(", "bool Item::LoadFromDB("),
     section(item / "Item.cpp", "uint8 Item::GetBagSlot()", "bool Item::IsEquipped()"),
     section(item / "Container/Bag.cpp", "Item* Bag::GetItemByPos(", "std::string Bag::GetDebugInfo()"),
@@ -58,12 +62,12 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         encoding="utf-8")
     extracted = work / "ItemInstanceSaveDefinitions.inc"
     extracted.write_text(definitions, encoding="utf-8")
-    include_paths = (work, database, player, root / "src/common/Utilities")
+    include_paths = (work, database, player, root / "src/common/Utilities", root / "src/common/Threading")
     includes = [argument for path in include_paths for argument in ("-I", str(path))]
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
-    if args.mutants or args.batch_mutants or args.receipt_mutants or args.hold_mutants:
+    if args.mutants or args.batch_mutants or args.receipt_mutants or args.hold_mutants or args.pending_recovery_mutants:
         variants = []
         if args.mutants:
             variants += [
@@ -116,6 +120,14 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                 ("if (!record)\n            return std::nullopt;",
                  "if (!record) { (void)hold.Settle(DatabaseTransactionResult::FromExecutionCode("
                  "DatabaseTransactionResult::NotEnqueuedCode)); return std::nullopt; }"),
+            ]
+        if args.pending_recovery_mutants:
+            variants += [
+                ("if (!prepared._task || prepared._result.valid())", "if (!prepared._task)"),
+                ("_closed || !prepared || &prepared->fence != &_fence", "_closed || !prepared"),
+                ("_closed || !prepared || &prepared->fence != &_fence", "!prepared || &prepared->fence != &_fence"),
+                ("if (result->settlement == PB59RecoveryWriteFence::RecoverySettlement::NoWrite)", "if (true)"),
+                ("return save && save->receipt;", "return bool(save);"),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:
