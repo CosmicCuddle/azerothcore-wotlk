@@ -19,6 +19,22 @@ class InventoryWriteFence final
 {
     static_assert(Capacity > 0);
 
+    static bool MatchesExecutionCode(DatabaseTransactionResult result) noexcept
+    {
+        return DatabaseTransactionResult::FromExecutionCode(result.executionCode).status == result.status;
+    }
+
+    static bool DefinitivelyDidNotWrite(DatabaseTransactionStatus status) noexcept
+    {
+        return status == DatabaseTransactionStatus::Empty || status == DatabaseTransactionStatus::NotStarted ||
+            status == DatabaseTransactionStatus::NotEnqueued ||
+            status == DatabaseTransactionStatus::CancelledBeforeExecution;
+    }
+
+public:
+    class RecoveryWrite;
+
+private:
     struct Entry
     {
         std::uint64_t guid = 0;
@@ -44,10 +60,7 @@ class InventoryWriteFence final
         // Transfer the lease to completion handling and supply that exact task's result.
         [[nodiscard]] bool MarkPossiblySubmitted() noexcept requires IsWriter
         {
-            if (!_state || _possiblySubmitted)
-                return false;
-            _possiblySubmitted = true;
-            return true;
+            return MarkSubmitted();
         }
 
         // Reports whether this writer is cleared for capture admission. An
@@ -57,21 +70,25 @@ class InventoryWriteFence final
             if (!_state || !_possiblySubmitted)
                 return false;
 
-            bool const expectedStatus = DatabaseTransactionResult::FromExecutionCode(result.executionCode).status ==
-                result.status;
-            bool const certain = expectedStatus && (result.IsCommitted() ||
-                result.status == DatabaseTransactionStatus::Empty ||
-                result.status == DatabaseTransactionStatus::NotStarted ||
-                result.status == DatabaseTransactionStatus::NotEnqueued ||
-                result.status == DatabaseTransactionStatus::CancelledBeforeExecution);
+            bool const certain = MatchesExecutionCode(result) &&
+                (result.IsCommitted() || DefinitivelyDidNotWrite(result.status));
             Release(!certain);
             return certain;
         }
 
     private:
         friend class InventoryWriteFence;
+        friend class RecoveryWrite;
 
         Lease(std::shared_ptr<State> state, Entry* entry) noexcept : _state(std::move(state)), _entry(entry) {}
+
+        [[nodiscard]] bool MarkSubmitted() noexcept
+        {
+            if (!_state || _possiblySubmitted)
+                return false;
+            _possiblySubmitted = true;
+            return true;
+        }
 
         void Release(bool uncertain) noexcept
         {
@@ -85,7 +102,7 @@ class InventoryWriteFence final
                 --_entry->writers;
                 _entry->uncertain |= uncertain;
             }
-            else
+            else if (!uncertain)
                 _entry->capture = false;
 
             if (!_entry->writers && !_entry->capture && !_entry->uncertain)
@@ -101,6 +118,44 @@ public:
     using Writer = Lease<true>;
     using Capture = Lease<false>;
 
+    enum class RecoverySettlement { NotAwaitingResult, NoWrite, NeedsVerification, Uncertain };
+
+    class RecoveryWrite final
+    {
+    public:
+        RecoveryWrite(RecoveryWrite&&) noexcept = default;
+
+        [[nodiscard]] bool MarkPossiblySubmitted() noexcept { return _capture.MarkSubmitted(); }
+
+        // Only the trusted consumer of the exact task may settle this lease.
+        // A commit still holds the GUID for persisted-state verification.
+        [[nodiscard]] RecoverySettlement Settle(DatabaseTransactionResult result) noexcept
+        {
+            if (!_capture._state || !_capture._possiblySubmitted || _settled)
+                return RecoverySettlement::NotAwaitingResult;
+            _settled = true;
+
+            if (!MatchesExecutionCode(result))
+                return RecoverySettlement::Uncertain;
+            if (DefinitivelyDidNotWrite(result.status))
+            {
+                _capture.Release(false);
+                return RecoverySettlement::NoWrite;
+            }
+            if (result.IsCommitted())
+                return RecoverySettlement::NeedsVerification;
+            return RecoverySettlement::Uncertain;
+        }
+
+    private:
+        friend class InventoryWriteFence;
+
+        explicit RecoveryWrite(Capture&& capture) noexcept : _capture(std::move(capture)) {}
+
+        Capture _capture;
+        bool _settled = false;
+    };
+
     InventoryWriteFence() = default;
     InventoryWriteFence(InventoryWriteFence const&) = delete;
     InventoryWriteFence& operator=(InventoryWriteFence const&) = delete;
@@ -115,6 +170,19 @@ public:
     [[nodiscard]] std::optional<Capture> TryReserveCapture(std::uint64_t guid)
     {
         return TryEnter<false>(guid);
+    }
+
+    // Consumes the exact capture for this fence and GUID. The exclusive entry
+    // remains set throughout the move. A refusal leaves the capture with its owner.
+    [[nodiscard]] std::optional<RecoveryWrite> TryPromoteCapture(Capture& capture, std::uint64_t guid)
+    {
+        if (capture._state != _state)
+            return std::nullopt;
+
+        std::lock_guard lock(_state->mutex);
+        if (capture._entry->guid != guid || !capture._entry->capture)
+            return std::nullopt;
+        return RecoveryWrite(std::move(capture));
     }
 
 private:

@@ -8,6 +8,8 @@ using Fence = PB59::InventoryWriteFence<2>;
 using Result = DatabaseTransactionResult;
 static_assert(std::is_move_constructible_v<Fence::Writer> && !std::is_copy_constructible_v<Fence::Writer>);
 static_assert(std::is_move_constructible_v<Fence::Capture> && !std::is_copy_constructible_v<Fence::Capture>);
+static_assert(
+    std::is_move_constructible_v<Fence::RecoveryWrite> && !std::is_copy_constructible_v<Fence::RecoveryWrite>);
 static_assert(!std::is_default_constructible_v<Fence::Writer> && !std::is_default_constructible_v<Fence::Capture>);
 static_assert(!std::is_copy_constructible_v<Fence> && !std::is_move_constructible_v<Fence>);
 
@@ -20,6 +22,93 @@ static unsigned Checks = 0;
         return 1; \
     } \
 } while (false)
+
+static int CheckRecoveryHold()
+{
+    using Settlement = Fence::RecoverySettlement;
+    constexpr std::uint64_t character = 11;
+    constexpr std::uint64_t other = 22;
+    auto const committed = Result::FromExecutionCode(0);
+    auto const notEnqueued = Result::FromExecutionCode(Result::NotEnqueuedCode);
+    unsigned const before = Checks;
+    {
+        Fence fence;
+        Fence wrongFence;
+        auto writer = fence.TryTrackWrite(character);
+        FENCE_CHECK(writer && !fence.TryReserveCapture(character));
+        writer.reset();
+        auto capture = fence.TryReserveCapture(character);
+        FENCE_CHECK(capture && !wrongFence.TryPromoteCapture(*capture, character));
+        FENCE_CHECK(!fence.TryPromoteCapture(*capture, other) && !fence.TryTrackWrite(character));
+        auto hold = fence.TryPromoteCapture(*capture, character);
+        FENCE_CHECK(hold && !fence.TryPromoteCapture(*capture, character));
+        capture.reset();
+        FENCE_CHECK(!fence.TryTrackWrite(character) && !fence.TryReserveCapture(character));
+        FENCE_CHECK(hold->Settle(notEnqueued) == Settlement::NotAwaitingResult);
+        hold.reset(); // abandoned before possibly submitting
+        FENCE_CHECK(fence.TryTrackWrite(character) && fence.TryReserveCapture(other));
+    }
+    for (int code : {Result::NotEnqueuedCode, Result::CancelledBeforeExecutionCode, Result::NotStartedCode,
+        Result::EmptyCode})
+    {
+        Fence fence;
+        auto capture = fence.TryReserveCapture(character);
+        FENCE_CHECK(capture);
+        auto hold = fence.TryPromoteCapture(*capture, character);
+        FENCE_CHECK(hold && hold->MarkPossiblySubmitted() && !hold->MarkPossiblySubmitted());
+        auto pending = std::move(*hold);
+        FENCE_CHECK(hold->Settle(notEnqueued) == Settlement::NotAwaitingResult);
+        hold.reset();
+        FENCE_CHECK(!fence.TryTrackWrite(character) && !fence.TryReserveCapture(character));
+        FENCE_CHECK(pending.Settle(Result::FromExecutionCode(code)) == Settlement::NoWrite);
+        FENCE_CHECK(pending.Settle(notEnqueued) == Settlement::NotAwaitingResult && !pending.MarkPossiblySubmitted());
+        FENCE_CHECK(fence.TryReserveCapture(character));
+    }
+    for (auto result : {committed, Result::FromExecutionCode(Result::AmbiguousCode),
+        Result::FromExecutionCode(Result::PriorAttemptFailureCode),
+        Result{DatabaseTransactionStatus::NotEnqueued, Result::AmbiguousCode}})
+    {
+        Fence fence;
+        auto capture = fence.TryReserveCapture(character);
+        FENCE_CHECK(capture);
+        auto hold = fence.TryPromoteCapture(*capture, character);
+        FENCE_CHECK(hold && hold->MarkPossiblySubmitted());
+        auto const expected = result.IsCommitted() ? Settlement::NeedsVerification : Settlement::Uncertain;
+        FENCE_CHECK(hold->Settle(result) == expected && !fence.TryTrackWrite(character));
+        FENCE_CHECK(hold->Settle(notEnqueued) == Settlement::NotAwaitingResult && !hold->MarkPossiblySubmitted());
+        hold.reset();
+        FENCE_CHECK(!fence.TryTrackWrite(character) && !fence.TryReserveCapture(character));
+        FENCE_CHECK(fence.TryTrackWrite(other));
+    }
+    {
+        Fence fence;
+        auto capture = fence.TryReserveCapture(character);
+        FENCE_CHECK(capture);
+        auto hold = fence.TryPromoteCapture(*capture, character);
+        FENCE_CHECK(hold && hold->MarkPossiblySubmitted());
+        hold.reset(); // missing settlement after possible submission
+        FENCE_CHECK(!fence.TryTrackWrite(character) && !fence.TryReserveCapture(character));
+    }
+    for (int round = 0; round < 32; ++round)
+    {
+        Fence fence;
+        auto capture = fence.TryReserveCapture(character);
+        FENCE_CHECK(capture);
+        std::barrier rendezvous(2);
+        bool admitted = false;
+        std::thread writer([&]
+        {
+            rendezvous.arrive_and_wait();
+            admitted = fence.TryTrackWrite(character).has_value();
+        });
+        rendezvous.arrive_and_wait();
+        auto hold = fence.TryPromoteCapture(*capture, character);
+        writer.join();
+        FENCE_CHECK(!admitted && hold && !fence.TryTrackWrite(character));
+    }
+    std::cout << Checks - before << " PB59 exclusive recovery hold checks PASS\n";
+    return 0;
+}
 
 int main()
 {
@@ -123,4 +212,5 @@ int main()
         FENCE_CHECK(fence.TryReserveCapture(character));
     }
     std::cout << Checks << " PB59 inventory write fence checks PASS\n";
+    return CheckRecoveryHold();
 }

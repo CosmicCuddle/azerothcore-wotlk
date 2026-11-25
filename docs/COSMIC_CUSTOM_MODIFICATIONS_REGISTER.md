@@ -261,6 +261,12 @@
   submission rejects a task after transfer. Discarding an undispatched
   holder publishes and drains its exact cancellation. Native writer
   admission and consumption after a submitted save remain separate.
+- **Recovery write hold (25 November 2026):** isolated Core99 child,
+  parent `f7ab9402d63facf42e369b8f05983bd473dfc84b`. The dormant fence
+  promotes the exact capture reservation without releasing the GUID.
+  A definitive no-write settlement clears the hold. Commit, uncertainty
+  and lost completion retain it. Native receipt-to-lease binding, writer
+  coverage, persisted verification and disposition remain open.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

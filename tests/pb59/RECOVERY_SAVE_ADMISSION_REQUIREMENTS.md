@@ -276,6 +276,23 @@ factory returns a reserved receipt, and a future native admission path
 must establish complete writer coverage and owner lifetime before using
 this handoff.
 
+## Preserving the character hold through recovery settlement
+
+The dormant inventory fence can transfer an exact capture reservation to
+a recovery write lease. The GUID remains exclusive throughout promotion.
+A foreign fence, wrong GUID or previously moved reservation refuses.
+Abandoning the lease before possible submission releases the process-local
+hold. After submission begins, the trusted exact task consumer can settle
+the lease once. Definitive no-write results clear the hold. A commit needs
+persisted verification, and an ambiguous, inconsistent or lost outcome
+keeps the character held, including after the handle is destroyed.
+
+Promotion and settlement establish process-local exclusion only. The
+future native adapter still needs complete competing-writer coverage,
+exact owner and receipt binding, an admitted dispatch path and persisted
+custody verification. The fixture pairs the lease with the protected
+task's own cancellation and closes ordinary admission while it is pending.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

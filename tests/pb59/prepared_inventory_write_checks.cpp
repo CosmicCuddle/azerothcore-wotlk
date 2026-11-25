@@ -93,6 +93,8 @@ static int CheckProtectedCompletion()
     using Observer = PB59::CharacterSaveObserver<2>;
     unsigned const before = Checks;
     Pool pool;
+    Fence fence;
+    Store store(fence, pool);
     Observer observer;
     Observer other;
     auto first = observer.ReserveProtected(123, 7, 8);
@@ -107,6 +109,15 @@ static int CheckProtectedCompletion()
     WRITE_CHECK(!other.BindPreparedOutcome(*first.receipt, evidence, task));
     WRITE_CHECK(!observer.BindPreparedOutcome(*first.receipt, invalid, task));
     WRITE_CHECK(observer.BindPreparedOutcome(*first.receipt, evidence, task));
+    auto capture = fence.TryReserveCapture(123);
+    WRITE_CHECK(capture);
+    auto hold = fence.TryPromoteCapture(*capture, 123);
+    WRITE_CHECK(hold && hold->MarkPossiblySubmitted());
+    auto pending = std::move(*hold);
+    capture.reset();
+    hold.reset();
+    store.CloseAdmission();
+    WRITE_CHECK(!fence.TryTrackWrite(123));
     WRITE_CHECK(!observer.BindPreparedOutcome(*second.receipt, evidence, task));
     WRITE_CHECK(!observer.AbandonProtected(*first.receipt) && !observer.ConsumeProtected(*first.receipt));
     WRITE_CHECK(observer.AbandonProtected(*second.receipt) && observer.ConsumeProtected(*second.receipt));
@@ -115,6 +126,8 @@ static int CheckProtectedCompletion()
     auto const cancelled = observer.ConsumeProtected(*first.receipt);
     WRITE_CHECK(cancelled && cancelled->result.status == Status::CancelledBeforeExecution);
     WRITE_CHECK(cancelled->evidence.itemCount == 1 && cancelled->evidence.items[0] == 456);
+    WRITE_CHECK(!fence.TryTrackWrite(123) && pending.Settle(cancelled->result) == Fence::RecoverySettlement::NoWrite);
+    WRITE_CHECK(fence.TryTrackWrite(123));
     WRITE_CHECK(!observer.ConsumeProtected(*first.receipt));
     auto next = observer.ReserveProtected(123, 7, 8);
     PreparedTransactionWithOutcome<TestConnection> fresh(pool.BeginTransaction());
