@@ -309,7 +309,7 @@ std::future<DatabaseTransactionResult> DatabaseWorkerPool<T>::AsyncCommitPrepare
 {
     auto task = std::move(prepared._task);
     auto result = std::move(prepared._result);
-    if (!task)
+    if (!task || !result.valid())
         return result;
     if (_typedTransactionsReady && _queue->TryPush(task.get()))
         (void)task.release(); // queue/worker owns it after successful admission

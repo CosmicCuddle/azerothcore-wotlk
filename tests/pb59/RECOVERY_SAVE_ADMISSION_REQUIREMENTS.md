@@ -260,6 +260,22 @@ the native write fence and persisted-state verification remain requirements
 for that future path. The holder neither pins the Player nor grants release
 authority.
 
+## Handing off the exact protected completion
+
+The dormant holder can bind its prepared task to the protected observer.
+Validation, sealing and transfer of the task's sole future happen under
+the same observer lock. Invalid or stale reservations leave the task and
+receipt unchanged. A second bind cannot take the same future. The ordinary
+typed submission entry point refuses a prepared task after that transfer.
+
+This handoff still leaves the task undispatched. Dropping the bound holder
+destroys its task first, then drains its own protected cancellation.
+A pending observer record means completion is attached. Queue admission
+and persisted-state verification remain distinct. The existing staging
+factory returns a reserved receipt, and a future native admission path
+must establish complete writer coverage and owner lifetime before using
+this handoff.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

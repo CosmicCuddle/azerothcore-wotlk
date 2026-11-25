@@ -8243,26 +8243,44 @@ class Player::PB59PreparedRecoverySave final
 public:
     PB59PreparedRecoverySave(SaveObserver& observer, PB59::Recovery::Operation operation, PB59::Stamp stamp,
         CharacterDatabaseTransaction transaction)
-        : observer(observer), operation(operation), stamp(stamp), task(std::move(transaction)) {}
+        : observer(observer), operation(operation), stamp(stamp), task(std::in_place, std::move(transaction)) {}
 
     ~PB59PreparedRecoverySave()
     {
-        if (receipt && observer.AbandonProtected(*receipt))
+        if (!receipt)
+            return;
+        if (completionBound)
+        {
+            // The task is still undispatched. Its destructor publishes the
+            // cancellation to the exact protected future before we drain it.
+            task.reset();
+            (void)observer.ConsumeProtected(*receipt);
+        }
+        else if (observer.AbandonProtected(*receipt))
             (void)observer.ConsumeProtected(*receipt);
     }
 
 private:
     friend class Player;
 
+    [[nodiscard]] bool BindCompletion()
+    {
+        if (!receipt || !task || completionBound)
+            return false;
+        completionBound = observer.BindPreparedOutcome(*receipt, membership, *task);
+        return completionBound;
+    }
+
     SaveObserver& observer;
     PB59::Recovery::Operation const operation;
     PB59::Stamp const stamp;
-    PreparedTransactionWithOutcome<CharacterDatabaseConnection> task;
+    std::optional<PreparedTransactionWithOutcome<CharacterDatabaseConnection>> task;
     std::optional<SaveObserver::ProtectedReceipt> receipt;
     PB59::SaveEvidence membership;
+    bool completionBound = false;
 };
 
-std::unique_ptr<Player::PB59PreparedRecoverySave const> Player::PreparePB59RecoverySavePayload(
+std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySavePayload(
     Player const* owner, PB59::Recovery::Operation operation,
     PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp)
 {
@@ -8295,7 +8313,7 @@ std::unique_ptr<Player::PB59PreparedRecoverySave const> Player::PreparePB59Recov
         if (!reservation.receipt)
             return {};
         prepared->receipt.emplace(std::move(*reservation.receipt));
-        auto const& transaction = prepared->task.GetTransaction();
+        auto const& transaction = prepared->task->GetTransaction();
         if (!transaction || !current() ||
             !owner->AppendPB59InventorySaveBatch(stamp, *transaction, &prepared->membership) || !current())
             return {};

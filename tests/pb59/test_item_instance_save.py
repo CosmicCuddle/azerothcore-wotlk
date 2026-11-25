@@ -98,7 +98,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                  "stamp, *CharacterDatabase.BeginTransaction(), &prepared->membership)"),
                 ("&prepared->membership) || !current())", "&prepared->membership))"),
                 (" || captured.incomplete", ""),
-                ("        if (receipt && observer.AbandonProtected(*receipt))\n"
+                ("        else if (observer.AbandonProtected(*receipt))\n"
                  "            (void)observer.ConsumeProtected(*receipt);", ""),
             ]
         for before, after in variants:

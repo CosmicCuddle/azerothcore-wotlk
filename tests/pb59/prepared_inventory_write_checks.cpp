@@ -1,4 +1,5 @@
 #include "Transaction.h"
+#include "PB59CharacterSaveObserver.h"
 #include "PB59PendingInventoryWrites.h"
 #include "PB59PreparedInventoryWrite.h"
 #include "PCQueue.h"
@@ -86,6 +87,42 @@ static unsigned Checks = 0;
         return 1; \
     } \
 } while (false)
+
+static int CheckProtectedCompletion()
+{
+    using Observer = PB59::CharacterSaveObserver<2>;
+    unsigned const before = Checks;
+    Pool pool;
+    Observer observer;
+    Observer other;
+    auto first = observer.ReserveProtected(123, 7, 8);
+    auto second = observer.ReserveProtected(123, 7, 8);
+    WRITE_CHECK(first.receipt && second.receipt);
+    PreparedTransactionWithOutcome<TestConnection> task(pool.BeginTransaction());
+    PB59::SaveEvidence evidence;
+    evidence.AddItem(456);
+    auto invalid = evidence;
+    invalid.itemCount = PB59::SaveEvidence::Limit + 1;
+    WRITE_CHECK(!task.TransferOutcome([](auto&&) {}));
+    WRITE_CHECK(!other.BindPreparedOutcome(*first.receipt, evidence, task));
+    WRITE_CHECK(!observer.BindPreparedOutcome(*first.receipt, invalid, task));
+    WRITE_CHECK(observer.BindPreparedOutcome(*first.receipt, evidence, task));
+    WRITE_CHECK(!observer.BindPreparedOutcome(*second.receipt, evidence, task));
+    WRITE_CHECK(!observer.AbandonProtected(*first.receipt) && !observer.ConsumeProtected(*first.receipt));
+    WRITE_CHECK(observer.AbandonProtected(*second.receipt) && observer.ConsumeProtected(*second.receipt));
+    auto result = pool.AsyncCommitPreparedTransactionWithOutcome(std::move(task));
+    WRITE_CHECK(!result.valid() && TestQueue->Empty());
+    auto const cancelled = observer.ConsumeProtected(*first.receipt);
+    WRITE_CHECK(cancelled && cancelled->result.status == Status::CancelledBeforeExecution);
+    WRITE_CHECK(cancelled->evidence.itemCount == 1 && cancelled->evidence.items[0] == 456);
+    WRITE_CHECK(!observer.ConsumeProtected(*first.receipt));
+    auto next = observer.ReserveProtected(123, 7, 8);
+    PreparedTransactionWithOutcome<TestConnection> fresh(pool.BeginTransaction());
+    WRITE_CHECK(next.receipt && !observer.BindPreparedOutcome(*first.receipt, evidence, fresh));
+    WRITE_CHECK(observer.BindPreparedOutcome(*next.receipt, evidence, fresh));
+    std::cout << Checks - before << " PB59 protected completion handoff checks PASS\n";
+    return 0;
+}
 
 static int CheckPendingStore()
 {
@@ -436,5 +473,7 @@ int main()
         WRITE_CHECK(legacy.get().status == Status::CancelledBeforeExecution);
     }
     std::cout << Checks << " PB59 native prepared-task handoff checks PASS\n";
-    return CheckPendingStore();
+    if (auto const status = CheckPendingStore())
+        return status;
+    return CheckProtectedCompletion();
 }

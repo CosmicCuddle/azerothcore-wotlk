@@ -8,6 +8,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--compiler", nargs="+", required=True)
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--mutants", action="store_true")
+parser.add_argument("--completion-mutant", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -61,6 +62,17 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
+    if args.completion_mutant:
+        guard = "if (!task || !result.valid())"
+        if native.count(guard) != 1:
+            raise RuntimeError("Expected one protected completion guard")
+        definition_file.write_text(native.replace(guard, "if (!task)"), encoding="utf-8")
+        subprocess.run(compile_fixture, check=True, timeout=90)
+        result = subprocess.run([str(binary)], capture_output=True, text=True, check=False, timeout=30)
+        if result.returncode != 1 or not result.stderr.startswith("prepared inventory write line "):
+            raise RuntimeError(f"Expected ordinary dispatch to be caught. Got {result!r}")
+        print("1/1 protected completion fault variant rejected by runtime assertion")
+        definition_file.write_text(native, encoding="utf-8")
     if args.mutants:
         mutants = [
             (definition_file, native, "auto task = std::move(prepared._task);",

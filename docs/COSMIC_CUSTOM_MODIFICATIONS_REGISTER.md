@@ -255,6 +255,12 @@
   comes from the staged batch. Refusal returns the unused reservation.
   Native one-time submission, receipt sealing, persistence and queue
   settlement remain integration dependencies.
+- **Protected completion handoff (25 November 2026):** isolated Core98
+  child, parent `5d063b65c53484f033bb981f6569205eed543472`. Adds the dormant
+  atomic seal-and-transfer step for one prepared future. Ordinary typed
+  submission rejects a task after transfer. Discarding an undispatched
+  holder publishes and drains its exact cancellation. Native writer
+  admission and consumption after a submitted save remain separate.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
