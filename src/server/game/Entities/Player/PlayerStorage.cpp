@@ -673,7 +673,7 @@ bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
 }
 
 bool Player::AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
-    Transaction<CharacterDatabaseConnection>& transaction) const
+    Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership) const
 {
     auto eligible = [&]
     {
@@ -728,6 +728,7 @@ bool Player::AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         }
 
     bool hasWork = false;
+    PB59::SaveEvidence captured;
     for (std::size_t index = 0; index < queue.size(); ++index)
         if (queue[index])
         {
@@ -735,15 +736,21 @@ bool Player::AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
             // reaches an item getter without an independently located cell.
             if (!positions[index] || !CheckPB59InventoryItemSave(positions[index], queue[index]))
                 return false;
+            if (membership)
+                captured.AddItem(queue[index]->GetGUID().GetRawValue());
             hasWork = true;
         }
-    if (!hasWork || !eligible() || m_itemUpdateQueue != queue)
+    if (!hasWork || captured.incomplete || !eligible() || m_itemUpdateQueue != queue)
         return false;
 
     for (std::size_t index = 0; index < queue.size(); ++index)
         if (queue[index] && !AppendPB59InventoryItemSave(positions[index], queue[index], transaction))
             return false;
-    return eligible() && m_itemUpdateQueue == queue;
+    if (!eligible() || m_itemUpdateQueue != queue)
+        return false;
+    if (membership)
+        *membership = captured;
+    return true;
 }
 
 bool Player::SuspendPB59OriginalQueue(PB59::InventorySlotFacts const& original,
@@ -8228,6 +8235,76 @@ namespace
     {
         static SaveObserver observer;
         return observer;
+    }
+}
+
+class Player::PB59PreparedRecoverySave final
+{
+public:
+    PB59PreparedRecoverySave(SaveObserver& observer, PB59::Recovery::Operation operation, PB59::Stamp stamp,
+        CharacterDatabaseTransaction transaction)
+        : observer(observer), operation(operation), stamp(stamp), task(std::move(transaction)) {}
+
+    ~PB59PreparedRecoverySave()
+    {
+        if (receipt && observer.AbandonProtected(*receipt))
+            (void)observer.ConsumeProtected(*receipt);
+    }
+
+private:
+    friend class Player;
+
+    SaveObserver& observer;
+    PB59::Recovery::Operation const operation;
+    PB59::Stamp const stamp;
+    PreparedTransactionWithOutcome<CharacterDatabaseConnection> task;
+    std::optional<SaveObserver::ProtectedReceipt> receipt;
+    PB59::SaveEvidence membership;
+};
+
+std::unique_ptr<Player::PB59PreparedRecoverySave const> Player::PreparePB59RecoverySavePayload(
+    Player const* owner, PB59::Recovery::Operation operation,
+    PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp)
+{
+    // Caller retains the serialized live owner throughout staging. The scope
+    // sentinel establishes identity and access before any native actor read.
+    auto current = [&]
+    {
+        if (!owner || !operation.Valid() || scope.GetTicket() != operation.ticket ||
+            !scope.CanAccess(operation.ownerIncarnation, PB59::TransactionAdmission::Access::Recovery))
+            return false;
+        auto const* session = owner->GetSession();
+        return owner->GetGUID().GetRawValue() == operation.owner &&
+            owner->GetPB59OwnerIncarnation() == operation.ownerIncarnation &&
+            session && session->GetPlayer() == owner && session->GetPB59SessionIncarnation() == operation.sessionIncarnation &&
+            !session->PlayerLoading() && !session->PlayerLogout() && owner->IsInWorld() &&
+            !owner->_pb59Transaction.PendingLogout() && owner->_pb59Equipment.InventoryQuarantined() &&
+            stamp.revision && owner->_pb59Equipment.Current(stamp);
+    };
+    if (!current())
+        return {};
+
+    try
+    {
+        auto& observer = PB59SaveObserver();
+        auto prepared = std::make_unique<PB59PreparedRecoverySave>(observer, operation, stamp,
+            CharacterDatabase.BeginTransaction());
+        auto reservation = observer.ReserveProtected(operation.owner, operation.ownerIncarnation, operation.sessionIncarnation);
+        if (!reservation.receipt)
+            return {};
+        prepared->receipt.emplace(std::move(*reservation.receipt));
+        auto const& transaction = prepared->task.GetTransaction();
+        if (!transaction || !current() ||
+            !owner->AppendPB59InventorySaveBatch(stamp, *transaction, &prepared->membership) || !current())
+            return {};
+
+        // Only this holder owns the task and reserved receipt. Keep the
+        // observer reservation unsealed until actual submission is admitted.
+        return prepared;
+    }
+    catch (std::bad_alloc const&)
+    {
+        return {};
     }
 }
 

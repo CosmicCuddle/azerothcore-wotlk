@@ -9,6 +9,7 @@ parser.add_argument("--compiler", nargs="+", required=True)
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--mutants", action="store_true")
 parser.add_argument("--batch-mutants", action="store_true")
+parser.add_argument("--receipt-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -27,6 +28,8 @@ definitions = "\n".join([
     section(database / "PreparedStatement.cpp", "PreparedStatementBase::PreparedStatementBase(", "//- Execution"),
     section(database / "Transaction.cpp", "void TransactionBase::AppendPreparedStatement(",
             "bool TransactionTask::Execute()"),
+    section(database / "Transaction.cpp", "TransactionWithOutcomeTask::~TransactionWithOutcomeTask()",
+            "bool TransactionCallback::"),
     section(item / "Item.cpp", "bool Item::AppendItemInstanceSave(", "bool Item::LoadFromDB("),
     section(item / "Item.cpp", "uint8 Item::GetBagSlot()", "bool Item::IsEquipped()"),
     section(item / "Container/Bag.cpp", "Item* Bag::GetItemByPos(", "std::string Bag::GetDebugInfo()"),
@@ -34,6 +37,8 @@ definitions = "\n".join([
     section(player / "PlayerStorage.cpp", "Bag* Player::GetBagByPos(", "uint32 Player::GetFreeInventorySpace()"),
     section(player / "PlayerStorage.cpp", "std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(",
             "bool Player::SuspendPB59OriginalQueue("),
+    section(player / "PlayerStorage.cpp", "namespace\n{\n    using SaveObserver",
+            "void Player::DrainPB59CharacterSaveEvidence("),
 ])
 flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
 if args.ndebug:
@@ -57,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
-    if args.mutants or args.batch_mutants:
+    if args.mutants or args.batch_mutants or args.receipt_mutants:
         variants = []
         if args.mutants:
             variants += [
@@ -81,10 +86,18 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                 ("!positions[index] || !CheckPB59InventoryItemSave(positions[index], queue[index])",
                  "!positions[index]"),
                 ("return id && ids.insert(id).second;", "return id && (void(ids.insert(id)), true);"),
-                ("return eligible() && m_itemUpdateQueue == queue;", "return m_itemUpdateQueue == queue;"),
-                ("return eligible() && m_itemUpdateQueue == queue;", "return eligible();"),
-                ("if (!hasWork || !eligible() || m_itemUpdateQueue != queue)",
-                 "if ((void(hasWork), !eligible()) || m_itemUpdateQueue != queue)"),
+                ("if (!eligible() || m_itemUpdateQueue != queue)", "if (m_itemUpdateQueue != queue)"),
+                ("if (!eligible() || m_itemUpdateQueue != queue)", "if (!eligible())"),
+                ("if (!hasWork || captured.incomplete || !eligible() || m_itemUpdateQueue != queue)",
+                 "if ((void(hasWork), captured.incomplete) || !eligible() || m_itemUpdateQueue != queue)"),
+            ]
+        if args.receipt_mutants:
+            variants += [
+                (" || scope.GetTicket() != operation.ticket", ""),
+                ("&prepared->membership) || !current())", "&prepared->membership))"),
+                (" || captured.incomplete", ""),
+                ("        if (receipt && observer.AbandonProtected(*receipt))\n"
+                 "            (void)observer.ConsumeProtected(*receipt);", ""),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:

@@ -248,6 +248,13 @@
   then rechecks the stamp and queue before accepting the staged statements.
   Native owner admission, sealed receipt association, persistence and
   post-commit queue settlement remain open.
+- **Recovery payload binding follow-up (25 November 2026):** isolated
+  Core97 child, parent `117ea8f3942e2d887e1ad16d6f420243cb53673a`. Pairs the
+  exact retained recovery ticket and live owner/session/stamp with a private
+  undispatched typed task and one protected receipt reservation. Membership
+  comes from the staged batch. Refusal returns the unused reservation.
+  Native one-time submission, receipt sealing, persistence and queue
+  settlement remain integration dependencies.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
