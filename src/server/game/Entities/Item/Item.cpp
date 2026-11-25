@@ -361,6 +361,63 @@ void Item::UpdateDuration(Player* owner, uint32 diff)
     SetState(ITEM_CHANGED, owner);                          // save new time in database
 }
 
+bool Item::AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction) const
+{
+    auto const state = GetState();
+    if (state != ITEM_NEW && state != ITEM_CHANGED)
+        return false;
+
+    auto const guid = GetGUID().GetCounter();
+    auto const owner = GetOwnerGUID().GetRawValue();
+    auto const statement = state == ITEM_NEW ? CHAR_REP_ITEM_INSTANCE : CHAR_UPD_ITEM_INSTANCE;
+    std::unique_ptr<CharacterDatabasePreparedStatement> instance(CharacterDatabase.GetPreparedStatement(statement));
+    uint8 index = 0;
+    instance->SetData(index, GetEntry());
+    instance->SetData(++index, owner);
+    instance->SetData(++index, GetGuidValue(ITEM_FIELD_CREATOR).GetCounter());
+    instance->SetData(++index, GetGuidValue(ITEM_FIELD_GIFTCREATOR).GetCounter());
+    instance->SetData(++index, GetCount());
+    instance->SetData(++index, GetUInt32Value(ITEM_FIELD_DURATION));
+
+    std::ostringstream ssSpells;
+    for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
+        ssSpells << GetSpellCharges(i) << ' ';
+    instance->SetData(++index, ssSpells.str());
+
+    instance->SetData(++index, GetUInt32Value(ITEM_FIELD_FLAGS));
+
+    std::ostringstream ssEnchants;
+    for (uint8 i = 0; i < MAX_ENCHANTMENT_SLOT; ++i)
+    {
+        ssEnchants << GetEnchantmentId(EnchantmentSlot(i)) << ' ';
+        ssEnchants << GetEnchantmentDuration(EnchantmentSlot(i)) << ' ';
+        ssEnchants << GetEnchantmentCharges(EnchantmentSlot(i)) << ' ';
+    }
+    instance->SetData(++index, ssEnchants.str());
+    instance->SetData(++index, GetItemRandomPropertyId());
+    instance->SetData(++index, GetUInt32Value(ITEM_FIELD_DURABILITY));
+    instance->SetData(++index, GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME));
+    instance->SetData(++index, m_text);
+    instance->SetData(++index, guid);
+
+    std::unique_ptr<CharacterDatabasePreparedStatement> giftOwner;
+    if (state == ITEM_CHANGED && IsWrapped())
+    {
+        giftOwner.reset(CharacterDatabase.GetPreparedStatement(CHAR_UPD_GIFT_OWNER));
+        giftOwner->SetData(0, owner);
+        giftOwner->SetData(1, guid);
+    }
+
+    transaction.Append(instance.get());
+    (void)instance.release();
+    if (giftOwner)
+    {
+        transaction.Append(giftOwner.get());
+        (void)giftOwner.release();
+    }
+    return true;
+}
+
 void Item::SaveToDB(CharacterDatabaseTransaction trans)
 {
     if (!PB59InventoryMutationAllowed())
@@ -369,56 +426,15 @@ void Item::SaveToDB(CharacterDatabaseTransaction trans)
     if (!isInTransaction)
         trans = CharacterDatabase.BeginTransaction();
 
-    ObjectGuid::LowType guid = GetGUID().GetCounter();
     switch (uState)
     {
         case ITEM_NEW:
         case ITEM_CHANGED:
-            {
-                uint8 index = 0;
-                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(uState == ITEM_NEW ? CHAR_REP_ITEM_INSTANCE : CHAR_UPD_ITEM_INSTANCE);
-                stmt->SetData(  index, GetEntry());
-                stmt->SetData(++index, GetOwnerGUID().GetRawValue());
-                stmt->SetData(++index, GetGuidValue(ITEM_FIELD_CREATOR).GetCounter());
-                stmt->SetData(++index, GetGuidValue(ITEM_FIELD_GIFTCREATOR).GetCounter());
-                stmt->SetData(++index, GetCount());
-                stmt->SetData(++index, GetUInt32Value(ITEM_FIELD_DURATION));
-
-                std::ostringstream ssSpells;
-                for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
-                    ssSpells << GetSpellCharges(i) << ' ';
-                stmt->SetData(++index, ssSpells.str());
-
-                stmt->SetData(++index, GetUInt32Value(ITEM_FIELD_FLAGS));
-
-                std::ostringstream ssEnchants;
-                for (uint8 i = 0; i < MAX_ENCHANTMENT_SLOT; ++i)
-                {
-                    ssEnchants << GetEnchantmentId(EnchantmentSlot(i)) << ' ';
-                    ssEnchants << GetEnchantmentDuration(EnchantmentSlot(i)) << ' ';
-                    ssEnchants << GetEnchantmentCharges(EnchantmentSlot(i)) << ' ';
-                }
-                stmt->SetData(++index, ssEnchants.str());
-
-                stmt->SetData (++index, GetItemRandomPropertyId());
-                stmt->SetData(++index, GetUInt32Value(ITEM_FIELD_DURABILITY));
-                stmt->SetData(++index, GetUInt32Value(ITEM_FIELD_CREATE_PLAYED_TIME));
-                stmt->SetData(++index, m_text);
-                stmt->SetData(++index, guid);
-
-                trans->Append(stmt);
-
-                if ((uState == ITEM_CHANGED) && IsWrapped())
-                {
-                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_GIFT_OWNER);
-                    stmt->SetData(0, GetOwnerGUID().GetRawValue());
-                    stmt->SetData(1, guid);
-                    trans->Append(stmt);
-                }
-                break;
-            }
+            (void)AppendItemInstanceSave(*trans);
+            break;
         case ITEM_REMOVED:
             {
+                ObjectGuid::LowType guid = GetGUID().GetCounter();
                 CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
                 stmt->SetData(0, guid);
                 trans->Append(stmt);
