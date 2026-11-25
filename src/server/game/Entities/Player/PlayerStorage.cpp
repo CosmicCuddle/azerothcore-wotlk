@@ -8276,7 +8276,8 @@ std::unique_ptr<Player::PB59PreparedRecoverySave const> Player::PreparePB59Recov
         auto const* session = owner->GetSession();
         return owner->GetGUID().GetRawValue() == operation.owner &&
             owner->GetPB59OwnerIncarnation() == operation.ownerIncarnation &&
-            session && session->GetPlayer() == owner && session->GetPB59SessionIncarnation() == operation.sessionIncarnation &&
+            session && session->GetPlayer() == owner &&
+            session->GetPB59SessionIncarnation() == operation.sessionIncarnation &&
             !session->PlayerLoading() && !session->PlayerLogout() && owner->IsInWorld() &&
             !owner->_pb59Transaction.PendingLogout() && owner->_pb59Equipment.InventoryQuarantined() &&
             stamp.revision && owner->_pb59Equipment.Current(stamp);
@@ -8289,7 +8290,8 @@ std::unique_ptr<Player::PB59PreparedRecoverySave const> Player::PreparePB59Recov
         auto& observer = PB59SaveObserver();
         auto prepared = std::make_unique<PB59PreparedRecoverySave>(observer, operation, stamp,
             CharacterDatabase.BeginTransaction());
-        auto reservation = observer.ReserveProtected(operation.owner, operation.ownerIncarnation, operation.sessionIncarnation);
+        auto reservation = observer.ReserveProtected(
+            operation.owner, operation.ownerIncarnation, operation.sessionIncarnation);
         if (!reservation.receipt)
             return {};
         prepared->receipt.emplace(std::move(*reservation.receipt));

@@ -94,6 +94,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         if args.receipt_mutants:
             variants += [
                 (" || scope.GetTicket() != operation.ticket", ""),
+                ("stamp, *transaction, &prepared->membership)",
+                 "stamp, *CharacterDatabase.BeginTransaction(), &prepared->membership)"),
                 ("&prepared->membership) || !current())", "&prepared->membership))"),
                 (" || captured.incomplete", ""),
                 ("        if (receipt && observer.AbandonProtected(*receipt))\n"
