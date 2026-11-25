@@ -32,6 +32,11 @@ with tempfile.TemporaryDirectory(prefix="pb59-write-fence-") as temporary:
             ("Release(!certain);", "Release(false);"),
             ("~Lease() { Release(_possiblySubmitted); }", "~Lease() { Release(false); }"),
             ("if (!_entry->writers && !_entry->capture", "if (!_entry->capture"),
+            ("else if (!uncertain)", "else"),
+            ("if (result.IsCommitted())\n                return RecoverySettlement::NeedsVerification;",
+             "if (result.IsCommitted()) { _capture.Release(false); return RecoverySettlement::NeedsVerification; }"),
+            ("if (capture._state != _state)", "if (!capture._state)"),
+            (" || _settled)", ")"),
         ]
         for before, after in mutants:
             if original.count(before) != 1:
