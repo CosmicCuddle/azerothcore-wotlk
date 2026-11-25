@@ -99,6 +99,45 @@ An in-process association cannot certify crash recovery after its memory is lost
 journal/schema/SQL/shutdown policy is selected here; restart/relog/in-flight write handling must
 be resolved before activation rather than silently losing the fence and admitting new writes.
 
+## Registered inventory writers
+
+`PB59InventoryWriteFence.h` supplies an unwired, process-local tracker keyed by
+character GUID. The caller must use one shared tracker across all writers of the
+same character, including across Player/session replacement. A move-only writer
+lease is acquired before touching mutable inventory state. An exclusive capture
+reservation excludes registered writers and other captures for that GUID. It is
+read-only and automatically releases on scope exit. A hot or uncertain GUID
+uses one capacity entry. When the fixed table fills, admission for new GUIDs
+fails before mutation.
+
+Mark a writer before any handoff that could execute its transaction, then
+transfer the lease to the owner of that exact task's typed outcome. Dropping an
+unsubmitted lease clears it. A committed, empty, not-started, not-enqueued or
+cancelled-before-execution result clears that writer. A failed, ambiguous,
+inconsistent or lost result leaves the GUID ineligible for exclusive capture.
+Later completions do not clear earlier uncertainty. There is no reset or
+recovery-write submission API. Clearing a completed writer only establishes
+quiescence for that registration.
+
+The local executable fixture tests the real tracker and database result types.
+It includes overlapping writes that finish in reverse order, ownership transfer
+to another thread, loss after possible submission, saturation, and concurrent
+capture-versus-writer admission.
+
+Before wiring this into native code, map admission, exact outcome ownership and
+failure behavior for each writer. `Player::SaveToDB` owns standalone submission,
+but `SaveInventoryAndGoldToDB` appends to a caller-owned transaction. Trade can
+write both characters in one transaction and modifies inventory before the
+append. Both leases must be acquired before either character is touched and
+carried through the outer outcome. The same audit must cover mail, auction,
+direct item writes including login fixups, and character administration. Some
+existing paths submit without a typed outcome. Ordering the observed saves alone
+cannot cover those paths, writes already in flight before registration, or work
+surviving the process. Capture remains dormant until coverage is established.
+The later write path must hold a fence through owned payload submission,
+completion and fresh persisted-state verification before originals can be
+disposed of.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

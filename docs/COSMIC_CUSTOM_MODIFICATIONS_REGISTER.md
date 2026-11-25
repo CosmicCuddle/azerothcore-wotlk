@@ -205,6 +205,13 @@
   failed on Core90 and passed on the child, with 484 collector checks per build
   mode and 100 test-only handoff checks. Native build and runtime validation of
   this child remain pending.
+- **Inventory writer tracking follow-up (25 November 2026):** isolated Core91
+  child, parent `7341b7f73a3bf0be502aa53561d18cb2c7915f11`. The dormant
+  `PB59InventoryWriteFence.h` tracks outstanding writes by character GUID
+  across session lifetimes. Same-GUID capture refuses until every registered
+  writer settles. A lost or uncertain outcome keeps capture closed. Native
+  writer registration, exact task binding and a fence held through recovery
+  submission and verification are separate dependencies.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
