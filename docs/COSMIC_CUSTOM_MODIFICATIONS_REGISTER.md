@@ -218,6 +218,14 @@
   completion. The typed queue admission path is shared with existing callers.
   An owner-independent pending store, native writers, owned payload and durable
   verification remain integration dependencies.
+- **Pending inventory writes follow-up (25 November 2026):** isolated Core93
+  child, parent `b8bedbbd905f5a50338bda30d1e9f7fdf94fbe4c`. A bounded,
+  process-local store claims capacity before payload construction and retains
+  exact prepared tasks across producer retirement. Closing admission preserves
+  already-tracked completions. Lost or ambiguous outcomes hold the relevant GUID
+  in the fence. The store is dormant. Native service lifecycle, lossless payload
+  construction, competing writer registration and durable verification remain
+  implementation dependencies.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

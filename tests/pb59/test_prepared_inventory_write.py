@@ -50,18 +50,27 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
     native = "\n".join(definitions)
     definition_file = work / "PreparedTaskDefinitions.inc"
     definition_file.write_text(native, encoding="utf-8")
+    header_name = "PB59PreparedInventoryWrite.h"
+    store_name = "PB59PendingInventoryWrites.h"
+    bridge = (player / header_name).read_text(encoding="utf-8")
+    store = (player / store_name).read_text(encoding="utf-8")
+    # Keep quoted includes and variant headers in the same include tree.
+    (work / header_name).write_text(bridge, encoding="utf-8")
+    (work / store_name).write_text(store, encoding="utf-8")
     includes = [argument for path in (work, player, database, queue) for argument in ("-I", str(path))]
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
     if args.mutants:
-        header_name = "PB59PreparedInventoryWrite.h"
-        bridge = (player / header_name).read_text(encoding="utf-8")
         mutants = [
             (definition_file, native, "auto task = std::move(prepared._task);",
              "auto task = std::make_unique<TransactionWithOutcomeTask>(BeginTransaction());"),
             (work / header_name, bridge, "(void)_writer.Complete(result);", ""),
             (work / header_name, bridge, " || !_writer.MarkPossiblySubmitted()", ""),
+            (work / store_name, store, "return !entry.ticket.sequence;", "return !entry.write;"),
+            (work / store_name, store, "                reservation.Keep();\n", ""),
+            (work / store_name, store, "        if (_closed)\n            return {Admission::Closed};\n", ""),
+            (work / store_name, store, "auto& slot = _slots[_nextPoll];", "auto& slot = _slots[count];"),
         ]
         for target, original, before, after in mutants:
             if original.count(before) != 1:
@@ -72,4 +81,12 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
             if result.returncode != 1 or not result.stderr.startswith("prepared inventory write line "):
                 raise RuntimeError(f"Expected a fixture assertion after changing {before}. Got {result!r}")
             target.write_text(original, encoding="utf-8")
-        print(f"{len(mutants)}/{len(mutants)} prepared-task mutants rejected by runtime assertions")
+        print(f"{len(mutants)}/{len(mutants)} prepared-task and store mutants rejected by runtime assertions")
+
+        handoff = "(void)task.release(); // queue/worker owns it after successful admission"
+        if native.count(handoff) != 1:
+            raise RuntimeError("Expected one successful queue handoff")
+        lost = native.replace(handoff, '{ (void)task.release(); throw std::runtime_error("lost dispatch result"); }')
+        definition_file.write_text(lost, encoding="utf-8")
+        subprocess.run(compile_fixture + ["-DPB59_TEST_LOST_DISPATCH_RESULT"], check=True, timeout=90)
+        subprocess.run([str(binary)], check=True, timeout=30)
