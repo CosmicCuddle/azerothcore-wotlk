@@ -526,42 +526,18 @@ std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 
         IsBeingTeleportedFar() || IsBeingTeleportedNear() || m_itemUpdateQueueBlocked)
         return std::nullopt;
 
-    uint8 const bag = pos >> 8;
-    uint8 const slot = pos & 255;
-    bool const equipment = bag == INVENTORY_SLOT_BAG_0 &&
-        slot < EQUIPMENT_SLOT_END && slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
-    bool const backpack = bag == INVENTORY_SLOT_BAG_0 &&
-        slot >= INVENTORY_SLOT_ITEM_START && slot < INVENTORY_SLOT_ITEM_END;
-    Bag* container = nullptr;
-    ObjectGuid fieldGuid;
-    if (equipment || backpack)
-        fieldGuid = GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + slot * 2);
-    else if (bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
-    {
-        container = GetBagByPos(bag);
-        if (!container || container->GetBagSize() > MAX_BAG_SIZE || slot >= container->GetBagSize() ||
-            container->GetOwnerGUID() != GetGUID() || container->GetPos() !=
-                ((uint16(INVENTORY_SLOT_BAG_0) << 8) | bag) || container->GetContainer() ||
-            container->GetGuidValue(ITEM_FIELD_CONTAINED) != GetGUID() ||
-            GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != container->GetGUID() ||
-            container->GetState() == ITEM_REMOVED)
-            return std::nullopt;
-        fieldGuid = container->GetGuidValue(CONTAINER_FIELD_SLOT_1 + slot * 2);
-    }
-    else
+    auto const links = ReadPB59InventorySlotLinks(pos);
+    if (!links)
         return std::nullopt;
 
     PB59::InventorySlotFacts facts{GetGUID().GetRawValue(),
-        container ? container->GetGUID().GetRawValue() : 0, pos, std::nullopt};
-    Item* item = GetItemByPos(pos);
+        links->containerGuid.GetRawValue(), pos, std::nullopt};
+    Item const* item = links->item;
     if (item)
     {
         // Reject special state whose additional lifetime/DB records have not
         // yet been accounted for. This is a technical refusal, not NoSet.
-        if (item->GetGUID() != fieldGuid || item->GetOwnerGUID() != GetGUID() ||
-            item->GetPos() != pos || item->GetContainer() != container ||
-            item->GetGuidValue(ITEM_FIELD_CONTAINED) != (container ? container->GetGUID() : GetGUID()) ||
-            !item->GetTemplate() || item->GetState() == ITEM_REMOVED || item->IsBag() ||
+        if (!item->GetTemplate() || item->IsBag() ||
             item->IsInTrade() || item->m_lootGenerated || item->GetGUID() == GetLootGUID() ||
             item->IsRefundable() || item->IsBOPTradable() || item->IsWrapped())
             return std::nullopt;
@@ -604,9 +580,86 @@ std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(uint16 
             }
         facts.item = std::move(raw);
     }
-    if (!PB59::ValidInventorySlot(facts, fieldGuid.GetRawValue(), true, true))
+    if (!PB59::ValidInventorySlot(facts, links->fieldGuid.GetRawValue(), true, true))
         return std::nullopt;
     return facts;
+}
+
+std::optional<Player::PB59InventorySlotLinks> Player::ReadPB59InventorySlotLinks(uint16 pos) const
+{
+    uint8 const bag = pos >> 8;
+    uint8 const slot = pos & 255;
+    auto const owner = GetGUID();
+    if (owner.IsEmpty())
+        return std::nullopt;
+
+    bool const equipment = bag == INVENTORY_SLOT_BAG_0 &&
+        slot < EQUIPMENT_SLOT_END && slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+    bool const backpack = bag == INVENTORY_SLOT_BAG_0 &&
+        slot >= INVENTORY_SLOT_ITEM_START && slot < INVENTORY_SLOT_ITEM_END;
+    Bag* container = nullptr;
+    ObjectGuid containerGuid;
+    ObjectGuid fieldGuid;
+    if (equipment || backpack)
+        fieldGuid = GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + slot * 2);
+    else if (bag >= INVENTORY_SLOT_BAG_START && bag < INVENTORY_SLOT_BAG_END)
+    {
+        container = GetBagByPos(bag);
+        if (!container || container->GetBagSize() > MAX_BAG_SIZE || slot >= container->GetBagSize() ||
+            container->GetOwnerGUID() != owner || container->GetContainer() ||
+            container->GetPos() != ((uint16(INVENTORY_SLOT_BAG_0) << 8) | bag) ||
+            container->GetGuidValue(ITEM_FIELD_CONTAINED) != owner || container->GetState() == ITEM_REMOVED)
+            return std::nullopt;
+        containerGuid = container->GetGUID();
+        if (!containerGuid.GetCounter() || GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != containerGuid)
+            return std::nullopt;
+        fieldGuid = container->GetGuidValue(CONTAINER_FIELD_SLOT_1 + slot * 2);
+    }
+    else
+        return std::nullopt;
+
+    Item* item = GetItemByPos(pos);
+    if (!item)
+    {
+        if (!fieldGuid.IsEmpty())
+            return std::nullopt;
+    }
+    else if (fieldGuid.IsEmpty() || item->GetGUID() != fieldGuid || item->GetOwnerGUID() != owner ||
+        item->GetContainer() != container || item->GetPos() != pos ||
+        item->GetGuidValue(ITEM_FIELD_CONTAINED) != (container ? containerGuid : owner) ||
+        item->GetState() == ITEM_REMOVED)
+        return std::nullopt;
+    return PB59InventorySlotLinks{item, fieldGuid, containerGuid};
+}
+
+bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
+    Transaction<CharacterDatabaseConnection>& transaction) const
+{
+    if (!expected || m_itemUpdateQueueBlocked)
+        return false;
+    auto const links = ReadPB59InventorySlotLinks(pos);
+    if (!links || links->item != expected)
+        return false;
+
+    auto const& item = *links->item;
+    auto const state = item.GetState();
+    auto const itemGuid = item.GetGUID();
+    if ((state != ITEM_NEW && state != ITEM_CHANGED) || !GetGUID().GetCounter() || !itemGuid.GetCounter() ||
+        !item.GetEntry() || !item.GetCount() || !item.GetTemplate() || item.IsBag() || item.IsInTrade() ||
+        item.m_lootGenerated || itemGuid == GetLootGUID() || item.IsRefundable() || item.IsBOPTradable() ||
+        m_refundableItems.contains(itemGuid) || (state == ITEM_NEW && item.IsWrapped()) ||
+        std::ranges::any_of(m_enchantDuration, [&](auto const& timer) { return timer.item == &item; }))
+        return false;
+
+    std::unique_ptr<CharacterDatabasePreparedStatement> link(
+        CharacterDatabase.GetPreparedStatement(CHAR_REP_INVENTORY_ITEM));
+    link->SetData(0, GetGUID().GetRawValue());
+    link->SetData(1, links->containerGuid.GetCounter());
+    link->SetData(2, uint8(pos & 255));
+    link->SetData(3, itemGuid.GetCounter());
+    transaction.Append(link.get());
+    (void)link.release();
+    return item.AppendItemInstanceSave(transaction);
 }
 
 bool Player::SuspendPB59OriginalQueue(PB59::InventorySlotFacts const& original,

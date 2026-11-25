@@ -12,6 +12,7 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
 item = root / "src/server/game/Entities/Item"
+player = root / "src/server/game/Entities/Player"
 source = Path(__file__).with_name("item_instance_save_checks.cpp")
 
 
@@ -26,6 +27,12 @@ definitions = "\n".join([
     section(database / "Transaction.cpp", "void TransactionBase::AppendPreparedStatement(",
             "bool TransactionTask::Execute()"),
     section(item / "Item.cpp", "bool Item::AppendItemInstanceSave(", "bool Item::LoadFromDB("),
+    section(item / "Item.cpp", "uint8 Item::GetBagSlot()", "bool Item::IsEquipped()"),
+    section(item / "Container/Bag.cpp", "Item* Bag::GetItemByPos(", "std::string Bag::GetDebugInfo()"),
+    section(player / "PlayerStorage.cpp", "Item* Player::GetItemByPos(uint16", "std::optional<PB59::Stamp>"),
+    section(player / "PlayerStorage.cpp", "Bag* Player::GetBagByPos(", "uint32 Player::GetFreeInventorySpace()"),
+    section(player / "PlayerStorage.cpp", "std::optional<PB59::InventorySlotFacts> Player::CapturePB59InventorySlot(",
+            "bool Player::SuspendPB59OriginalQueue("),
 ])
 flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
 if args.ndebug:
@@ -44,7 +51,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         encoding="utf-8")
     extracted = work / "ItemInstanceSaveDefinitions.inc"
     extracted.write_text(definitions, encoding="utf-8")
-    includes = [argument for path in (work, database, root / "src/common/Utilities") for argument in ("-I", str(path))]
+    include_paths = (work, database, player, root / "src/common/Utilities")
+    includes = [argument for path in include_paths for argument in ("-I", str(path))]
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
@@ -52,10 +60,16 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         variants = [
             ("auto const owner = GetOwnerGUID().GetRawValue();", "auto const owner = GetOwnerGUID().GetCounter();"),
             ("if (state == ITEM_CHANGED && IsWrapped())", "if (IsWrapped())"),
-            ("i < MAX_ENCHANTMENT_SLOT;", "i < MAX_ENCHANTMENT_SLOT - 1;"),
+            ("i < MAX_ENCHANTMENT_SLOT; ++i)\n    {\n        ssEnchants",
+             "i < MAX_ENCHANTMENT_SLOT - 1; ++i)\n    {\n        ssEnchants"),
             ("instance->SetData(++index, GetItemRandomPropertyId());",
              "instance->SetData(++index, static_cast<uint32>(GetItemRandomPropertyId()));"),
             ("            (void)AppendItemInstanceSave(*trans);\n", ""),
+            ("if (!links || links->item != expected)", "if (!links || !links->item)"),
+            ("item->GetContainer() != container || item->GetPos() != pos ||", "item->GetPos() != pos ||"),
+            (" || GetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + bag * 2) != containerGuid", ""),
+            ("std::ranges::any_of(m_enchantDuration, [&](auto const& timer) { return timer.item == &item; })", "false"),
+            ("link->SetData(1, links->containerGuid.GetCounter());", "link->SetData(1, uint32{0});"),
         ]
         for before, after in variants:
             if definitions.count(before) != 1:
@@ -65,4 +79,4 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
             result = subprocess.run([str(binary)], capture_output=True, text=True, check=False, timeout=30)
             if result.returncode != 1 or not result.stderr.startswith("item instance save line "):
                 raise RuntimeError(f"Expected a fixture assertion after changing {before}. Got {result!r}")
-        print(f"{len(variants)}/{len(variants)} item-instance variants rejected by runtime assertions")
+        print(f"{len(variants)}/{len(variants)} item and inventory-link variants rejected by runtime assertions")
