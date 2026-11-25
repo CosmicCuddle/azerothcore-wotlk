@@ -241,6 +241,13 @@
   or refund/enchant state refuses before append. The existing slot observer
   shares the link reader. Whole-payload admission, runtime wiring and native
   verification remain open.
+- **Inventory save batch follow-up (25 November 2026):** isolated Core96
+  child, parent `2f39f8d07ac22e6fb438fb26bfcffa0106164476`. The dormant
+  batch builder preflights the bounded dirty queue using reachable native
+  cells, rejects duplicate persisted counters and unsupported side effects,
+  then rechecks the stamp and queue before accepting the staged statements.
+  Native owner admission, sealed receipt association, persistence and
+  post-commit queue settlement remain open.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

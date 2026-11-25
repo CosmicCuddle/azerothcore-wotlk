@@ -3101,8 +3101,14 @@ private:
     };
     // Only for synchronous use in the serialized owner context.
     [[nodiscard]] std::optional<PB59InventorySlotLinks> ReadPB59InventorySlotLinks(uint16 pos) const;
+    [[nodiscard]] std::optional<PB59InventorySlotLinks> CheckPB59InventoryItemSave(
+        uint16 pos, Item const* expected) const;
     // Stages one live cell. Discard the entire prepared transaction on refusal or exception.
     [[nodiscard]] bool AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
+        Transaction<CharacterDatabaseConnection>& transaction) const;
+    // Caller retains the serialized live owner and supplies a fresh native stamp.
+    // On refusal or exception, discard the entire undispatched transaction.
+    [[nodiscard]] bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         Transaction<CharacterDatabaseConnection>& transaction) const;
     // Dormant read-only collector: no runtime call site or public PB API.
     static std::unique_ptr<PB59::Recovery::NativeCollection> PreparePB59RecoveryCollection(

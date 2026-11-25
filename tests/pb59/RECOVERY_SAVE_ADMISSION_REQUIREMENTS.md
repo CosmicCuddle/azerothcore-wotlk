@@ -222,6 +222,25 @@ if any item refuses or throws. The helper does not change the update queue
 or admit a save. Whole-inventory preflight, competing writers and persisted
 custody remain separate checks.
 
+## Preflighting the inventory save queue
+
+`Player::AppendPB59InventorySaveBatch` starts with an empty prepared
+transaction and a caller-supplied current native stamp. It matches each
+non-null queue entry to an independently reached equipment, backpack or
+equipped-bag cell. It validates queue positions, per-item eligibility and
+unique persisted item counters before preparing any statements. Queue null
+entries are retained as tombstones. The helper also refuses an empty or
+over-capacity queue, unsupported container changes, active buyback, refund
+or enchantment work, and a dirty supported cell missing from the queue.
+
+An eligible batch uses the established item and link writers in queue order.
+The stamp, queue identity and global eligibility are checked before and
+after staging. A refusal after staging or any exception requires discarding
+the undispatched transaction as a whole. Native item state, queue positions
+and pending intents are left intact. The caller supplies serialized owner
+lifetime and admission. Owner/session and receipt binding, competing writer
+coverage, whole persisted custody and queue settlement remain separate.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,
