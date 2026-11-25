@@ -51,6 +51,7 @@
 #include "PB59VisibleEquipment.h"
 #include "PB59EffectBoundary.h"
 #include "PB59CharacterSaveObserver.h"
+#include "PB59InventoryWriteFence.h"
 #include "PB59NativeRecoveryCollection.h"
 #include "WorldSession.h"
 #include <algorithm>
@@ -8242,8 +8243,9 @@ class Player::PB59PreparedRecoverySave final
 {
 public:
     PB59PreparedRecoverySave(SaveObserver& observer, PB59::Recovery::Operation operation, PB59::Stamp stamp,
-        CharacterDatabaseTransaction transaction)
-        : observer(observer), operation(operation), stamp(stamp), task(std::in_place, std::move(transaction)) {}
+        PB59RecoveryWriteFence::RecoveryWrite hold, CharacterDatabaseTransaction transaction)
+        : observer(observer), operation(operation), stamp(stamp), hold(std::move(hold)),
+          task(std::in_place, std::move(transaction)) {}
 
     ~PB59PreparedRecoverySave()
     {
@@ -8251,10 +8253,13 @@ public:
             return;
         if (completionBound)
         {
-            // The task is still undispatched. Its destructor publishes the
-            // cancellation to the exact protected future before we drain it.
+            // Our undispatched task publishes its cancellation on destruction.
+            // If delivery is still unavailable, the marked hold stays exclusive.
             task.reset();
-            (void)observer.ConsumeProtected(*receipt);
+            if (possiblySubmitted)
+                (void)PollCompletion();
+            else
+                (void)observer.ConsumeProtected(*receipt);
         }
         else if (observer.AbandonProtected(*receipt))
             (void)observer.ConsumeProtected(*receipt);
@@ -8263,31 +8268,17 @@ public:
 private:
     friend class Player;
 
-    [[nodiscard]] bool BindCompletion()
+    struct Completion
     {
-        if (!receipt || !task || completionBound)
-            return false;
-        completionBound = observer.BindPreparedOutcome(*receipt, membership, *task);
-        return completionBound;
-    }
+        SaveObserver::Record record;
+        PB59RecoveryWriteFence::RecoverySettlement settlement;
+    };
 
-    SaveObserver& observer;
-    PB59::Recovery::Operation const operation;
-    PB59::Stamp const stamp;
-    std::optional<PreparedTransactionWithOutcome<CharacterDatabaseConnection>> task;
-    std::optional<SaveObserver::ProtectedReceipt> receipt;
-    PB59::SaveEvidence membership;
-    bool completionBound = false;
-};
-
-std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySavePayload(
-    Player const* owner, PB59::Recovery::Operation operation,
-    PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp)
-{
-    // Caller retains the serialized live owner throughout staging. The scope
-    // sentinel establishes identity and access before any native actor read.
-    auto current = [&]
+    static bool Current(Player const* owner, PB59::Recovery::Operation const& operation,
+        PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp const& stamp)
     {
+        // The caller retains serialized native ownership. Check the sentinel
+        // before any actor read, then verify all identity components.
         if (!owner || !operation.Valid() || scope.GetTicket() != operation.ticket ||
             !scope.CanAccess(operation.ownerIncarnation, PB59::TransactionAdmission::Access::Recovery))
             return false;
@@ -8299,15 +8290,70 @@ std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySav
             !session->PlayerLoading() && !session->PlayerLogout() && owner->IsInWorld() &&
             !owner->_pb59Transaction.PendingLogout() && owner->_pb59Equipment.InventoryQuarantined() &&
             stamp.revision && owner->_pb59Equipment.Current(stamp);
+    }
+
+    [[nodiscard]] bool BindCompletion(Player const* owner, PB59::TransactionAdmission::MutationScope const& scope)
+    {
+        if (!receipt || !task || completionBound || !Current(owner, operation, scope, stamp))
+            return false;
+        completionBound = observer.BindPreparedOutcome(*receipt, membership, *task);
+        return completionBound;
+    }
+
+    [[nodiscard]] bool MarkPossiblySubmitted(Player const* owner,
+        PB59::TransactionAdmission::MutationScope const& scope)
+    {
+        if (!completionBound || possiblySubmitted || !task || !task->GetTransaction() ||
+            !Current(owner, operation, scope, stamp))
+            return false;
+        possiblySubmitted = hold.MarkPossiblySubmitted();
+        return possiblySubmitted;
+    }
+
+    [[nodiscard]] std::optional<Completion> PollCompletion()
+    {
+        if (!possiblySubmitted || !receipt)
+            return std::nullopt;
+        auto record = observer.ConsumeProtected(*receipt);
+        if (!record)
+            return std::nullopt;
+        receipt.reset();
+        return Completion{*record, hold.Settle(record->result)};
+    }
+
+    SaveObserver& observer;
+    PB59::Recovery::Operation const operation;
+    PB59::Stamp const stamp;
+    PB59RecoveryWriteFence::RecoveryWrite hold;
+    std::optional<PreparedTransactionWithOutcome<CharacterDatabaseConnection>> task;
+    std::optional<SaveObserver::ProtectedReceipt> receipt;
+    PB59::SaveEvidence membership;
+    bool completionBound = false;
+    bool possiblySubmitted = false;
+};
+
+std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySavePayload(
+    PB59RecoveryWriteFence& fence, Player const* owner, PB59::Recovery::Operation operation,
+    PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp)
+{
+    auto current = [&]
+    {
+        return PB59PreparedRecoverySave::Current(owner, operation, scope, stamp);
     };
     if (!current())
         return {};
 
     try
     {
+        auto capture = fence.TryReserveCapture(operation.owner);
+        if (!capture)
+            return {};
+        auto hold = fence.TryPromoteCapture(*capture, operation.owner);
+        if (!hold)
+            return {};
         auto& observer = PB59SaveObserver();
         auto prepared = std::make_unique<PB59PreparedRecoverySave>(observer, operation, stamp,
-            CharacterDatabase.BeginTransaction());
+            std::move(*hold), CharacterDatabase.BeginTransaction());
         auto reservation = observer.ReserveProtected(
             operation.owner, operation.ownerIncarnation, operation.sessionIncarnation);
         if (!reservation.receipt)

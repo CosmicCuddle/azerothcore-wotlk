@@ -10,6 +10,7 @@ parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--mutants", action="store_true")
 parser.add_argument("--batch-mutants", action="store_true")
 parser.add_argument("--receipt-mutants", action="store_true")
+parser.add_argument("--hold-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -62,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     compile_fixture = args.compiler + flags + includes + [str(source), "-o", str(binary)]
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
-    if args.mutants or args.batch_mutants or args.receipt_mutants:
+    if args.mutants or args.batch_mutants or args.receipt_mutants or args.hold_mutants:
         variants = []
         if args.mutants:
             variants += [
@@ -100,6 +101,21 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                 (" || captured.incomplete", ""),
                 ("        else if (observer.AbandonProtected(*receipt))\n"
                  "            (void)observer.ConsumeProtected(*receipt);", ""),
+            ]
+        if args.hold_mutants:
+            variants += [
+                ("auto capture = fence.TryReserveCapture(operation.owner);\n"
+                 "        if (!capture)\n            return {};\n"
+                 "        auto hold = fence.TryPromoteCapture(*capture, operation.owner);",
+                 "auto capture = fence.TryReserveCapture(operation.owner + 1);\n"
+                 "        if (!capture)\n            return {};\n"
+                 "        auto hold = fence.TryPromoteCapture(*capture, operation.owner + 1);"),
+                ("!task->GetTransaction() ||\n            !Current(owner, operation, scope, stamp)",
+                 "!task->GetTransaction() ||\n            (void(Current(owner, operation, scope, stamp)), false)"),
+                ("hold.Settle(record->result)", "PB59RecoveryWriteFence::RecoverySettlement::NoWrite"),
+                ("if (!record)\n            return std::nullopt;",
+                 "if (!record) { (void)hold.Settle(DatabaseTransactionResult::FromExecutionCode("
+                 "DatabaseTransactionResult::NotEnqueuedCode)); return std::nullopt; }"),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:

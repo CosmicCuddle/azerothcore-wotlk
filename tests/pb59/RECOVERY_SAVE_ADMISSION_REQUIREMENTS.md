@@ -293,6 +293,22 @@ exact owner and receipt binding, an admitted dispatch path and persisted
 custody verification. The fixture pairs the lease with the protected
 task's own cancellation and closes ordinary admission while it is pending.
 
+## Keeping the exact lease with the prepared holder
+
+The dormant Player preparation path receives the shared fence from its
+caller. It acquires and promotes the character's hold before allocating
+the task, reserving the receipt or building SQL statements. Refusal drops
+only the undispatched payload and its unused reservation. The holder keeps
+the lease, exact task and protected receipt together.
+
+Both completion binding and marking possible submission recheck the live
+owner/session/ticket and stamp. Once marked, polling consumes only the
+holder's protected outcome and settles its own lease. Polling requires no
+Player, session or mutation scope. Dropping an undispatched marked task
+can drain its exact cancellation. Missing delivery retains exclusivity.
+Actual submission, complete writer registration and persisted-custody
+verification remain separate integration requirements.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

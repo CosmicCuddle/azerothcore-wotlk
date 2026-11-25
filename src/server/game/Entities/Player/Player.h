@@ -650,7 +650,11 @@ struct SkillStatusData
 
 typedef std::unordered_map<uint32, SkillStatusData> SkillStatusMap;
 
-namespace PB59 { struct SaveEvidence; }
+namespace PB59
+{
+    struct SaveEvidence;
+    template<std::size_t Capacity> class InventoryWriteFence;
+}
 namespace PB59::Recovery { struct Operation; }
 
 class Quest;
@@ -3112,8 +3116,9 @@ private:
     [[nodiscard]] bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
+    using PB59RecoveryWriteFence = PB59::InventoryWriteFence<256>;
     [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
-        Player const* owner, PB59::Recovery::Operation operation,
+        PB59RecoveryWriteFence& fence, Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
     // Dormant read-only collector: no runtime call site or public PB API.
     static std::unique_ptr<PB59::Recovery::NativeCollection> PreparePB59RecoveryCollection(
