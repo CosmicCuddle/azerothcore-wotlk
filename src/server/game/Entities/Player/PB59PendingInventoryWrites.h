@@ -6,6 +6,7 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <type_traits>
 
 namespace PB59
 {
@@ -80,6 +81,23 @@ public:
     template<typename Builder>
     [[nodiscard]] Submission TrySubmit(std::uint64_t guid, Builder&& build)
     {
+        return Submit<false>(guid, std::forward<Builder>(build));
+    }
+
+    // Once a native build is admitted it may have consumed dirty state.
+    // CloseAdmission stops new builds. The pool remains available until
+    // this accepted work has been handed off and drained.
+    template<typename Builder>
+        requires std::is_void_v<std::invoke_result_t<Builder, SQLTransaction<Connection> const&>>
+    [[nodiscard]] Submission TrySubmitNativeSave(std::uint64_t guid, Builder&& build)
+    {
+        return Submit<true>(guid, std::forward<Builder>(build));
+    }
+
+private:
+    template<bool NativeSave, typename Builder>
+    [[nodiscard]] Submission Submit(std::uint64_t guid, Builder&& build)
+    {
         Slot* slot = nullptr;
         Ticket ticket;
         {
@@ -100,12 +118,32 @@ public:
         auto write = Write::Prepare(_fence, _database, guid);
         if (!write || !write->GetTransaction())
             return {Admission::WriterUnavailable};
-        if (!std::invoke(std::forward<Builder>(build), *write->GetTransaction()))
+        if constexpr (NativeSave)
+        {
+            {
+                std::lock_guard lock(_mutex);
+                if (_closed)
+                    return {Admission::Closed};
+                if (!write->MarkNativeBuildStarted())
+                    return {Admission::WriterUnavailable};
+            }
+            try
+            {
+                std::invoke(std::forward<Builder>(build), write->GetTransaction());
+            }
+            catch (...)
+            {
+                // No legacy fallback once dirty state may have changed.
+                return {Admission::Uncertain, ticket};
+            }
+        }
+        else if (!std::invoke(std::forward<Builder>(build), *write->GetTransaction()))
             return {Admission::Declined};
 
         std::lock_guard lock(_mutex);
-        if (_closed)
-            return {Admission::Closed};
+        if constexpr (!NativeSave)
+            if (_closed)
+                return {Admission::Closed};
 
         slot->write.emplace(std::move(*write));
         try
@@ -125,6 +163,7 @@ public:
         return {Admission::Uncertain, ticket};
     }
 
+public:
     [[nodiscard]] std::optional<Completion> PollOne()
     {
         std::lock_guard lock(_mutex);

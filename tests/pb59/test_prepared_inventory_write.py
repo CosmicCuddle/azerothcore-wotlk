@@ -9,6 +9,7 @@ parser.add_argument("--compiler", nargs="+", required=True)
 parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--mutants", action="store_true")
 parser.add_argument("--completion-mutant", action="store_true")
+parser.add_argument("--native-save-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -73,17 +74,32 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
             raise RuntimeError(f"Expected ordinary dispatch to be caught. Got {result!r}")
         print("1/1 protected completion fault variant rejected by runtime assertion")
         definition_file.write_text(native, encoding="utf-8")
-    if args.mutants:
-        mutants = [
-            (definition_file, native, "auto task = std::move(prepared._task);",
-             "auto task = std::make_unique<TransactionWithOutcomeTask>(BeginTransaction());"),
-            (work / header_name, bridge, "(void)_writer.Complete(result);", ""),
-            (work / header_name, bridge, " || !_writer.MarkPossiblySubmitted()", ""),
-            (work / store_name, store, "return !entry.ticket.sequence;", "return !entry.write;"),
-            (work / store_name, store, "                reservation.Keep();\n", ""),
-            (work / store_name, store, "        if (_closed)\n            return {Admission::Closed};\n", ""),
-            (work / store_name, store, "auto& slot = _slots[_nextPoll];", "auto& slot = _slots[count];"),
-        ]
+    if args.mutants or args.native_save_mutants:
+        mutants = []
+        if args.mutants:
+            mutants += [
+                (definition_file, native, "auto task = std::move(prepared._task);",
+                 "auto task = std::make_unique<TransactionWithOutcomeTask>(BeginTransaction());"),
+                (work / header_name, bridge, "(void)_writer.Complete(settled);", "(void)settled;"),
+                (work / header_name, bridge, " || (!_nativeBuildStarted && !_writer.MarkPossiblySubmitted())", ""),
+                (work / store_name, store, "return !entry.ticket.sequence;", "return !entry.write;"),
+                (work / store_name, store, "                reservation.Keep();\n", ""),
+                (work / store_name, store,
+                 "        if constexpr (!NativeSave)\n"
+                 "            if (_closed)\n"
+                 "                return {Admission::Closed};\n", ""),
+                (work / store_name, store, "auto& slot = _slots[_nextPoll];", "auto& slot = _slots[count];"),
+            ]
+        if args.native_save_mutants:
+            mutants += [
+                (work / store_name, store,
+                 "        if constexpr (!NativeSave)\n"
+                 "            if (_closed)\n"
+                 "                return {Admission::Closed};",
+                 "        if (_closed)\n            return {Admission::Closed};"),
+                (work / header_name, bridge, "_nativeBuildStarted && !result.IsCommitted()", "false"),
+                (work / store_name, store, "if (!write->MarkNativeBuildStarted())", "if (false)"),
+            ]
         for target, original, before, after in mutants:
             if original.count(before) != 1:
                 raise RuntimeError(f"Expected one mutation site for {before}")
@@ -95,6 +111,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
             target.write_text(original, encoding="utf-8")
         print(f"{len(mutants)}/{len(mutants)} prepared-task and store mutants rejected by runtime assertions")
 
+    if args.mutants:
         handoff = "(void)task.release(); // queue/worker owns it after successful admission"
         if native.count(handoff) != 1:
             raise RuntimeError("Expected one successful queue handoff")

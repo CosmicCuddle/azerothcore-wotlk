@@ -38,7 +38,7 @@ public:
     // True means we obtained a future. Queue rejection is a typed result, too.
     [[nodiscard]] bool Dispatch()
     {
-        if (!_prepared.GetTransaction() || !_writer.MarkPossiblySubmitted())
+        if (!_prepared.GetTransaction() || (!_nativeBuildStarted && !_writer.MarkPossiblySubmitted()))
             return false;
 
         _outcome = _database.AsyncCommitPreparedTransactionWithOutcome(std::move(_prepared));
@@ -62,11 +62,25 @@ public:
         {
             _outcome = {};
         }
-        (void)_writer.Complete(result);
+        // A native builder may already have consumed dirty state. A proven
+        // no-write outcome still leaves those values unsaved.
+        auto const settled = _nativeBuildStarted && !result.IsCommitted()
+            ? DatabaseTransactionResult::FromExecutionCode(DatabaseTransactionResult::AmbiguousCode) : result;
+        (void)_writer.Complete(settled);
         return result;
     }
 
 private:
+    template<std::size_t, std::size_t, typename> friend class PendingInventoryWrites;
+
+    [[nodiscard]] bool MarkNativeBuildStarted() noexcept
+    {
+        if (!_prepared.GetTransaction() || _nativeBuildStarted)
+            return false;
+        _nativeBuildStarted = _writer.MarkPossiblySubmitted();
+        return _nativeBuildStarted;
+    }
+
     PreparedInventoryWrite(Pool& database, Writer writer, SQLTransaction<Connection> transaction)
         : _database(database), _writer(std::move(writer)), _prepared(std::move(transaction)) {}
 
@@ -74,5 +88,6 @@ private:
     Writer _writer;
     PreparedTransactionWithOutcome<Connection> _prepared;
     std::future<DatabaseTransactionResult> _outcome;
+    bool _nativeBuildStarted = false;
 };
 }

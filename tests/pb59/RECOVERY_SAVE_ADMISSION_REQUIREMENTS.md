@@ -309,6 +309,34 @@ can drain its exact cancellation. Missing delivery retains exclusivity.
 Actual submission, complete writer registration and persisted-custody
 verification remain separate integration requirements.
 
+## Tracking native save builders
+
+The dormant native-save entry point reserves pending capacity and a writer
+lease before invoking the existing kind of destructive builder. It marks
+that dirty state may be consumed while admission is still open. The builder
+runs outside the store mutex. Once started, its exact task is handed off
+even if the store closes to new work in the meantime. The service must keep
+the DB pool available while accepted builders or outstanding tasks remain.
+A thrown builder or any noncommitted result retains recovery uncertainty.
+The original typed result remains available for reporting, and a legacy
+fallback after a possibly destructive build could duplicate work.
+
+The natural standalone seam is the ordinary non-creation, non-logout
+`Player::SaveToDB` path after native custody checks and before its transaction
+build. `SaveToDBWithEvidence` changes timers, invokes save scripts and drains
+dirty maps, so the discardable read-only builder is unsuitable. Creation
+and logout need their own lifecycle handling. The existing world tick
+drains diagnostics, and `StopDB` closes CharacterDatabase before its final
+diagnostic drain. A future tracked service needs its own close-and-drain
+ordering before pool teardown.
+
+Caller-owned writes require reservations at the outer operation. The
+source paths include trade, mail, auctions, guild, item and spell handlers,
+TC9, additional saves and refunds. They can mutate inventory before calling
+`SaveInventoryAndGoldToDB`. Item and login fixups and module writers still
+need coverage or a source-proven exclusion. The new entry point has no live
+caller and does not establish complete registration or storage durability.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

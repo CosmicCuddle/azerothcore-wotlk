@@ -274,6 +274,12 @@
   before binding or marking. Completion can arrive after owner retirement.
   Native writer registration, dispatch and persisted verification remain
   separate dependencies.
+- **Native save build tracking (25 November 2026):** isolated Core101
+  child, parent `7b2640dd9eafbf9d9240f80a70289bcd79a59d81`. The dormant
+  pending store reserves the exact task and writer before a native builder
+  can consume dirty state. An admitted build survives closure to new work.
+  Noncommitted or missing outcomes retain uncertainty. Standalone call-site
+  wiring, outer transaction registration and native shutdown remain open.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
