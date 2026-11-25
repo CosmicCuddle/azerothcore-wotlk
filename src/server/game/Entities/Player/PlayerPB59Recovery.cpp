@@ -362,12 +362,7 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
             evidence.observedOwnerIncarnation != evidence.operation.ownerIncarnation ||
             evidence.observedSessionIncarnation != evidence.operation.sessionIncarnation || !stamp ||
             stamp->session != buffer._boundStamp.session || stamp->revision < buffer._boundStamp.revision)
-        {
-            evidence.revision = 0; // current native revision is unavailable/stale, not an invented generation
             return output.summary.status = CollectionStatus::ContextUnavailable;
-        }
-        evidence.revision = stamp->revision;
-        output.summary.revisionObserved = true;
         bool complete = true;
         for (std::size_t index = 0; index < evidence.originalCount; ++index)
         {
@@ -515,6 +510,14 @@ PB59::Recovery::CollectionStatus Player::CollectPB59RecoveryEvidence(PB59::Recov
             return unavailable();
         evidence.pendingSave = evidence.pendingSave || pendingSave;
         evidence.pendingLogout = evidence.pendingLogout || pendingLogout;
+        std::optional<PB59::Stamp> finalStamp;
+        if (!read([&] { finalStamp = owner->_pb59Equipment.Capture(); }))
+            return unavailable();
+        if (finalStamp != stamp)
+            return output.summary.status = CollectionStatus::ContextUnavailable;
+
+        evidence.revision = stamp->revision;
+        output.summary.revisionObserved = true;
         return output.summary.status = complete && output.summary.queueConsistent &&
             output.summary.ownerUpdateConsistent ? CollectionStatus::Collected : CollectionStatus::Incomplete;
     }

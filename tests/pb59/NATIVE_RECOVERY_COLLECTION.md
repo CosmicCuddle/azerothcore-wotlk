@@ -28,8 +28,11 @@ Three private static Player helpers are implemented in PlayerPB59Recovery.cpp:
 3. CollectPB59RecoveryEvidence is static: it can detect a dead sentinel without a call
    through a destroyed Player. Scope ticket/incarnation/access precede and follow every
    native getter. It copies the failure/empty-GUID report and observes original/destination
-   slots, pointer quality, pending intent, journal masks and queue shape. Wrong-thread
-   entry touches neither scope/actor nor shared scratch. Failed/repeated use cannot silently
+   slots, pointer quality, pending intent, journal masks and queue shape. The initial
+   native stamp must match a second sample after these reads before a revision is
+   published. A changed or missing final stamp yields ContextUnavailable, with any
+   observed pending intent retained and no revision attributed to the evidence.
+   Wrong-thread entry touches neither scope/actor nor shared scratch. Failed/repeated use cannot silently
    refresh the first record. No helper finishes a scope, releases quarantine, consumes intent,
    saves, moves, deletes or recreates items.
 

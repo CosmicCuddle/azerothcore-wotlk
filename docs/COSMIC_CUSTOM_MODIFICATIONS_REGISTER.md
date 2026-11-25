@@ -198,6 +198,13 @@
 - **Evidence:** 64 extracted collector checks ordinary/NDEBUG; real save-record constexpr
   contracts and eight static mutants per mode. Explicit engine doubles, no real Worldserver/
   DB/gameplay/durability proof. Source-pinned PR records exact results and open build gates.
+- **Capture revision follow-up (25 November 2026):** child of Core90
+  `ada575ad023a7d8eb4d1e6bb07407a54f57296bf`. Collection publishes a revision
+  only after matching the native stamp at both ends of the scan. Mid-scan drift
+  refuses the sample and retains observed save/logout intent. The new fixture
+  failed on Core90 and passed on the child, with 484 collector checks per build
+  mode and 100 test-only handoff checks. Native build and runtime validation of
+  this child remain pending.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
