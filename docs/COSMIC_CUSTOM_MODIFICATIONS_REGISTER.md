@@ -267,6 +267,13 @@
   A definitive no-write settlement clears the hold. Commit, uncertainty
   and lost completion retain it. Native receipt-to-lease binding, writer
   coverage, persisted verification and disposition remain open.
+- **Prepared recovery hold binding (25 November 2026):** isolated
+  Core100 child, parent `c38a8f194ceff4f87865e01151b6ebd0314096aa`.
+  The dormant holder acquires its GUID lease before staging and settles
+  it only from its exact protected receipt. Owner identity is rechecked
+  before binding or marking. Completion can arrive after owner retirement.
+  Native writer registration, dispatch and persisted verification remain
+  separate dependencies.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
