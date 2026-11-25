@@ -323,12 +323,28 @@ fallback after a possibly destructive build could duplicate work.
 
 The natural standalone seam is the ordinary non-creation, non-logout
 `Player::SaveToDB` path after native custody checks and before its transaction
-build. `SaveToDBWithEvidence` changes timers, invokes save scripts and drains
-dirty maps, so the discardable read-only builder is unsuitable. Creation
-and logout need their own lifecycle handling. The existing world tick
-drains diagnostics, and `StopDB` closes CharacterDatabase before its final
-diagnostic drain. A future tracked service needs its own close-and-drain
-ordering before pool teardown.
+build. The dormant `Player::TryPB59TrackedStandaloneSave` adapter checks the
+live owner and native custody restrictions, then calls `SaveToDBWithEvidence`
+through the admitted native builder. `SaveToDBWithEvidence` changes timers,
+invokes save scripts and drains dirty maps.
+
+When character save diagnostics are enabled, the pending slot carries the
+owner and session incarnations, ticket sequence and bounded save membership.
+`PollOne` settles the writer and returns the original outcome. The existing
+reporter can then use the value snapshot after the player is gone. A
+pre-build refusal leaves dirty values with the caller. A builder or handoff
+failure returns `Uncertain` with the exact ticket and logs it immediately.
+That ticket may have no pollable completion. Do not wait for one or fall
+back to legacy save. Even a typed no-write completion keeps capture blocked
+after a native builder may have consumed dirty state.
+
+Creation and logout need their own lifecycle handling. The existing world
+tick drains diagnostics, and `StopDB` closes CharacterDatabase before its
+final diagnostic drain. A future tracked service must close admission while
+the pool remains available, let admitted producers finish, and drain the
+pending store before closing the pool. A poll from a running producer must
+return without waiting for its own task. The standalone fixture exercises
+this ordering with a local queue. Actual world service wiring is still open.
 
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,

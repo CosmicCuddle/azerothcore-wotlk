@@ -1,5 +1,6 @@
 #pragma once
 
+#include "PB59CharacterSaveEvidence.h"
 #include "PB59PreparedInventoryWrite.h"
 #include <algorithm>
 #include <array>
@@ -37,10 +38,17 @@ public:
         Ticket ticket{};
     };
 
+    struct NativeSaveDiagnostics
+    {
+        SaveIdentity identity;
+        SaveEvidence evidence;
+    };
+
     struct Completion
     {
         Ticket ticket;
         DatabaseTransactionResult result;
+        std::optional<NativeSaveDiagnostics> diagnostics;
     };
 
 private:
@@ -48,6 +56,7 @@ private:
     {
         Ticket ticket;
         std::optional<Write> write;
+        std::optional<NativeSaveDiagnostics> diagnostics;
     };
 
     class Reservation final
@@ -91,7 +100,30 @@ public:
         requires std::is_void_v<std::invoke_result_t<Builder, SQLTransaction<Connection> const&>>
     [[nodiscard]] Submission TrySubmitNativeSave(std::uint64_t guid, Builder&& build)
     {
-        return Submit<true>(guid, std::forward<Builder>(build));
+        return Submit<true>(guid, [&](auto const& transaction, std::optional<NativeSaveDiagnostics>&)
+        {
+            std::invoke(std::forward<Builder>(build), transaction);
+        });
+    }
+
+    // Store diagnostic membership with the task that executes the save.
+    template<typename Builder>
+        requires std::is_void_v<std::invoke_result_t<Builder, SQLTransaction<Connection> const&, SaveEvidence&>>
+    [[nodiscard]] Submission TrySubmitObservedNativeSave(std::uint64_t guid, std::uint64_t player,
+        std::uint64_t session, Builder&& build)
+    {
+        if (!guid || !player || !session)
+            return {Admission::Declined};
+        return Submit<true>(guid, [&](auto const& transaction, std::optional<NativeSaveDiagnostics>& diagnostics)
+        {
+            diagnostics.emplace(NativeSaveDiagnostics{{guid, player, session, 0}, {}});
+            std::invoke(std::forward<Builder>(build), transaction, diagnostics->evidence);
+            if (!diagnostics->evidence.Valid())
+            {
+                diagnostics->evidence = {};
+                diagnostics->evidence.incomplete = true;
+            }
+        });
     }
 
 private:
@@ -118,6 +150,7 @@ private:
         auto write = Write::Prepare(_fence, _database, guid);
         if (!write || !write->GetTransaction())
             return {Admission::WriterUnavailable};
+        std::optional<NativeSaveDiagnostics> diagnostics;
         if constexpr (NativeSave)
         {
             {
@@ -129,7 +162,7 @@ private:
             }
             try
             {
-                std::invoke(std::forward<Builder>(build), write->GetTransaction());
+                std::invoke(std::forward<Builder>(build), write->GetTransaction(), diagnostics);
             }
             catch (...)
             {
@@ -150,6 +183,9 @@ private:
         {
             if (slot->write->Dispatch())
             {
+                if (diagnostics)
+                    diagnostics->identity.sequence = ticket.sequence;
+                slot->diagnostics = std::move(diagnostics);
                 reservation.Keep();
                 return {Admission::Tracking, ticket};
             }
@@ -176,7 +212,8 @@ public:
             auto result = slot.write->Poll();
             if (!result)
                 continue;
-            Completion completed{slot.ticket, *result};
+            Completion completed{slot.ticket, *result, std::move(slot.diagnostics)};
+            slot.diagnostics.reset();
             slot.write.reset();
             slot.ticket = {};
             return completed;
