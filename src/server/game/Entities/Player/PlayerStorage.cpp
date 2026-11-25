@@ -8235,8 +8235,6 @@ namespace
     void ReportPB59SaveResult(PB59::SaveIdentity const& id, PB59::SaveEvidence const& evidence,
         DatabaseTransactionResult result)
     {
-        if (result.IsCommitted() || result.status == DatabaseTransactionStatus::Empty)
-            return;
         LOG_ERROR("entities.player",
             "PB59 character save uncertain/failed: GUID {} player {} session {} sequence {} outcome {} code {}; "
             "possible missing deltas; quest IDs {}, item GUIDs {}, skill IDs {}, truncated/incomplete {}. "
@@ -8405,17 +8403,19 @@ void Player::DrainPB59CharacterSaveEvidence(bool final)
 {
     PB59SaveObserver().Drain([](SaveObserver::Record const& record)
     {
-        ReportPB59SaveResult(record.ticket.identity, record.evidence, record.result);
+        if (!record.result.IsCommitted() && record.result.status != DatabaseTransactionStatus::Empty)
+            ReportPB59SaveResult(record.ticket.identity, record.evidence, record.result);
     }, final);
 }
 
-auto Player::TryPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes, bool create, bool logout)
+PB59::InventoryWriteSubmission Player::TryPB59TrackedStandaloneSave(
+    PB59TrackedInventoryWrites& writes, bool create, bool logout)
 {
     auto const* session = GetSession();
     if (create || logout || !session || session->GetPlayer() != this || session->PlayerLoading() ||
         session->PlayerLogout() || !IsInWorld() || IsBeingTeleportedFar() ||
         !_pb59Equipment.InventoryMutationAllowed() || HasPB59UnsettledOriginals())
-        return PB59TrackedInventoryWrites::Submission{PB59TrackedInventoryWrites::Admission::Declined};
+        return {PB59::InventoryWriteAdmission::Declined};
 
     auto const guid = GetGUID().GetRawValue();
     auto const submission = sConfigMgr->GetOption<bool>("PB59.CharacterSaveEvidence.Enable", false)
@@ -8428,16 +8428,34 @@ auto Player::TryPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes, bo
             {
                 SaveToDBWithEvidence(transaction, false, false, nullptr);
             });
-    if (submission.status == PB59TrackedInventoryWrites::Admission::Uncertain)
+    if (submission.status == PB59::InventoryWriteAdmission::Uncertain)
         LOG_ERROR("entities.player", "PB59 tracked save GUID {} sequence {} outcome unavailable; do not replay",
             guid, submission.ticket.sequence);
     return submission;
 }
 
-void Player::PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes)
+bool Player::PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes)
 {
-    if (auto const completed = writes.PollOne(); completed && completed->diagnostics)
+    auto const completed = writes.PollOne();
+    if (!completed)
+        return false;
+    if (completed->result.IsCommitted())
+        return true;
+    if (completed->diagnostics)
         ReportPB59SaveResult(completed->diagnostics->identity, completed->diagnostics->evidence, completed->result);
+    else
+        LOG_ERROR("entities.player", "PB59 tracked save GUID {} sequence {} outcome {} code {}; do not replay",
+            completed->ticket.guid, completed->ticket.sequence, static_cast<int>(completed->result.status),
+            completed->result.executionCode);
+    return true;
+}
+
+bool Player::DrainPB59TrackedStandaloneSavesForShutdown(PB59TrackedInventoryWrites& writes)
+{
+    writes.CloseAdmission();
+    while (PollPB59TrackedStandaloneSave(writes))
+        continue;
+    return writes.Idle();
 }
 
 void Player::SaveToDB(bool create, bool logout)

@@ -45,6 +45,7 @@
 #include "PB59InventorySlotFacts.h"
 #include "PB59InventoryBatchPlan.h"
 #include "PB59InventoryCustody.h"
+#include "PB59InventoryWriteSubmission.h"
 #include "PB59OriginalQueueCustody.h"
 #include "PB59OriginalPointerCustody.h"
 #include "PB59OriginalCombatEffects.h"
@@ -3120,8 +3121,11 @@ private:
     using PB59RecoveryWriteFence = PB59::InventoryWriteFence<256>;
     using PB59TrackedInventoryWrites = PB59::PendingInventoryWrites<256, 256, CharacterDatabaseConnection>;
     // Dormant adapter. A future owner must provide the shared fence and drain its pending writes.
-    [[nodiscard]] auto TryPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes, bool create, bool logout);
-    static void PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes);
+    [[nodiscard]] PB59::InventoryWriteSubmission TryPB59TrackedStandaloneSave(
+        PB59TrackedInventoryWrites& writes, bool create, bool logout);
+    static bool PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes);
+    // True means the closed tracker is drained. The database pool still owns its queue.
+    [[nodiscard]] static bool DrainPB59TrackedStandaloneSavesForShutdown(PB59TrackedInventoryWrites& writes);
     [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
         PB59RecoveryWriteFence& fence, Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);

@@ -1,4 +1,5 @@
 #include "Transaction.h"
+#include "DatabaseWorker.h"
 #include "PB59CharacterSaveObserver.h"
 #include "PB59PendingInventoryWrites.h"
 #include "PB59PreparedInventoryWrite.h"
@@ -157,9 +158,13 @@ struct Player
             duringBuild();
     }
 
-    auto TryPB59TrackedStandaloneSave(Store& writes, bool create, bool logout);
-    static void PollPB59TrackedStandaloneSave(Store& writes);
+    static void DrainPB59CharacterSaveEvidence(bool final = false);
+#include "TrackedStandaloneSaveDeclarations.inc"
 };
+
+// Compile a caller while only the Player.h declaration is visible.
+static_assert(std::is_same_v<decltype(std::declval<Player&>().TryPB59TrackedStandaloneSave(
+    std::declval<Store&>(), false, false)), PB59::InventoryWriteSubmission>);
 
 struct SaveConfig
 {
@@ -286,7 +291,10 @@ static int CheckStandaloneProducer()
         task->call();
         WRITE_CHECK(!fence.TryReserveCapture(987));
         Player::PollPB59TrackedStandaloneSave(store);
-        WRITE_CHECK(SaveLogs.empty() && store.Idle() && !fence.TryReserveCapture(987));
+        WRITE_CHECK(SaveLogs.size() == 1 && store.Idle() && !fence.TryReserveCapture(987));
+        WRITE_CHECK(SaveLogs[0].values == (Values{987, std::int64_t(unobserved.ticket.sequence),
+            int(Status::FailedUnverified), 991}));
+        SaveLogs.clear();
     }
     {
         Pool pool;
@@ -302,21 +310,45 @@ static int CheckStandaloneProducer()
         WRITE_CHECK(SaveLogs[0].values == (std::vector<std::int64_t>{123, std::int64_t(sent.ticket.sequence)}));
         SaveLogs.clear();
     }
+    for (bool observe : {true, false})
     {
         Pool pool;
         Fence fence;
         Store store(fence, pool);
         Player player;
         player.empty = true;
+        Config.enabled = observe;
         auto const sent = player.TryPB59TrackedStandaloneSave(store, false, false);
+        Config.enabled = true;
         WRITE_CHECK(sent.status == Store::Admission::Tracking && TestQueue->Size() == 1);
         auto task = TakeTask();
         MySQLConnection executor;
         executor.code = Result::EmptyCode;
         task->SetConnection(&executor);
         task->call();
-        Player::PollPB59TrackedStandaloneSave(store);
-        WRITE_CHECK(SaveLogs.empty() && store.Idle() && !fence.TryReserveCapture(guid));
+        WRITE_CHECK(Player::PollPB59TrackedStandaloneSave(store));
+        WRITE_CHECK(SaveLogs.size() == (observe ? 4u : 1u) && store.Idle() && !fence.TryReserveCapture(guid));
+        auto const sequence = std::int64_t(sent.ticket.sequence);
+        using Values = std::vector<std::int64_t>;
+        auto const expected = observe
+            ? Values{123, 7, 8, sequence, int(Status::Empty), Result::EmptyCode, 1, 1, 1, 0}
+            : Values{123, sequence, int(Status::Empty), Result::EmptyCode};
+        WRITE_CHECK(SaveLogs[0].values == expected && !Player::PollPB59TrackedStandaloneSave(store));
+        SaveLogs.clear();
+    }
+    {
+        for (int code : {0, Result::EmptyCode, 991})
+        {
+            auto& observer = PB59SaveObserver();
+            auto const reservation = observer.Reserve(guid, 7, 8);
+            std::promise<Result> outcome;
+            WRITE_CHECK(observer.Seal(reservation.ticket, {}) && observer.Attach(reservation.ticket,
+                outcome.get_future()));
+            outcome.set_value(Result::FromExecutionCode(code));
+            Player::DrainPB59CharacterSaveEvidence();
+            WRITE_CHECK(SaveLogs.size() == (code == 991 ? 1u : 0u));
+            SaveLogs.clear();
+        }
     }
     {
         Pool pool;
@@ -324,37 +356,56 @@ static int CheckStandaloneProducer()
         Store store(fence, pool);
         Player player;
         std::latch entered(1), resume(1);
-        bool returnedFromProducerPoll = false;
+        bool pendingInsideProducer = false;
         player.duringBuild = [&]
         {
             entered.count_down();
             resume.wait();
             // The thread currently building an admitted task cannot synchronously wait for itself.
-            Player::PollPB59TrackedStandaloneSave(store);
-            returnedFromProducerPoll = true;
+            pendingInsideProducer = !Player::DrainPB59TrackedStandaloneSavesForShutdown(store);
         };
         Store::Submission sent{Store::Admission::Declined};
         std::thread producer([&] { sent = player.TryPB59TrackedStandaloneSave(store, false, false); });
         entered.wait();
-        store.CloseAdmission();
-        Player::PollPB59TrackedStandaloneSave(store);
-        bool const heldDuringClose = !store.Idle() && !fence.TryReserveCapture(guid) && TestQueue->Empty();
+        bool const heldDuringClose = !Player::DrainPB59TrackedStandaloneSavesForShutdown(store) &&
+            !store.Idle() && !fence.TryReserveCapture(guid) && TestQueue->Empty();
         Player other;
         other.guid.value = 987;
         auto const refused = other.TryPB59TrackedStandaloneSave(store, false, false);
         resume.count_down();
         producer.join();
-        WRITE_CHECK(heldDuringClose && returnedFromProducerPoll && SaveLogs.empty());
+        WRITE_CHECK(heldDuringClose && pendingInsideProducer && SaveLogs.empty());
         WRITE_CHECK(refused.status == Store::Admission::Closed && other.builds == 0);
         WRITE_CHECK(sent.status == Store::Admission::Tracking && player.builds == 1 && TestQueue->Size() == 1);
-        WRITE_CHECK(!store.Idle() && !fence.TryReserveCapture(guid));
+        WRITE_CHECK(!Player::DrainPB59TrackedStandaloneSavesForShutdown(store) && !fence.TryReserveCapture(guid));
         auto task = TakeTask();
         MySQLConnection executor;
         task->SetConnection(&executor);
         task->call();
-        Player::PollPB59TrackedStandaloneSave(store);
+        WRITE_CHECK(Player::DrainPB59TrackedStandaloneSavesForShutdown(store));
         WRITE_CHECK(executor.size == 1 && SaveLogs.empty() && store.Idle() && fence.TryReserveCapture(guid));
         TestQueue->Shutdown();
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        Player player;
+        Config.enabled = false;
+        auto const first = player.TryPB59TrackedStandaloneSave(store, false, false);
+        auto const second = player.TryPB59TrackedStandaloneSave(store, false, false);
+        Config.enabled = true;
+        WRITE_CHECK(first.status == Store::Admission::Tracking && second.status == Store::Admission::Tracking);
+        TestQueue->Cancel();
+        WRITE_CHECK(Player::DrainPB59TrackedStandaloneSavesForShutdown(store));
+        WRITE_CHECK(SaveLogs.size() == 2 && !fence.TryReserveCapture(guid));
+        using Values = std::vector<std::int64_t>;
+        WRITE_CHECK(SaveLogs[0].values == (Values{123, std::int64_t(first.ticket.sequence),
+            int(Status::CancelledBeforeExecution), Result::CancelledBeforeExecutionCode}));
+        WRITE_CHECK(SaveLogs[1].values == (Values{123, std::int64_t(second.ticket.sequence),
+            int(Status::CancelledBeforeExecution), Result::CancelledBeforeExecutionCode}));
+        WRITE_CHECK(Player::DrainPB59TrackedStandaloneSavesForShutdown(store) && SaveLogs.size() == 2);
+        SaveLogs.clear();
     }
     std::cout << Checks - before << " PB59 standalone producer and diagnostic checks PASS\n";
     return 0;
@@ -688,13 +739,14 @@ static int CheckLostDispatchResult()
     WRITE_CHECK(store.Idle() && !store.PollOne() && !fence.TryReserveCapture(guid));
     WRITE_CHECK(player.builds == 1 && SaveLogs.size() == 1);
     WRITE_CHECK(SaveLogs[0].values == (std::vector<std::int64_t>{123, std::int64_t(sent.ticket.sequence)}));
-    WRITE_CHECK(TestQueue->Size() == 1);
-    auto task = TakeTask();
-    WRITE_CHECK(task);
+    WRITE_CHECK(Player::DrainPB59TrackedStandaloneSavesForShutdown(store));
+    WRITE_CHECK(TestQueue->Size() == 1); // The tracker is drained while the database still owns the task.
     MySQLConnection executor;
-    task->SetConnection(&executor);
-    task->call();
-    Player::PollPB59TrackedStandaloneSave(store);
+    {
+        DatabaseWorker worker(TestQueue, &executor);
+        TestQueue->Shutdown();
+    }
+    WRITE_CHECK(Player::DrainPB59TrackedStandaloneSavesForShutdown(store));
     WRITE_CHECK(TestQueue->Empty() && !store.PollOne() && !fence.TryReserveCapture(guid));
     WRITE_CHECK(executor.size == 1 && SaveLogs.size() == 1);
     std::cout << Checks << " PB59 lost dispatch result checks PASS\n";
