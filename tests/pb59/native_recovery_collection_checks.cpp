@@ -174,6 +174,29 @@ int main()
         auto buffer = Player::PreparePB59RecoveryCollection(actor, plan);
         Ledger::MutationScope scope(actor._pb59Transaction); actor.ArmCollection();
         COLLECT_CHECK(Player::BindPB59RecoveryCollection(*buffer, scope) == CollectionStatus::Bound);
+        bool advanced = false;
+        actor.collectionHook = [&]
+        {
+            if (!advanced)
+            {
+                advanced = true;
+                actor.AdvanceCollectionRevision();
+                (void)actor._pb59Transaction.Request(Ledger::Work::StandaloneSave);
+            }
+        };
+        COLLECT_CHECK(Player::CollectPB59RecoveryEvidence(*buffer, scope, RecoveryFailure()) ==
+            CollectionStatus::ContextUnavailable);
+        auto data = buffer->CopyValues();
+        COLLECT_CHECK(advanced && !data.summary.revisionObserved && data.evidence.revision == 0);
+        COLLECT_CHECK(data.evidence.pendingSave && actor._pb59Equipment.InventoryQuarantined());
+        COLLECT_CHECK(Player::CollectPB59RecoveryEvidence(*buffer, scope, RecoveryFailure()) ==
+            CollectionStatus::WrongPhase);
+    }
+    {
+        Player actor; auto plan = CollectorPlan(actor);
+        auto buffer = Player::PreparePB59RecoveryCollection(actor, plan);
+        Ledger::MutationScope scope(actor._pb59Transaction); actor.ArmCollection();
+        COLLECT_CHECK(Player::BindPB59RecoveryCollection(*buffer, scope) == CollectionStatus::Bound);
         actor.collectionHook = [&]
         {
             actor.collectionStopped = true;
