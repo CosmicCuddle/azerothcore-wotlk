@@ -300,8 +300,17 @@ TransactionCallback DatabaseWorkerPool<T>::AsyncCommitTransaction(SQLTransaction
 template <class T>
 std::future<DatabaseTransactionResult> DatabaseWorkerPool<T>::AsyncCommitTransactionWithOutcome(SQLTransaction<T> transaction)
 {
-    auto task = std::make_unique<TransactionWithOutcomeTask>(std::move(transaction));
-    auto result = task->GetFuture();
+    return AsyncCommitPreparedTransactionWithOutcome(PreparedTransactionWithOutcome<T>(std::move(transaction)));
+}
+
+template <class T>
+std::future<DatabaseTransactionResult> DatabaseWorkerPool<T>::AsyncCommitPreparedTransactionWithOutcome(
+    PreparedTransactionWithOutcome<T> prepared)
+{
+    auto task = std::move(prepared._task);
+    auto result = std::move(prepared._result);
+    if (!task)
+        return result;
     if (_typedTransactionsReady && _queue->TryPush(task.get()))
         (void)task.release(); // queue/worker owns it after successful admission
     else

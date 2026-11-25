@@ -24,7 +24,9 @@
 #include "SQLOperation.h"
 #include "StringFormat.h"
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 /*! Transactions, high level class. */
@@ -126,6 +128,29 @@ private:
     std::promise<DatabaseTransactionResult> _result;
     bool _started = false;
     bool _completed = false;
+};
+
+// Allocate the exact native task and its result before building the transaction.
+// Only the pool may take the task and future out of this single-use handle.
+template<typename T>
+class PreparedTransactionWithOutcome final
+{
+public:
+    explicit PreparedTransactionWithOutcome(SQLTransaction<T> transaction)
+        : _transaction(std::move(transaction)),
+          _task(_transaction ? std::make_unique<TransactionWithOutcomeTask>(_transaction) : nullptr),
+          _result(_task ? _task->GetFuture() : std::future<DatabaseTransactionResult>{}) {}
+
+    PreparedTransactionWithOutcome(PreparedTransactionWithOutcome&&) noexcept = default;
+
+    [[nodiscard]] SQLTransaction<T> const& GetTransaction() const noexcept { return _transaction; }
+
+private:
+    friend class DatabaseWorkerPool<T>;
+
+    SQLTransaction<T> _transaction;
+    std::unique_ptr<TransactionWithOutcomeTask> _task;
+    std::future<DatabaseTransactionResult> _result;
 };
 
 class AC_DATABASE_API TransactionCallback

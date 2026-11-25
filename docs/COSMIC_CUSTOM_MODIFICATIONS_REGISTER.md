@@ -212,6 +212,12 @@
   writer settles. A lost or uncertain outcome keeps capture closed. Native
   writer registration, exact task binding and a fence held through recovery
   submission and verification are separate dependencies.
+- **Prepared inventory write follow-up (25 November 2026):** isolated Core92
+  child, parent `ada73c8ec6578c2b9e6598edcce8dd4013899d18`. An unwired holder
+  binds one registered writer to its preallocated native task and typed
+  completion. The typed queue admission path is shared with existing callers.
+  An owner-independent pending store, native writers, owned payload and durable
+  verification remain integration dependencies.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

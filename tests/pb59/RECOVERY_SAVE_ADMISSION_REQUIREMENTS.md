@@ -138,6 +138,30 @@ The later write path must hold a fence through owned payload submission,
 completion and fresh persisted-state verification before originals can be
 disposed of.
 
+## Preparing a standalone inventory write
+
+`PB59PreparedInventoryWrite.h` couples one writer registration, one prepared
+typed DB task and that task's future. Prepare obtains the GUID lease and
+allocates the empty transaction, task and result storage before the producer
+builds the payload. The caller must stop appending after dispatch. The DB pool
+uses its existing typed queue admission for the prepared task. Dispatch is
+single-use, and only the future from that task can settle this handle. Polling
+is non-blocking. Discarding an undispatched handle clears its lease. Discarding
+it after possible submission retains uncertainty and blocks capture.
+
+This helper is dormant. A future native producer needs an owner-independent
+pending store reserved before capture, and must retain the exact handle across
+owner retirement until settlement. The pool must stay valid and prepared
+through dispatch. Queue rejection or an empty task can establish quiescence,
+but neither repairs dirty state if a producer consumed it during capture.
+The producer must keep captured data owned and handle refusal without data
+loss. No ordinary Player save calls this helper.
+
+The prepared-write fixture runs the real holder, native submission and outcome
+methods, and the actual queue. The DB execution and pool setup are doubles.
+It checks payload identity, single submission, unpolled completion, reversed
+completion, rejection, cancellation, interruption and loss after handoff.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,
