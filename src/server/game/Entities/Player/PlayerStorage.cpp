@@ -53,6 +53,7 @@
 #include "PB59CharacterSaveObserver.h"
 #include "PB59InventoryWriteFence.h"
 #include "PB59NativeRecoveryCollection.h"
+#include "PB59PendingInventoryWrites.h"
 #include "WorldSession.h"
 #include <algorithm>
 #include <limits>
@@ -8231,6 +8232,32 @@ bool Player::_LoadHomeBind(PreparedQueryResult result)
 
 namespace
 {
+    void ReportPB59SaveResult(PB59::SaveIdentity const& id, PB59::SaveEvidence const& evidence,
+        DatabaseTransactionResult result)
+    {
+        if (result.IsCommitted() || result.status == DatabaseTransactionStatus::Empty)
+            return;
+        LOG_ERROR("entities.player",
+            "PB59 character save uncertain/failed: GUID {} player {} session {} sequence {} outcome {} code {}; "
+            "possible missing deltas; quest IDs {}, item GUIDs {}, skill IDs {}, truncated/incomplete {}. "
+            "No automatic replay.",
+            id.guid, id.player, id.session, id.sequence, static_cast<int>(result.status), result.executionCode,
+            evidence.questCount, evidence.itemCount, evidence.skillCount, evidence.incomplete);
+        for (std::size_t i = 0; i < evidence.questCount; ++i)
+            LOG_ERROR("entities.player",
+                "PB59 save GUID {} sequence {} quest {} (verify manually; no automatic repair)",
+                id.guid, id.sequence, evidence.quests[i]);
+        for (std::size_t i = 0; i < evidence.itemCount; ++i)
+            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} item {}",
+                id.guid, id.sequence, evidence.items[i]);
+        for (std::size_t i = 0; i < evidence.skillCount; ++i)
+            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} skill {}",
+                id.guid, id.sequence, evidence.skills[i]);
+    }
+}
+
+namespace
+{
     using SaveObserver = PB59::CharacterSaveObserver<256>;
     SaveObserver& PB59SaveObserver()
     {
@@ -8378,20 +8405,39 @@ void Player::DrainPB59CharacterSaveEvidence(bool final)
 {
     PB59SaveObserver().Drain([](SaveObserver::Record const& record)
     {
-        if (record.result.IsCommitted() || record.result.status == DatabaseTransactionStatus::Empty)
-            return;
-        auto const& id = record.ticket.identity;
-        auto const& evidence = record.evidence;
-        LOG_ERROR("entities.player", "PB59 character save uncertain/failed: GUID {} player {} session {} sequence {} outcome {} code {}; possible missing deltas; quest IDs {}, item GUIDs {}, skill IDs {}, truncated/incomplete {}. No automatic replay.",
-            id.guid, id.player, id.session, id.sequence, static_cast<int>(record.result.status), record.result.executionCode,
-            evidence.questCount, evidence.itemCount, evidence.skillCount, evidence.incomplete);
-        for (std::size_t i = 0; i < evidence.questCount; ++i)
-            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} quest {} (verify manually; no automatic repair)", id.guid, id.sequence, evidence.quests[i]);
-        for (std::size_t i = 0; i < evidence.itemCount; ++i)
-            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} item {}", id.guid, id.sequence, evidence.items[i]);
-        for (std::size_t i = 0; i < evidence.skillCount; ++i)
-            LOG_ERROR("entities.player", "PB59 save GUID {} sequence {} skill {}", id.guid, id.sequence, evidence.skills[i]);
+        ReportPB59SaveResult(record.ticket.identity, record.evidence, record.result);
     }, final);
+}
+
+auto Player::TryPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes, bool create, bool logout)
+{
+    auto const* session = GetSession();
+    if (create || logout || !session || session->GetPlayer() != this || session->PlayerLoading() ||
+        session->PlayerLogout() || !IsInWorld() || IsBeingTeleportedFar() ||
+        !_pb59Equipment.InventoryMutationAllowed() || HasPB59UnsettledOriginals())
+        return PB59TrackedInventoryWrites::Submission{PB59TrackedInventoryWrites::Admission::Declined};
+
+    auto const guid = GetGUID().GetRawValue();
+    auto const submission = sConfigMgr->GetOption<bool>("PB59.CharacterSaveEvidence.Enable", false)
+        ? writes.TrySubmitObservedNativeSave(guid, GetPB59OwnerIncarnation(), session->GetPB59SessionIncarnation(),
+            [this](CharacterDatabaseTransaction const& transaction, PB59::SaveEvidence& evidence)
+            {
+                SaveToDBWithEvidence(transaction, false, false, &evidence);
+            })
+        : writes.TrySubmitNativeSave(guid, [this](CharacterDatabaseTransaction const& transaction)
+            {
+                SaveToDBWithEvidence(transaction, false, false, nullptr);
+            });
+    if (submission.status == PB59TrackedInventoryWrites::Admission::Uncertain)
+        LOG_ERROR("entities.player", "PB59 tracked save GUID {} sequence {} outcome unavailable; do not replay",
+            guid, submission.ticket.sequence);
+    return submission;
+}
+
+void Player::PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes)
+{
+    if (auto const completed = writes.PollOne(); completed && completed->diagnostics)
+        ReportPB59SaveResult(completed->diagnostics->identity, completed->diagnostics->evidence, completed->result);
 }
 
 void Player::SaveToDB(bool create, bool logout)

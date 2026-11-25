@@ -280,6 +280,14 @@
   can consume dirty state. An admitted build survives closure to new work.
   Noncommitted or missing outcomes retain uncertainty. Standalone call-site
   wiring, outer transaction registration and native shutdown remain open.
+- **Standalone save composition (25 November 2026):** isolated Core102
+  child, parent `a63e532cf65496ab38542144a23b348c45659855`. The dormant
+  Player adapter uses the native save builder and keeps the optional
+  diagnostic membership with its pending task. Polling settles the write
+  and reports the original result without a Player or session. Missing
+  handoff reports its ticket immediately and keeps recovery blocked.
+  The world service, native call sites, and persisted verification still
+  need integration evidence.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

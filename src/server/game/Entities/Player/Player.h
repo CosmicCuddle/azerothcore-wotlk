@@ -654,6 +654,7 @@ namespace PB59
 {
     struct SaveEvidence;
     template<std::size_t Capacity> class InventoryWriteFence;
+    template<std::size_t Capacity, std::size_t FenceCapacity, typename Connection> class PendingInventoryWrites;
 }
 namespace PB59::Recovery { struct Operation; }
 
@@ -3117,6 +3118,10 @@ private:
         Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
     class PB59PreparedRecoverySave;
     using PB59RecoveryWriteFence = PB59::InventoryWriteFence<256>;
+    using PB59TrackedInventoryWrites = PB59::PendingInventoryWrites<256, 256, CharacterDatabaseConnection>;
+    // Dormant adapter. A future owner must provide the shared fence and drain its pending writes.
+    [[nodiscard]] auto TryPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes, bool create, bool logout);
+    static void PollPB59TrackedStandaloneSave(PB59TrackedInventoryWrites& writes);
     [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave> PreparePB59RecoverySavePayload(
         PB59RecoveryWriteFence& fence, Player const* owner, PB59::Recovery::Operation operation,
         PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);

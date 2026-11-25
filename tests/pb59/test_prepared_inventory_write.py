@@ -10,6 +10,7 @@ parser.add_argument("--ndebug", action="store_true")
 parser.add_argument("--mutants", action="store_true")
 parser.add_argument("--completion-mutant", action="store_true")
 parser.add_argument("--native-save-mutants", action="store_true")
+parser.add_argument("--standalone-save-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -19,13 +20,14 @@ source = Path(__file__).with_name("prepared_inventory_write_checks.cpp")
 
 
 def section(filename, begin, end):
-    text = (database / filename).read_text(encoding="utf-8")
+    text = filename.read_text(encoding="utf-8")
     start = text.index(begin)
     return text[start:text.index(end, start + len(begin))]
 
 
-pool = "DatabaseWorkerPool.cpp"
-transaction = "Transaction.cpp"
+pool = database / "DatabaseWorkerPool.cpp"
+transaction = database / "Transaction.cpp"
+storage = player / "PlayerStorage.cpp"
 definitions = [
     section(pool, "template <class T>\nSQLTransaction<T> DatabaseWorkerPool<T>::BeginTransaction(",
             "template <class T>\nvoid DatabaseWorkerPool<T>::CommitTransaction("),
@@ -35,6 +37,10 @@ definitions = [
     section(transaction, "void TransactionBase::Append(std::string_view sql)", "//- Append a prepared statement"),
     section(transaction, "TransactionWithOutcomeTask::~TransactionWithOutcomeTask()", "bool TransactionCallback::"),
 ]
+standalone = "\n".join([
+    section(storage, "namespace\n{\n    void ReportPB59SaveResult(", "namespace\n{\n    using SaveObserver"),
+    section(storage, "auto Player::TryPB59TrackedStandaloneSave(", "void Player::SaveToDB(bool create, bool logout)"),
+])
 flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic", "-pthread"]
 if args.ndebug:
     flags += ["-DNDEBUG", "-O2"]
@@ -52,6 +58,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
     native = "\n".join(definitions)
     definition_file = work / "PreparedTaskDefinitions.inc"
     definition_file.write_text(native, encoding="utf-8")
+    producer_file = work / "TrackedStandaloneSaveDefinitions.inc"
+    producer_file.write_text(standalone, encoding="utf-8")
     header_name = "PB59PreparedInventoryWrite.h"
     store_name = "PB59PendingInventoryWrites.h"
     bridge = (player / header_name).read_text(encoding="utf-8")
@@ -74,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
             raise RuntimeError(f"Expected ordinary dispatch to be caught. Got {result!r}")
         print("1/1 protected completion fault variant rejected by runtime assertion")
         definition_file.write_text(native, encoding="utf-8")
-    if args.mutants or args.native_save_mutants:
+    if args.mutants or args.native_save_mutants or args.standalone_save_mutants:
         mutants = []
         if args.mutants:
             mutants += [
@@ -99,6 +107,14 @@ with tempfile.TemporaryDirectory(prefix="pb59-prepared-inventory-write-") as tem
                  "        if (_closed)\n            return {Admission::Closed};"),
                 (work / header_name, bridge, "_nativeBuildStarted && !result.IsCommitted()", "false"),
                 (work / store_name, store, "if (!write->MarkNativeBuildStarted())", "if (false)"),
+            ]
+        if args.standalone_save_mutants:
+            mutants += [
+                (work / store_name, store, "slot->diagnostics = std::move(diagnostics);",
+                 "slot->diagnostics = std::nullopt;"),
+                (producer_file, standalone, "create || logout || ", "((void)create, (void)logout, false) || "),
+                (producer_file, standalone, "if (submission.status == PB59TrackedInventoryWrites::Admission::Uncertain)",
+                 "if (false)"),
             ]
         for target, original, before, after in mutants:
             if original.count(before) != 1:
