@@ -2,6 +2,8 @@
 #include "Transaction.h"
 #include "PB59InventorySlotFacts.h"
 #include "PB59NativeRecoveryCollection.h"
+#include "PB59CharacterSaveObserver.h"
+#include "PB59TransactionAdmission.h"
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -184,8 +186,11 @@ struct WorldSession
 {
     Player* player;
     Player* GetPlayer() const { return player; }
-    bool PlayerLoading() const { return false; }
-    bool PlayerLogout() const { return false; }
+    uint64 GetPB59SessionIncarnation() const { return incarnation; }
+    bool PlayerLoading() const { return loading; }
+    bool PlayerLogout() const { return logout; }
+    uint64 incarnation = 71;
+    bool loading = false, logout = false;
 };
 
 class Player
@@ -197,12 +202,18 @@ public:
     bool AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
         Transaction<CharacterDatabaseConnection>& transaction) const;
     bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
-        Transaction<CharacterDatabaseConnection>& transaction) const;
+        Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
+    class PB59PreparedRecoverySave;
+    static std::unique_ptr<PB59PreparedRecoverySave const> PreparePB59RecoverySavePayload(
+        Player const* owner, PB59::Recovery::Operation operation,
+        PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
+    static int CheckRecoveryPayload();
     std::optional<PB59::InventorySlotFacts> CapturePB59InventorySlot(uint16 pos) const;
     Item* GetItemByPos(uint16 pos) const;
     Item* GetItemByPos(uint8 bag, uint8 slot) const;
     Bag* GetBagByPos(uint8 bag) const;
-    ObjectGuid GetGUID() const { return owner; }
+    ObjectGuid GetGUID() const { if (ownerReads) ++*ownerReads; return owner; }
+    uint64 GetPB59OwnerIncarnation() const { return _pb59Transaction.OwnerIncarnation(); }
     ObjectGuid GetLootGUID() const { return loot; }
     ObjectGuid GetGuidValue(uint16 field) const { return fields.at((field - PLAYER_FIELD_INV_SLOT_HEAD) / 2); }
     WorldSession* GetSession() const { return &session; }
@@ -210,6 +221,13 @@ public:
     bool IsAlive() const { return true; }
     bool IsBeingTeleportedFar() const { return false; }
     bool IsBeingTeleportedNear() const { return false; }
+    bool ArmRecovery(PB59::TransactionAdmission::Ticket ticket)
+    {
+        if (!_pb59Equipment.PrepareInventoryReservation(owner.value, {}))
+            return false;
+        _pb59Equipment.SetInventoryQuarantined(true);
+        return _pb59Transaction.RequireRecovery(ticket);
+    }
 
     struct Timer { Item* item; EnchantmentSlot slot; uint32 leftduration; };
     ObjectGuid owner{0x1234567800000053}, loot{};
@@ -219,6 +237,8 @@ public:
     std::set<ObjectGuid> m_refundableItems;
     std::vector<Item*> m_itemUpdateQueue;
     PB59::EquipmentCaptureState _pb59Equipment;
+    PB59::TransactionAdmission _pb59Transaction;
+    unsigned* ownerReads = nullptr;
     std::array<Item*, CURRENCYTOKEN_SLOT_END> m_items{};
     std::array<ObjectGuid, CURRENCYTOKEN_SLOT_END> fields{};
 };
@@ -251,6 +271,9 @@ struct Inventory
     Item item;
     uint16 position;
 };
+
+bool TransactionTask::Execute() { std::abort(); }
+int TransactionTask::ExecuteWithCode() { std::abort(); }
 
 #include "ItemInstanceSaveDefinitions.inc"
 
@@ -521,6 +544,165 @@ static int CheckInventoryBatch()
     return 0;
 }
 
+int Player::CheckRecoveryPayload()
+{
+    using Ledger = PB59::TransactionAdmission;
+    unsigned const before = Checks;
+    auto operation = [](Player const& owner, Ledger::MutationScope const& scope)
+    {
+        return PB59::Recovery::Operation{
+            owner.owner.value, owner.GetPB59OwnerIncarnation(), owner.session.incarnation, scope.GetTicket()};
+    };
+    auto& observer = PB59SaveObserver();
+    {
+        InventoryBatchFixture fixture;
+        auto& view = fixture.inventory;
+        auto& player = view.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const expected = operation(player, scope);
+        auto const queue = player.m_itemUpdateQueue;
+        auto payload = Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp);
+        ITEM_CHECK(payload && payload->operation == expected && payload->stamp == fixture.stamp);
+        ITEM_CHECK(payload->task.GetTransaction()->GetSize() == 4 && payload->receipt);
+        ITEM_CHECK(payload->membership.itemCount == 2 && !payload->membership.incomplete);
+        ITEM_CHECK(payload->membership.items[0] == fixture.base.guid.value);
+        ITEM_CHECK(payload->membership.items[1] == view.item.guid.value);
+        ITEM_CHECK(player.m_itemUpdateQueue == queue && !CharacterDatabase.committed);
+        SaveObserver other;
+        ITEM_CHECK(!other.AbandonProtected(*payload->receipt) && !observer.ConsumeProtected(*payload->receipt));
+        bool reported = false;
+        observer.Drain([&](auto const&) { reported = true; }, true);
+        ITEM_CHECK(!reported && observer.AbandonProtected(*payload->receipt));
+        auto const record = observer.ConsumeProtected(*payload->receipt);
+        ITEM_CHECK(record && record->ticket.identity.guid == expected.owner &&
+            record->ticket.identity.player == expected.ownerIncarnation &&
+            record->ticket.identity.session == expected.sessionIncarnation);
+        ITEM_CHECK(!observer.ConsumeProtected(*payload->receipt));
+    }
+    for (unsigned fault = 0; fault < 12; ++fault)
+    {
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(fault == 0 || player.ArmRecovery(scope.GetTicket()));
+        auto expected = operation(player, scope);
+        auto* owner = &player;
+        unsigned reads = 0;
+        player.ownerReads = &reads;
+        switch (fault)
+        {
+            case 1: ++expected.ticket; break;
+            case 2: ++expected.owner; break;
+            case 3: ++expected.ownerIncarnation; break;
+            case 4: ++expected.sessionIncarnation; break;
+            case 5: ++fixture.stamp.revision; break;
+            case 6: player.session.player = nullptr; break;
+            case 7: player.session.loading = true; break;
+            case 8: player.session.logout = true; break;
+            case 9: (void)player._pb59Transaction.Request(Ledger::Work::Logout); break;
+            case 10: owner = nullptr; break;
+            case 11: fixture.inventory.bag.links[fixture.inventory.item.slot] = {}; break;
+        }
+        auto const prepares = CharacterDatabase.preparedCalls;
+        ITEM_CHECK(!Player::PreparePB59RecoverySavePayload(owner, expected, scope, fixture.stamp));
+        ITEM_CHECK(CharacterDatabase.preparedCalls == prepares && !CharacterDatabase.committed);
+        if (fault == 0 || fault == 1 || fault == 3 || fault == 10)
+            ITEM_CHECK(reads == 0);
+    }
+    for (bool failAllocation : {false, true})
+    {
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto expected = operation(player, scope);
+        bool replaced = false;
+        if (failAllocation)
+            CharacterDatabase.failOn = CHAR_UPD_ITEM_INSTANCE;
+        else
+            CharacterDatabase.beforePrepare = [&]
+            {
+                if (!replaced)
+                {
+                    ++player.session.incarnation;
+                    ++expected.sessionIncarnation;
+                    replaced = true;
+                }
+            };
+        auto payload = Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp);
+        CharacterDatabase.beforePrepare = {};
+        CharacterDatabase.failOn = -1;
+        ITEM_CHECK(!payload && (failAllocation || replaced));
+        ITEM_CHECK(TrackedStatement::Live == 0 && !CharacterDatabase.committed);
+    }
+    {
+        Player player;
+        std::array<Bag, 2> bags;
+        std::array<Item, PB59::SaveEvidence::Limit + 1> items;
+        for (std::size_t number = 0; number < bags.size(); ++number)
+        {
+            auto& bag = bags[number];
+            bag.guid = {0x4000000000000100 + number};
+            bag.uState = ITEM_UNCHANGED;
+            bag.size = MAX_BAG_SIZE;
+            bag.slot = INVENTORY_SLOT_BAG_START + number;
+            player.m_items[bag.slot] = &bag;
+            player.fields[bag.slot] = bag.guid;
+        }
+        for (std::size_t index = 0; index < items.size(); ++index)
+        {
+            auto& item = items[index];
+            auto& bag = bags[index / MAX_BAG_SIZE];
+            item.guid = {0x4000000000000200 + index};
+            item.m_container = &bag;
+            item.contained = bag.guid;
+            item.slot = index % MAX_BAG_SIZE;
+            item.uQueuePos = index;
+            bag.m_bagslot[item.slot] = &item;
+            bag.links[item.slot] = item.guid;
+            player.m_itemUpdateQueue.push_back(&item);
+        }
+        player._pb59Equipment.Bind();
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const stamp = *player._pb59Equipment.Capture();
+        auto const expected = operation(player, scope);
+        auto const prepares = CharacterDatabase.preparedCalls;
+        ITEM_CHECK(!Player::PreparePB59RecoverySavePayload(&player, expected, scope, stamp));
+        ITEM_CHECK(CharacterDatabase.preparedCalls == prepares && !CharacterDatabase.committed);
+    }
+    {
+        InventoryBatchFixture fixture;
+        auto& player = fixture.inventory.player;
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const expected = operation(player, scope);
+        {
+            auto unused = Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp);
+            ITEM_CHECK(unused && unused->receipt);
+        }
+        std::vector<SaveObserver::ProtectedReceipt> held;
+        for (unsigned slot = 0; slot < 256; ++slot)
+        {
+            auto reservation = observer.ReserveProtected(1000 + slot, 7, 8);
+            if (!reservation.receipt)
+                break;
+            held.emplace_back(std::move(*reservation.receipt));
+        }
+        ITEM_CHECK(held.size() == 256);
+        auto const prepares = CharacterDatabase.preparedCalls;
+        ITEM_CHECK(!Player::PreparePB59RecoverySavePayload(&player, expected, scope, fixture.stamp));
+        ITEM_CHECK(CharacterDatabase.preparedCalls == prepares);
+        bool returned = true;
+        for (auto const& receipt : held)
+            returned &= observer.AbandonProtected(receipt) && observer.ConsumeProtected(receipt).has_value();
+        ITEM_CHECK(returned);
+    }
+    std::cout << Checks - before << " PB59 protected recovery payload checks PASS\n";
+    return 0;
+}
+
 int main()
 {
     using Value = decltype(PreparedStatementData::data);
@@ -633,5 +815,7 @@ int main()
     std::cout << Checks << " PB59 item-instance save checks PASS\n";
     if (auto const status = CheckInventoryLinks())
         return status;
-    return CheckInventoryBatch();
+    if (auto const status = CheckInventoryBatch())
+        return status;
+    return Player::CheckRecoveryPayload();
 }

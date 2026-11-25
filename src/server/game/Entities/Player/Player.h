@@ -651,6 +651,7 @@ struct SkillStatusData
 typedef std::unordered_map<uint32, SkillStatusData> SkillStatusMap;
 
 namespace PB59 { struct SaveEvidence; }
+namespace PB59::Recovery { struct Operation; }
 
 class Quest;
 class Spell;
@@ -3109,7 +3110,11 @@ private:
     // Caller retains the serialized live owner and supplies a fresh native stamp.
     // On refusal or exception, discard the entire undispatched transaction.
     [[nodiscard]] bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
-        Transaction<CharacterDatabaseConnection>& transaction) const;
+        Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
+    class PB59PreparedRecoverySave;
+    [[nodiscard]] static std::unique_ptr<PB59PreparedRecoverySave const> PreparePB59RecoverySavePayload(
+        Player const* owner, PB59::Recovery::Operation operation,
+        PB59::TransactionAdmission::MutationScope const& scope, PB59::Stamp stamp);
     // Dormant read-only collector: no runtime call site or public PB API.
     static std::unique_ptr<PB59::Recovery::NativeCollection> PreparePB59RecoveryCollection(
         Player const& owner, std::span<PB59::InventoryBatchMove const> moves);

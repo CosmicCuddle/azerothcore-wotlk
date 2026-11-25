@@ -241,6 +241,25 @@ and pending intents are left intact. The caller supplies serialized owner
 lifetime and admission. Owner/session and receipt binding, competing writer
 coverage, whole persisted custody and queue settlement remain separate.
 
+## Binding a staged recovery payload to its receipt
+
+`Player::PreparePB59RecoverySavePayload` checks the retained recovery scope
+and exact ticket before reading the actor. The live GUID, owner incarnation,
+session incarnation, quarantine and native stamp must match the copied
+request. It prepares one native typed task and reserves one protected receipt
+before building the payload. The private holder keeps that task, receipt and
+captured item membership together by value. Membership overflow refuses
+before the first bind. The final owner/session/scope and stamp check rejects
+a stale payload even when all statements were prepared.
+
+The holder is returned opaque and undispatched. A rejected or dropped
+holder destroys its staged task and returns its exact unsealed reservation.
+The protected observer record stays reserved until an admitted submission
+path can seal it and attach the same task's typed outcome. Single submission,
+the native write fence and persisted-state verification remain requirements
+for that future path. The holder neither pins the Player nor grants release
+authority.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,
