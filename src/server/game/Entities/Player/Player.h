@@ -3093,6 +3093,17 @@ private:
         PB59::ExactStorageReservation const* exact = nullptr);
     // Private exact restoration insertion; no runtime caller until ownership is proven.
     Item* _EquipItem(uint16 pos, Item* pItem, bool update, PB59::ExactStorageReservation const* exact);
+    struct PB59InventorySlotLinks
+    {
+        Item const* item;
+        ObjectGuid fieldGuid;
+        ObjectGuid containerGuid;
+    };
+    // Only for synchronous use in the serialized owner context.
+    [[nodiscard]] std::optional<PB59InventorySlotLinks> ReadPB59InventorySlotLinks(uint16 pos) const;
+    // Stages one live cell. Discard the entire prepared transaction on refusal or exception.
+    [[nodiscard]] bool AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
+        Transaction<CharacterDatabaseConnection>& transaction) const;
     // Dormant read-only collector: no runtime call site or public PB API.
     static std::unique_ptr<PB59::Recovery::NativeCollection> PreparePB59RecoveryCollection(
         Player const& owner, std::span<PB59::InventoryBatchMove const> moves);

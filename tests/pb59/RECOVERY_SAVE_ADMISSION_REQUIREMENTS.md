@@ -205,6 +205,23 @@ capture, under exact owner/custody and writer admission checks. Inventory
 links, bag membership, refund/enchantment timing, gift-row state beyond
 the existing update and recovery disposition require separate validation.
 
+## Staging exact inventory links
+
+The private `Player::AppendPB59InventoryItemSave` uses the same physical
+slot and update-field checks as the existing AutoGear observation. It
+requires the expected live Item at the requested equipment, backpack or
+equipped-bag position. Bag position, owner, size, parent field and child field
+must agree with the native pointers and GUIDs. The transaction owns the four
+existing inventory-link binds followed by the item-instance statements.
+
+An empty or substituted slot and unsupported item state refuse before any
+append. This staged path also refuses refund state, active enchantment
+timers, trade/loot custody and new wrapped items. The caller supplies the
+serialized live owner context and discards the whole prepared transaction
+if any item refuses or throws. The helper does not change the update queue
+or admit a save. Whole-inventory preflight, competing writers and persisted
+custody remain separate checks.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

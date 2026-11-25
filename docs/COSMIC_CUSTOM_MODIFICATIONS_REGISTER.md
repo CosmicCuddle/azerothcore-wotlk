@@ -234,6 +234,13 @@
   source lifetime, allocation failure and ordinary save behavior. Recovery
   integration, inventory links, native build and persisted-state verification
   remain separate dependencies.
+- **Inventory-link staging follow-up (25 November 2026):** isolated Core95
+  child, parent `b2c7158e9a777d8ae2432cf566491acc5b9b1274`. Stages one
+  supported live Item's inventory link and instance after matching the
+  expected pointer, native fields, owner and container. Unsupported custody
+  or refund/enchant state refuses before append. The existing slot observer
+  shares the link reader. Whole-payload admission, runtime wiring and native
+  verification remain open.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
