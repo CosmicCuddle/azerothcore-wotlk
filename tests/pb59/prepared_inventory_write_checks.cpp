@@ -1,7 +1,9 @@
 #include "Transaction.h"
+#include "PB59PendingInventoryWrites.h"
 #include "PB59PreparedInventoryWrite.h"
 #include "PCQueue.h"
 #include <iostream>
+#include <latch>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -17,6 +19,7 @@ using Pool = DatabaseWorkerPool<TestConnection>;
 using Queue = ProducerConsumerQueue<SQLOperation*>;
 using Fence = PB59::InventoryWriteFence<2>;
 using Write = PB59::PreparedInventoryWrite<2, TestConnection>;
+using Store = PB59::PendingInventoryWrites<2, 2, TestConnection>;
 using Result = DatabaseTransactionResult;
 using Status = DatabaseTransactionStatus;
 
@@ -84,8 +87,219 @@ static unsigned Checks = 0;
     } \
 } while (false)
 
+static int CheckPendingStore()
+{
+    constexpr std::uint64_t guid = 123;
+    constexpr std::uint64_t other = 456;
+    auto accept = [](auto const&) { return true; };
+    unsigned const before = Checks;
+    {
+        using SmallStore = PB59::PendingInventoryWrites<1, 2, TestConnection>;
+        using Admission = SmallStore::Admission;
+        Pool pool;
+        Fence fence;
+        SmallStore store(fence, pool);
+        WRITE_CHECK(store.Idle());
+        SmallStore::Submission sent{Admission::Declined};
+        bool builderRan = false;
+        {
+            std::string const producerPayload = "owned operation";
+            sent = store.TrySubmit(guid, [&](auto& transaction)
+            {
+                transaction.Append(std::string_view(producerPayload));
+                auto nested = store.TrySubmit(other, [&](auto const&) { builderRan = true; return true; });
+                return nested.status == Admission::Full && !store.Idle() && !store.PollOne();
+            });
+        } // producer state has gone away
+        WRITE_CHECK(sent.status == Admission::Tracking && sent.ticket.guid == guid && sent.ticket.sequence);
+        WRITE_CHECK(!builderRan && !store.Idle() && !fence.TryReserveCapture(guid));
+        WRITE_CHECK(store.TrySubmit(other, accept).status == Admission::Full && TestQueue->Size() == 1);
+        auto task = TakeTask();
+        WRITE_CHECK(task);
+        MySQLConnection executor;
+        task->SetConnection(&executor);
+        task->call();
+        WRITE_CHECK(executor.size == 1 && !fence.TryReserveCapture(guid));
+        auto const done = store.PollOne();
+        WRITE_CHECK(done && done->ticket == sent.ticket && done->result.IsCommitted());
+        WRITE_CHECK(store.Idle() && !store.PollOne() && fence.TryReserveCapture(guid));
+        auto const again = store.TrySubmit(guid, accept);
+        WRITE_CHECK(again.status == Admission::Tracking && again.ticket.sequence > sent.ticket.sequence);
+        TestQueue->Cancel();
+        auto const cancelled = store.PollOne();
+        WRITE_CHECK(cancelled && cancelled->ticket == again.ticket &&
+            cancelled->result.status == Status::CancelledBeforeExecution);
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        bool builderRan = false;
+        {
+            auto capture = fence.TryReserveCapture(guid);
+            WRITE_CHECK(capture && store.TrySubmit(guid, [&](auto const&)
+            {
+                builderRan = true;
+                return true;
+            }).status == Store::Admission::WriterUnavailable);
+        }
+        WRITE_CHECK(!builderRan && store.Idle() && TestQueue->Empty());
+        auto const declined = store.TrySubmit(guid, [](auto const&) { return false; });
+        WRITE_CHECK(declined.status == Store::Admission::Declined && !declined.ticket.sequence);
+        WRITE_CHECK(store.Idle() && fence.TryReserveCapture(guid));
+        bool threw = false;
+        try
+        {
+            (void)store.TrySubmit(guid, [](auto const&) -> bool { throw std::runtime_error("builder stopped"); });
+        }
+        catch (std::runtime_error const&)
+        {
+            threw = true;
+        }
+        WRITE_CHECK(threw && store.Idle() && TestQueue->Empty() && fence.TryReserveCapture(guid));
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        auto const older = store.TrySubmit(guid, accept);
+        auto const newer = store.TrySubmit(guid, accept);
+        WRITE_CHECK(older.status == Store::Admission::Tracking && newer.status == Store::Admission::Tracking);
+        auto first = TakeTask();
+        auto second = TakeTask();
+        WRITE_CHECK(first && second);
+        MySQLConnection executor;
+        second->SetConnection(&executor);
+        second->call();
+        auto const done = store.PollOne();
+        WRITE_CHECK(done && done->ticket == newer.ticket && done->result.IsCommitted());
+        WRITE_CHECK(!store.PollOne() && !store.Idle() && !fence.TryReserveCapture(guid));
+        first.reset();
+        auto const cancelled = store.PollOne();
+        WRITE_CHECK(cancelled && cancelled->ticket == older.ticket &&
+            cancelled->result.status == Status::CancelledBeforeExecution);
+        WRITE_CHECK(store.Idle() && fence.TryReserveCapture(guid));
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        auto const first = store.TrySubmit(guid, accept);
+        auto const second = store.TrySubmit(other, accept);
+        WRITE_CHECK(first.status == Store::Admission::Tracking && second.status == Store::Admission::Tracking);
+        TestQueue->Cancel();
+        auto const done = store.PollOne();
+        WRITE_CHECK(done && done->ticket == first.ticket);
+        auto const later = store.TrySubmit(guid, accept); // slot zero reused and immediately rejected by the queue
+        WRITE_CHECK(later.status == Store::Admission::Tracking);
+        auto const after = store.PollOne();
+        WRITE_CHECK(after && after->ticket == second.ticket);
+        auto const last = store.PollOne();
+        WRITE_CHECK(last && last->ticket == later.ticket && last->result.status == Status::NotEnqueued);
+        WRITE_CHECK(store.Idle());
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        std::latch started(1);
+        std::latch finish(1);
+        Store::Submission submission{Store::Admission::Declined};
+        std::thread producer([&]
+        {
+            submission = store.TrySubmit(guid, [&](auto const&)
+            {
+                started.count_down();
+                finish.wait();
+                return true;
+            });
+        });
+        started.wait();
+        auto const busyDuringBuild = !store.Idle() && !store.PollOne() && !fence.TryReserveCapture(guid);
+        store.CloseAdmission();
+        auto const refused = store.TrySubmit(other, accept);
+        finish.count_down();
+        producer.join();
+        WRITE_CHECK(busyDuringBuild && refused.status == Store::Admission::Closed);
+        WRITE_CHECK(submission.status == Store::Admission::Closed && !submission.ticket.sequence);
+        WRITE_CHECK(store.Idle() && TestQueue->Empty() && fence.TryReserveCapture(guid));
+    }
+    for (bool reject : {false, true})
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        if (reject)
+            TestQueue->Shutdown();
+        auto const sent = store.TrySubmit(guid, accept);
+        WRITE_CHECK(sent.status == Store::Admission::Tracking && !store.Idle());
+        store.CloseAdmission();
+        WRITE_CHECK(store.TrySubmit(other, accept).status == Store::Admission::Closed);
+        WRITE_CHECK(!fence.TryReserveCapture(guid));
+        if (!reject)
+            TestQueue->Cancel();
+        auto const done = store.PollOne();
+        WRITE_CHECK(done && done->ticket == sent.ticket &&
+            done->result.status == (reject ? Status::NotEnqueued : Status::CancelledBeforeExecution));
+        WRITE_CHECK(store.Idle() && !store.PollOne() && fence.TryReserveCapture(guid));
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        auto const sent = store.TrySubmit(guid, accept);
+        WRITE_CHECK(sent.status == Store::Admission::Tracking);
+        auto task = TakeTask();
+        WRITE_CHECK(task);
+        MySQLConnection executor;
+        executor.code = Result::AmbiguousCode;
+        task->SetConnection(&executor);
+        task->call();
+        auto const outcome = store.PollOne();
+        WRITE_CHECK(outcome && outcome->result.status == Status::Ambiguous);
+        WRITE_CHECK(store.Idle() && !store.PollOne() && !fence.TryReserveCapture(guid) && TestQueue->Empty());
+    }
+    {
+        Pool pool;
+        Fence fence;
+        {
+            Store store(fence, pool);
+            WRITE_CHECK(store.TrySubmit(guid, accept).status == Store::Admission::Tracking);
+        }
+        TestQueue->Cancel();
+        WRITE_CHECK(!fence.TryReserveCapture(guid) && fence.TryReserveCapture(other));
+    }
+    std::cout << Checks - before << " PB59 pending inventory write store checks PASS\n";
+    return 0;
+}
+
+#ifdef PB59_TEST_LOST_DISPATCH_RESULT
+static int CheckLostDispatchResult()
+{
+    constexpr std::uint64_t guid = 123;
+    Pool pool;
+    Fence fence;
+    Store store(fence, pool);
+    auto const sent = store.TrySubmit(guid, [](auto const&) { return true; });
+    WRITE_CHECK(sent.status == Store::Admission::Uncertain && sent.ticket.sequence);
+    WRITE_CHECK(store.Idle() && !store.PollOne() && !fence.TryReserveCapture(guid));
+    WRITE_CHECK(TestQueue->Size() == 1);
+    auto task = TakeTask();
+    WRITE_CHECK(task);
+    MySQLConnection executor;
+    task->SetConnection(&executor);
+    task->call();
+    WRITE_CHECK(TestQueue->Empty() && !store.PollOne() && !fence.TryReserveCapture(guid));
+    std::cout << Checks << " PB59 lost dispatch result checks PASS\n";
+    return 0;
+}
+#endif
+
 int main()
 {
+#ifdef PB59_TEST_LOST_DISPATCH_RESULT
+    return CheckLostDispatchResult();
+#endif
     constexpr std::uint64_t guid = 123;
     constexpr std::uint64_t other = 456;
     {
@@ -222,4 +436,5 @@ int main()
         WRITE_CHECK(legacy.get().status == Status::CancelledBeforeExecution);
     }
     std::cout << Checks << " PB59 native prepared-task handoff checks PASS\n";
+    return CheckPendingStore();
 }

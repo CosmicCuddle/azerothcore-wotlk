@@ -162,6 +162,32 @@ methods, and the actual queue. The DB execution and pool setup are doubles.
 It checks payload identity, single submission, unpolled completion, reversed
 completion, rejection, cancellation, interruption and loss after handoff.
 
+## Keeping pending inventory writes across sessions
+
+`PB59PendingInventoryWrites.h` stores the exact prepared task beyond the
+producer call. A slot is claimed before preparation and payload building.
+The synchronous builder receives a transaction reference only for that call
+and must append an owned payload without consuming dirty state. Build refusal
+or exception releases the unused slot and the undispatched writer lease.
+Dispatch transfers the handle into the slot before obtaining the native
+future. A lost dispatch result records uncertainty in the shared GUID fence.
+
+The process-local service owns the store and polls it outside DB workers.
+Polling returns one ready outcome with its GUID and store-local sequence, then
+releases the slot. Ready slots are visited in rotation even when earlier slots
+are reused. The caller can correlate outcomes for two writes to the same GUID
+without confusing their completion order. The sequence is local to this store
+lifetime and supplies no recovery provenance or persistence evidence.
+
+Closing admission rejects new requests and refuses any build that reaches
+dispatch after closure. Existing tasks remain available for polling until
+their exact outcomes arrive. Idle means every slot has been released,
+including slots whose ambiguous write still blocks recovery in the fence.
+The service must outlive producers and keep the pool and shared fence valid
+through shutdown. Dropping an unsettled store conservatively retains
+uncertainty in that fence. Native shutdown and cross-process recovery policy
+remain separate.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,
