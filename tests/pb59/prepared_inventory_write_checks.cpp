@@ -88,6 +88,86 @@ static unsigned Checks = 0;
     } \
 } while (false)
 
+static int CheckTrackedNativeSave()
+{
+    constexpr std::uint64_t guid = 123;
+    constexpr std::uint64_t other = 456;
+    unsigned const before = Checks;
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        bool dirty = true, heldBeforeBuild = false;
+        TransactionBase const* written = nullptr;
+        auto const sent = store.TrySubmitNativeSave(guid, [&](auto const& transaction)
+        {
+            heldBeforeBuild = !fence.TryReserveCapture(guid) && !store.Idle();
+            store.CloseAdmission();
+            written = transaction.get();
+            dirty = false;
+            transaction->Append(std::string_view("native save fixture"));
+        });
+        WRITE_CHECK(sent.status == Store::Admission::Tracking && heldBeforeBuild && !dirty);
+        bool ranAfterClose = false;
+        auto const refused = store.TrySubmitNativeSave(other, [&](auto const&) { ranAfterClose = true; });
+        WRITE_CHECK(refused.status == Store::Admission::Closed && !ranAfterClose);
+        WRITE_CHECK(!store.Idle() && !fence.TryReserveCapture(guid));
+        auto task = TakeTask();
+        WRITE_CHECK(task);
+        MySQLConnection executor;
+        task->SetConnection(&executor);
+        task->call();
+        WRITE_CHECK(executor.seen == written && executor.size == 1 && !fence.TryReserveCapture(guid));
+        auto const result = store.PollOne();
+        WRITE_CHECK(result && result->ticket == sent.ticket && result->result.IsCommitted());
+        WRITE_CHECK(store.Idle() && fence.TryReserveCapture(guid));
+    }
+    for (bool reject : {false, true})
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        bool dirty = true;
+        if (reject)
+            TestQueue->Shutdown();
+        auto const sent = store.TrySubmitNativeSave(guid, [&](auto const&) { dirty = false; });
+        WRITE_CHECK(sent.status == Store::Admission::Tracking && !dirty);
+        if (!reject)
+            TestQueue->Cancel();
+        auto const result = store.PollOne();
+        WRITE_CHECK(result && result->ticket == sent.ticket);
+        WRITE_CHECK(result->result.status == (reject ? Status::NotEnqueued : Status::CancelledBeforeExecution));
+        WRITE_CHECK(store.Idle() && TestQueue->Empty() && !fence.TryReserveCapture(guid));
+        WRITE_CHECK(fence.TryReserveCapture(other));
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        bool dirty = true;
+        auto const sent = store.TrySubmitNativeSave(guid, [&](auto const&)
+        {
+            dirty = false;
+            throw std::runtime_error("injected native builder fault after dirty consumption");
+        });
+        WRITE_CHECK(sent.status == Store::Admission::Uncertain && sent.ticket.guid == guid && !dirty);
+        WRITE_CHECK(store.Idle() && TestQueue->Empty() && !fence.TryReserveCapture(guid));
+        WRITE_CHECK(!store.PollOne() && fence.TryReserveCapture(other));
+    }
+    {
+        Pool pool;
+        Fence fence;
+        Store store(fence, pool);
+        auto capture = fence.TryReserveCapture(guid);
+        bool ran = false;
+        auto const refused = store.TrySubmitNativeSave(guid, [&](auto const&) { ran = true; });
+        WRITE_CHECK(capture && refused.status == Store::Admission::WriterUnavailable && !ran);
+        WRITE_CHECK(store.Idle() && TestQueue->Empty());
+    }
+    std::cout << Checks - before << " PB59 tracked native save checks PASS\n";
+    return 0;
+}
+
 static int CheckProtectedCompletion()
 {
     using Observer = PB59::CharacterSaveObserver<2>;
@@ -487,6 +567,8 @@ int main()
     }
     std::cout << Checks << " PB59 native prepared-task handoff checks PASS\n";
     if (auto const status = CheckPendingStore())
+        return status;
+    if (auto const status = CheckTrackedNativeSave())
         return status;
     return CheckProtectedCompletion();
 }
