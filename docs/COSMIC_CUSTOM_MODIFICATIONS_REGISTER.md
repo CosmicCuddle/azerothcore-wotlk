@@ -226,6 +226,14 @@
   in the fence. The store is dormant. Native service lifecycle, lossless payload
   construction, competing writer registration and durable verification remain
   implementation dependencies.
+- **Item-instance capture follow-up (25 November 2026):** isolated Core94
+  child, parent `036a9129c6344dcdca1c84c0b1db8f8f7f54a4fd`. A private const
+  serializer appends owned binds for NEW and CHANGED item instances,
+  including the changed-wrapped gift-owner update. Ordinary Item::SaveToDB
+  shares it. The fixture checks exact bind types and order, capture after the
+  source lifetime, allocation failure and ordinary save behavior. Recovery
+  integration, inventory links, native build and persisted-state verification
+  remain separate dependencies.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

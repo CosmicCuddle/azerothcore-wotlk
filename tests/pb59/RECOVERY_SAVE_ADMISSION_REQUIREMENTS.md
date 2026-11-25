@@ -188,6 +188,23 @@ through shutdown. Dropping an unsettled store conservatively retains
 uncertainty in that fence. Native shutdown and cross-process recovery policy
 remain separate.
 
+## Capturing item-instance statements
+
+`Item::AppendItemInstanceSave` is a private, const serializer. It appends
+the 14 existing item-instance parameters to a prepared transaction in the
+serialized owner context. Statement buffers own the strings and scalars
+after the item leaves scope. A changed wrapped item also contributes the
+existing gift-owner update. The helper accepts NEW and CHANGED and refuses
+UNCHANGED and REMOVED. The caller discards its prepared transaction if
+building throws.
+
+Ordinary `Item::SaveToDB` shares this serializer for NEW and CHANGED. Its
+mutation guard, queue-state transitions, removal and submission still belong
+to the original caller. The helper is a candidate for a future read-only
+capture, under exact owner/custody and writer admission checks. Inventory
+links, bag membership, refund/enchantment timing, gift-row state beyond
+the existing update and recovery disposition require separate validation.
+
 ## Source and executable evidence
 
 Sources: PlayerStorage.cpp SaveToDB/SaveToDBWithEvidence; PB59TransactionAdmission::MutationScope,

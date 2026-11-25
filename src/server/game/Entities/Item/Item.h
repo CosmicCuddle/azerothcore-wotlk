@@ -421,6 +421,9 @@ public:
 private:
     friend class Player; // Private PB59 original queue handoff.
     friend class Bag; // Reservation checks before container pointer writes.
+    // Serialized owner context. Only NEW and CHANGED item-instance rows are supported.
+    // If building throws, discard the transaction before submission.
+    [[nodiscard]] bool AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction) const;
     bool PB59InventoryMutationAllowed() const;
     void SetPB59State(ItemUpdateState state, Player* forplayer);
     void AddPB59ToUpdateQueueOf(Player* player);
