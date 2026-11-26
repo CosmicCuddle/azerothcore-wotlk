@@ -25,6 +25,8 @@
 enum Statement { CHAR_REP_INVENTORY_ITEM, CHAR_REP_ITEM_INSTANCE, CHAR_UPD_ITEM_INSTANCE, CHAR_UPD_GIFT_OWNER,
     CHAR_DEL_ITEM_INSTANCE, CHAR_DEL_GIFT };
 
+#include "PB59RetainedInventoryReadback.h"
+
 class CharacterDatabaseConnection
 {
 public:
@@ -1207,6 +1209,26 @@ int Player::CheckSharedSaveService()
         Player held;
         held.owner = {1};
         ITEM_CHECK(service.TryStandalone(held, false, false).status == Admission::WriterUnavailable);
+        using Readback = PB59PendingRecoverySaves::Readback;
+        ITEM_CHECK(first && last);
+        Readback::Identity firstKey{first->operation, first->stamp, first->record.ticket};
+        Readback::Identity lastKey{last->operation, last->stamp, last->record.ticket};
+        auto crossed = firstKey; crossed.ticket = lastKey.ticket;
+        ITEM_CHECK(!service._recovery.BeginRetainedReadback(crossed));
+        auto different = firstKey; ++different.stamp.revision;
+        ITEM_CHECK(!service._recovery.BeginRetainedReadback(different));
+        auto request = service._recovery.BeginRetainedReadback(firstKey);
+        ITEM_CHECK(request && request->Key() && *request->Key() == firstKey);
+        ITEM_CHECK(!service._recovery.BeginRetainedReadback(firstKey));
+        // The other completion can begin independently, but the request cannot be replayed.
+        auto other = service._recovery.BeginRetainedReadback(lastKey);
+        ITEM_CHECK(other);
+        ITEM_CHECK(service._recovery.FinishRetainedReadback(std::move(*request), std::nullopt).outcome ==
+            Readback::Outcome::ReadbackUnavailable);
+        ITEM_CHECK(service._recovery.FinishRetainedReadback(std::move(*request), std::nullopt).outcome ==
+            Readback::Outcome::Refused);
+        ITEM_CHECK(!service._recovery.BeginRetainedReadback(firstKey));
+        ITEM_CHECK(!service._fence.TryTrackWrite(1) && !service._fence.TryTrackWrite(256));
         ITEM_CHECK(service.PollShutdown().drained && !service._fence.TryTrackWrite(1) &&
             !service._fence.TryTrackWrite(256) && TrackedStatement::Live == 0);
         ITEM_CHECK(first && last && first->record.ticket.slot == last->record.ticket.slot &&
@@ -1218,6 +1240,10 @@ int Player::CheckSharedSaveService()
             firstCopy->record.result.IsCommitted());
         ITEM_CHECK(lastCopy && lastCopy->record.ticket == last->record.ticket && lastCopy->record.result.IsCommitted());
         ITEM_CHECK(!service.CopyRetainedRecoveryCompletion(first->operation, first->stamp, last->record.ticket));
+        ITEM_CHECK(!service._recovery.BeginRetainedReadback(lastKey));
+        ITEM_CHECK(service._recovery.FinishRetainedReadback(std::move(*other), std::nullopt).outcome ==
+            Readback::Outcome::ReadbackUnavailable);
+        ITEM_CHECK(!service._fence.TryTrackWrite(256));
     }
     std::cout << Checks - before << " PB59 shared save lifecycle checks PASS\n";
     return 0;
