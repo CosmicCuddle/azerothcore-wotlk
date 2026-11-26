@@ -15,6 +15,7 @@ parser.add_argument("--pending-recovery-mutants", action="store_true")
 parser.add_argument("--shared-service-mutants", action="store_true")
 parser.add_argument("--retained-completion-mutants", action="store_true")
 parser.add_argument("--expected-write-mutants", action="store_true")
+parser.add_argument("--retained-readback-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -82,7 +83,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     subprocess.run([str(binary)], check=True, timeout=30)
     if any((args.mutants, args.batch_mutants, args.receipt_mutants, args.hold_mutants,
             args.pending_recovery_mutants, args.shared_service_mutants, args.retained_completion_mutants,
-            args.expected_write_mutants)):
+            args.expected_write_mutants, args.retained_readback_mutants)):
         variants = []
         if args.mutants:
             variants += [
@@ -173,6 +174,14 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                 (" || text->size() > PB59::Recovery::MaximumTextBytes", ""),
                 ("hold.Settle(record->result), expectedWrites", "hold.Settle(record->result), {}"),
                 ("!expectedWrites || completionBound", "completionBound"),
+            ]
+        if args.retained_readback_mutants:
+            variants += [
+                ("        if (_closed)\n            return std::nullopt;\n        auto* save = FindRetainedReadback(key);",
+                 "        auto* save = FindRetainedReadback(key);"),
+                ("        if (auto const* key = request.Key())\n",
+                 "        if (_closed)\n            return {Readback::Outcome::Refused, std::nullopt};\n"
+                 "        if (auto const* key = request.Key())\n"),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:

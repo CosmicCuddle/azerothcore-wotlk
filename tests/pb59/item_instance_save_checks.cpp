@@ -1182,6 +1182,7 @@ int Player::CheckSharedSaveService()
     {
         PB59InventorySaveService service;
         std::optional<PB59InventorySaveService::RecoveryCompletion> first;
+        std::optional<PB59InventorySaveService::RecoveryCompletion> untouched;
         std::optional<PB59InventorySaveService::RecoveryCompletion> last;
         for (uint64 guid = 1; guid <= 256; ++guid)
         {
@@ -1196,6 +1197,8 @@ int Player::CheckSharedSaveService()
             ITEM_CHECK(result && result->operation == expected && result->settlement == Settlement::NeedsVerification);
             if (guid == 1)
                 first = result;
+            if (guid == 2)
+                untouched = result;
             if (guid == 256)
                 last = result;
         }
@@ -1210,7 +1213,8 @@ int Player::CheckSharedSaveService()
         held.owner = {1};
         ITEM_CHECK(service.TryStandalone(held, false, false).status == Admission::WriterUnavailable);
         using Readback = PB59PendingRecoverySaves::Readback;
-        ITEM_CHECK(first && last);
+        ITEM_CHECK(first && untouched && last);
+        Readback::Identity untouchedKey{untouched->operation, untouched->stamp, untouched->record.ticket};
         Readback::Identity firstKey{first->operation, first->stamp, first->record.ticket};
         Readback::Identity lastKey{last->operation, last->stamp, last->record.ticket};
         auto crossed = firstKey; crossed.ticket = lastKey.ticket;
@@ -1241,6 +1245,10 @@ int Player::CheckSharedSaveService()
         ITEM_CHECK(lastCopy && lastCopy->record.ticket == last->record.ticket && lastCopy->record.result.IsCommitted());
         ITEM_CHECK(!service.CopyRetainedRecoveryCompletion(first->operation, first->stamp, last->record.ticket));
         ITEM_CHECK(!service._recovery.BeginRetainedReadback(lastKey));
+        // Unlike lastKey, this completion has never had a readback request.
+        // A closed pool must reject it independently of the one-shot gate.
+        ITEM_CHECK(!service._recovery.BeginRetainedReadback(untouchedKey));
+        ITEM_CHECK(!service._fence.TryTrackWrite(2));
         ITEM_CHECK(service._recovery.FinishRetainedReadback(std::move(*other), std::nullopt).outcome ==
             Readback::Outcome::ReadbackUnavailable);
         ITEM_CHECK(!service._fence.TryTrackWrite(256));
