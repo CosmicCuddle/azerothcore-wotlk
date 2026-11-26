@@ -309,6 +309,13 @@
   256 protected slots can remain held, with further requests refused
   before staging. World ownership, logout registration, and persisted
   verification still need integration.
+- **Retained terminal recovery receipt (26 November 2026):** isolated
+  Core106 child, parent `9480e9020b52045d30da8e3b096b8690e3e71db4`.
+  Each retained protected hold keeps its terminal observer record with
+  its operation, capture stamp and settlement. The dormant service
+  copies a match by exact operation, stamp and observer ticket after
+  actor retirement, drain or observer slot reuse. Persistence proof and
+  hold release remain separate work.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

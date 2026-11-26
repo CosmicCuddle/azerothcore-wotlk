@@ -394,6 +394,21 @@ new protected request returns Full before staging, and final adoption
 rechecks capacity after staging. The legacy logout writer and world
 lifetime ordering remain separate integration work.
 
+## Retaining the exact terminal receipt
+
+The protected holder saves the terminal observer record alongside the
+operation, capture stamp and settlement before returning its completion.
+Definite no-write discards the holder after reporting the result. For a
+held result, the service can copy the retained record by the exact
+operation, stamp and observer ticket. This remains available after
+admission closes and after the observer reuses the slot. It uses value
+evidence and needs no player, session, or additional DB operation.
+
+The lookup preserves execution provenance for future persisted-custody
+verification. The shared fence and held slot stay in place throughout
+lookup. Durable verification and eventual disposition remain separate
+private operations.
+
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,
 TC9, additional saves and refunds. They can mutate inventory before calling

@@ -916,6 +916,7 @@ int Player::CheckPendingRecoverySaves()
         PB59RecoveryWriteFence fence;
         PB59PendingRecoverySaves pending(fence);
         PB59::Recovery::Operation expected;
+        PB59::Stamp expectedStamp;
         uint64 item = 0;
         uint64 base = 0;
         bool const reject = scenario.code == Result::NotEnqueuedCode;
@@ -927,6 +928,7 @@ int Player::CheckPendingRecoverySaves()
             Ledger::MutationScope scope(player._pb59Transaction);
             ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
             expected = operation(player, scope);
+            expectedStamp = fixture.stamp;
             item = fixture.inventory.item.guid.value;
             base = fixture.base.guid.value;
             auto const queue = player.m_itemUpdateQueue;
@@ -964,7 +966,7 @@ int Player::CheckPendingRecoverySaves()
         RecoveryQueue->Reset();
         ITEM_CHECK(!pending.Idle() && !fence.TryTrackWrite(expected.owner));
         auto const completed = pending.PollOne();
-        ITEM_CHECK(completed && completed->operation == expected);
+        ITEM_CHECK(completed && completed->operation == expected && completed->stamp == expectedStamp);
         auto const result = Result::FromExecutionCode(scenario.code);
         ITEM_CHECK(completed->record.result.status == result.status &&
             completed->record.result.executionCode == scenario.code);
@@ -977,6 +979,50 @@ int Player::CheckPendingRecoverySaves()
             (scenario.code == 991 ? Settlement::Uncertain : Settlement::NoWrite);
         ITEM_CHECK(completed->settlement == settlement && pending.Idle() && !pending.PollOne());
         ITEM_CHECK(bool(fence.TryTrackWrite(expected.owner)) == (settlement == Settlement::NoWrite));
+        auto const ticket = completed->record.ticket;
+        auto retained = pending.CopyRetainedCompletion(expected, expectedStamp, ticket);
+        ITEM_CHECK(bool(retained) == (settlement != Settlement::NoWrite));
+        if (retained)
+        {
+            ITEM_CHECK(retained->stamp == expectedStamp && retained->operation == expected &&
+                retained->settlement == settlement);
+            ITEM_CHECK(retained->record.ticket == ticket &&
+                retained->record.state == SaveObserver::Store::State::Terminal &&
+                retained->record.result.status == result.status &&
+                retained->record.result.executionCode == scenario.code);
+            ITEM_CHECK(retained->record.evidence.itemCount == 2 && retained->record.evidence.items[0] == base &&
+                retained->record.evidence.items[1] == item);
+
+            using Operation = PB59::Recovery::Operation;
+            for (auto member : {&Operation::owner, &Operation::ownerIncarnation,
+                     &Operation::sessionIncarnation, &Operation::ticket})
+            {
+                auto different = expected;
+                ++(different.*member);
+                ITEM_CHECK(!pending.CopyRetainedCompletion(different, expectedStamp, ticket));
+            }
+            for (auto member : {&PB59::Stamp::session, &PB59::Stamp::revision})
+            {
+                auto different = expectedStamp;
+                ++(different.*member);
+                ITEM_CHECK(!pending.CopyRetainedCompletion(expected, different, ticket));
+            }
+            auto differentTicket = ticket;
+            ++differentTicket.slot;
+            ITEM_CHECK(!pending.CopyRetainedCompletion(expected, expectedStamp, differentTicket));
+            differentTicket = ticket;
+            ++differentTicket.serial;
+            ITEM_CHECK(!pending.CopyRetainedCompletion(expected, expectedStamp, differentTicket));
+            differentTicket = ticket;
+            ++differentTicket.identity.sequence;
+            ITEM_CHECK(!pending.CopyRetainedCompletion(expected, expectedStamp, differentTicket));
+
+            retained->record.result = Result::FromExecutionCode(Result::NotEnqueuedCode);
+            retained->record.evidence.itemCount = 0;
+            auto const fresh = pending.CopyRetainedCompletion(expected, expectedStamp, ticket);
+            ITEM_CHECK(fresh && fresh->record.result.executionCode == scenario.code &&
+                fresh->record.evidence.itemCount == 2 && !fence.TryTrackWrite(expected.owner));
+        }
         ITEM_CHECK(std::ranges::any_of(pending._saves, [&](auto const& save)
         {
             return save && save->operation == expected && !save->receipt && !save->task;
@@ -1086,6 +1132,8 @@ int Player::CheckSharedSaveService()
     }
     {
         PB59InventorySaveService service;
+        std::optional<PB59InventorySaveService::RecoveryCompletion> first;
+        std::optional<PB59InventorySaveService::RecoveryCompletion> last;
         for (uint64 guid = 1; guid <= 256; ++guid)
         {
             InventoryBatchFixture fixture(guid);
@@ -1097,6 +1145,10 @@ int Player::CheckSharedSaveService()
             ITEM_CHECK(runNextTask() == 4);
             auto const result = service.PollReady();
             ITEM_CHECK(result && result->operation == expected && result->settlement == Settlement::NeedsVerification);
+            if (guid == 1)
+                first = result;
+            if (guid == 256)
+                last = result;
         }
         InventoryBatchFixture extra(257);
         auto& player = extra.inventory.player;
@@ -1110,6 +1162,15 @@ int Player::CheckSharedSaveService()
         ITEM_CHECK(service.TryStandalone(held, false, false).status == Admission::WriterUnavailable);
         ITEM_CHECK(service.PollShutdown().drained && !service._fence.TryTrackWrite(1) &&
             !service._fence.TryTrackWrite(256) && TrackedStatement::Live == 0);
+        ITEM_CHECK(first && last && first->record.ticket.slot == last->record.ticket.slot &&
+            first->record.ticket.serial != last->record.ticket.serial);
+        auto const firstCopy = service.CopyRetainedRecoveryCompletion(
+            first->operation, first->stamp, first->record.ticket);
+        auto const lastCopy = service.CopyRetainedRecoveryCompletion(last->operation, last->stamp, last->record.ticket);
+        ITEM_CHECK(firstCopy && firstCopy->record.ticket == first->record.ticket &&
+            firstCopy->record.result.IsCommitted());
+        ITEM_CHECK(lastCopy && lastCopy->record.ticket == last->record.ticket && lastCopy->record.result.IsCommitted());
+        ITEM_CHECK(!service.CopyRetainedRecoveryCompletion(first->operation, first->stamp, last->record.ticket));
     }
     std::cout << Checks - before << " PB59 shared save lifecycle checks PASS\n";
     return 0;
