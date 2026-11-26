@@ -430,6 +430,26 @@ write set. Untouched rows and relationships need separate evidence.
 The captured parameters describe the intended write; durable observation
 and disposition remain separate operations.
 
+## Dormant value-only comparison
+
+`CompareInventoryWriteValues` accepts the immutable expected bindings and a caller-supplied
+exact-scope typed row set. It validates statement kinds, arity, original variant types,
+single-realm full item GUID/low-key identity, one owner, slot uniqueness, range and UTF-8
+representability before comparing. SQL-nullable values are compared without coercing
+NULL to zero or empty strings; strings are compared by exact bytes. Missing, duplicate,
+unexpected and mismatched rows are explicit failures with item/table/column diagnostics.
+A gift-owner binding only establishes that value, not preservation of gift entry/flags.
+The typed rows assume separately proven lossless decoding and schema; malformed query
+results must not be narrowed into these types. Exact scoped rows must be independently
+selected; equal values do not prove an operation, a durable commit, an unchanged neighbour,
+bag chain, external custody or exclusion of competing writers. No caller or release authority.
+
+Test driver: `python3 tests/pb59/test_inventory_readback_comparison.py --compiler g++`
+(and `--ndebug`, Clang). It uses extracted declarations, not a native server or database.
+Local 59/59 checks per five configurations used exact comparator and check blobs with
+symbolic statement constants, matching binding variant layout and recovery bound adapters;
+the checked-in extraction driver itself still needs exact-checkout execution.
+
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,
 TC9, additional saves and refunds. They can mutate inventory before calling
