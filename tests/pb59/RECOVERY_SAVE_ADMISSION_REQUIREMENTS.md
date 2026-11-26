@@ -450,6 +450,28 @@ Local 59/59 checks per five configurations used exact comparator and check blobs
 symbolic statement constants, matching binding variant layout and recovery bound adapters;
 the checked-in extraction driver itself still needs exact-checkout execution.
 
+## Dormant operation-bound readback request ownership
+
+The next child adds a single-use gate that owns a value copy of a committed
+record's expected writes, exact operation/stamp/observer ticket, and full
+item membership. Open validates terminal commit status/code, bounded complete
+inventory-only membership, statement representability, exact owner and item
+set. Begin accepts the entire identity once. Finish accepts only the move-only
+request from that gate, consumes it even on unavailable readback, and returns
+a value comparison only; foreign/moved-from/replayed requests are refused.
+
+This is a primitive, NOT a wired retained-hold service or database producer.
+The eventual serialized holder must create at most one gate for its own
+actual retained completion, own the request and real query result together,
+verify snapshot scope/decoding and competing-writer exclusion, and keep the
+hold on every result. A copied or forged diagnostic record cannot become
+authority merely by passing Open; calling Open repeatedly is not prevented
+by this standalone primitive. No retry, hold release, native caller or
+schema/SQL change. Local 43/43 assertions in each of four GCC/Clang debug
+and optimized configurations used exact gate/check sources, declaration
+adapters for the record, binding, operation and test stamp. The checked-in
+real-recovery-header extraction driver still needs execution.
+
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,
 TC9, additional saves and refunds. They can mutate inventory before calling
