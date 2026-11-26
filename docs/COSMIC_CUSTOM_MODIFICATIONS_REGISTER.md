@@ -488,3 +488,11 @@
   writer exclusion, shutdown of future query work, native build or persisted custody proof.
 - **Live/rollback:** dormant entry points, no caller or hold-release API, no database/SQL/schema,
   configuration, client/DBC, merge, repin, activation or deployment. Discard this child.
+
+## Strict readback wire value decoding (26 November 2026)
+
+- **Owner/scope:** CosmicCuddle; CS01 PB59 recovery development, isolated child of Core115 `a74c247ccd5e38167108f18e138df4c24d94b45e`.
+- **Files:** PB59ReadbackWireValues.h and readback_wire_values_checks.cpp. Canonical decimal parsing with exact range, signedness and full consumption checks; NULL versus empty and byte-preserving bounded owned text. Unsuccessful decoding leaves output unchanged. Allocation failure is not injected; future caller must handle exceptions without releasing the hold. No field/row adapter or native caller.
+- **Source review:** existing QueryResult.cpp `00c11b7725663737f8ee0940efb55173c77e9bcf` accepts MYSQL_DATA_TRUNCATED and forwards fetched_length even if larger than buffer_length; no per-field error pointer. General Field/QueryResult API not suitable as unquestioned lossless evidence. Future query producer must explicitly verify complete buffers, exact row count/shape, NULL, conversion and connection/snapshot identity; this primitive does not validate the provenance or length of the input slice. No global DB reader change.
+- **Verification:** 41/41 isolated C++ checks per GCC and Clang debug/optimized and Clang ASan+UBSan (205 repeated checks). Six compiled GCC debug mutations rejected by assertions. Exact local and Git blob hashes match. Run from root: `g++ -std=c++20 -Wall -Wextra -Werror -pedantic -I src/server/game/Entities/Player tests/pb59/readback_wire_values_checks.cpp -o /tmp/pb59-wire && /tmp/pb59-wire`. No DB, native server, snapshot or actual hold tested; Core114/115 full fixture remains pending.
+- **Live/rollback:** dormant header only, no caller, schema/config/CI/merge/deploy or hold release; drop isolated child.
