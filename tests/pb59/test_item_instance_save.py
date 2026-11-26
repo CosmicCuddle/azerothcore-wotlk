@@ -14,6 +14,7 @@ parser.add_argument("--hold-mutants", action="store_true")
 parser.add_argument("--pending-recovery-mutants", action="store_true")
 parser.add_argument("--shared-service-mutants", action="store_true")
 parser.add_argument("--retained-completion-mutants", action="store_true")
+parser.add_argument("--expected-write-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -78,7 +79,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
     if any((args.mutants, args.batch_mutants, args.receipt_mutants, args.hold_mutants,
-            args.pending_recovery_mutants, args.shared_service_mutants, args.retained_completion_mutants)):
+            args.pending_recovery_mutants, args.shared_service_mutants, args.retained_completion_mutants,
+            args.expected_write_mutants)):
         variants = []
         if args.mutants:
             variants += [
@@ -110,9 +112,9 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         if args.receipt_mutants:
             variants += [
                 (" || scope.GetTicket() != operation.ticket", ""),
-                ("stamp, *transaction, &prepared->membership)",
-                 "stamp, *CharacterDatabase.BeginTransaction(), &prepared->membership)"),
-                ("&prepared->membership) || !current())", "&prepared->membership))"),
+                ("stamp, *transaction, &prepared->membership, &expectedWrites)",
+                 "stamp, *CharacterDatabase.BeginTransaction(), &prepared->membership, &expectedWrites)"),
+                ("&expectedWrites) ||\n            !current())", "&expectedWrites))"),
                 (" || captured.incomplete", ""),
                 ("        else if (observer.AbandonProtected(*receipt))\n"
                  "            (void)observer.ConsumeProtected(*receipt);", ""),
@@ -157,6 +159,18 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                 ("completed.operation == operation &&", "(void(operation), true) &&"),
                 ("completed.stamp == stamp &&", "(void(stamp), true) &&"),
                 ("completed.record.ticket == ticket)", "(void(ticket), true))"),
+            ]
+        if args.expected_write_mutants:
+            variants += [
+                ("values->link = {link->GetIndex(), link->GetParameters()};",
+                 "values->link = {link->GetIndex(), {}};"),
+                ("expected->instance = {instance->GetIndex(), parameters};",
+                 "expected->instance = {instance->GetIndex(), {}};"),
+                ("        if (giftOwner)\n            expected->giftOwner.emplace",
+                 "        if (false)\n            expected->giftOwner.emplace"),
+                (" || text->size() > PB59::Recovery::MaximumTextBytes", ""),
+                ("hold.Settle(record->result), expectedWrites", "hold.Settle(record->result), {}"),
+                ("!expectedWrites || completionBound", "completionBound"),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:

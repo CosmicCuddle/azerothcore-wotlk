@@ -657,7 +657,12 @@ namespace PB59
     template<std::size_t Capacity> class InventoryWriteFence;
     template<std::size_t Capacity, std::size_t FenceCapacity, typename Connection> class PendingInventoryWrites;
 }
-namespace PB59::Recovery { struct Operation; }
+namespace PB59::Recovery
+{
+    struct ExpectedInventoryWrites;
+    struct InventoryWriteValues;
+    struct Operation;
+}
 
 class Quest;
 class Spell;
@@ -3112,11 +3117,13 @@ private:
         uint16 pos, Item const* expected) const;
     // Stages one live cell. Discard the entire prepared transaction on refusal or exception.
     [[nodiscard]] bool AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
-        Transaction<CharacterDatabaseConnection>& transaction) const;
+        Transaction<CharacterDatabaseConnection>& transaction,
+        PB59::Recovery::InventoryWriteValues* values = nullptr) const;
     // Caller retains the serialized live owner and supplies a fresh native stamp.
     // On refusal or exception, discard the entire undispatched transaction.
     [[nodiscard]] bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
-        Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
+        Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr,
+        PB59::Recovery::ExpectedInventoryWrites* expectedWrites = nullptr) const;
     class PB59PreparedRecoverySave;
     class PB59PendingRecoverySaves;
     class PB59InventorySaveService;
