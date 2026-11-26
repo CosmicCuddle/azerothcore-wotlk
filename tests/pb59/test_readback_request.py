@@ -43,8 +43,9 @@ with tempfile.TemporaryDirectory(prefix="pb59-readback-request-") as temp:
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
     if args.ndebug:
         flags += ["-DNDEBUG", "-O2"]
-    binary = work / "request.exe"
-    subprocess.run(args.compiler + flags + ["-I", str(work),
-        str(Path(__file__).with_name("readback_request_checks.cpp")), "-o", str(binary)],
-        check=True, timeout=90)
-    subprocess.run([str(binary)], check=True, timeout=30)
+    for test in ("readback_request_checks.cpp", "receipt_store_checks.cpp"):
+        binary = work / (Path(test).stem + ".exe")
+        subprocess.run(args.compiler + flags + ["-I", str(work),
+            str(Path(__file__).with_name(test)), "-o", str(binary)],
+            check=True, timeout=90)
+        subprocess.run([str(binary)], check=True, timeout=30)
