@@ -471,3 +471,20 @@
 - **Live status and rollback:** dormant and unmerged. Core88 remains the native build target. Drop the
   isolated child to roll back this observer and fixture change. Runtime activation and shutdown
   handling for protected receipts require a separate lifecycle decision.
+
+## Retained inventory readback owner (26 November 2026)
+
+- **Owner/scope:** CosmicCuddle; Maintenance takeover of PB59 recovery, coordination #68 and #52.
+  Separate development child of Core113 `edf56d0958718c47a5dd34eb0296abf57b66ab56`.
+- **Files/behavior:** PB59RetainedInventoryReadback.h, PlayerStorage.cpp and isolated tests/drivers.
+  Each prepared recovery save owns one non-reopenable readback object. The pending holder selects
+  its own exact retained operation/stamp/receipt and committed NeedsVerification settlement under
+  its mutex. Begin refuses closed admission; issued requests can finish after closure. Refusal,
+  allocation failure, lost request, mismatch or unavailable result cannot re-arm the object.
+  No external diagnostic copy can supply a record to the pending-holder entry point.
+- **Tests/limits:** 20/20 targeted component assertions in each of five GCC/Clang configurations
+  with real gate/store/comparator headers and declaration adapters. Actual holder fixture changes
+  and updated extraction drivers await compilation. No real query result provenance, competing
+  writer exclusion, shutdown of future query work, native build or persisted custody proof.
+- **Live/rollback:** dormant entry points, no caller or hold-release API, no database/SQL/schema,
+  configuration, client/DBC, merge, repin, activation or deployment. Discard this child.

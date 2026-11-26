@@ -71,6 +71,8 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
         "#pragma once\n#include <string>\n#include <string_view>\n"
         "namespace Acore { template<class... Args> std::string StringFormat(std::string_view, Args&&...); }\n",
         encoding="utf-8")
+    # The fixture declares its existing symbolic statement enum before including the readback header.
+    (work / "CharacterDatabase.h").write_text("#pragma once\n", encoding="utf-8")
     extracted = work / "ItemInstanceSaveDefinitions.inc"
     extracted.write_text(definitions, encoding="utf-8")
     include_paths = (work, database, player, root / "src/common/Utilities", root / "src/common/Threading")

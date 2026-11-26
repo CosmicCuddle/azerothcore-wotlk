@@ -52,6 +52,7 @@
 #include "PB59EffectBoundary.h"
 #include "PB59CharacterSaveObserver.h"
 #include "PB59ExpectedInventoryWrites.h"
+#include "PB59RetainedInventoryReadback.h"
 #include "PB59InventoryWriteFence.h"
 #include "PB59NativeRecoveryCollection.h"
 #include "PB59PendingInventoryWrites.h"
@@ -8311,6 +8312,8 @@ private:
     friend class Player;
     friend class PB59PendingRecoverySaves;
 
+    using Readback = PB59::Recovery::RetainedInventoryReadback<256, PB59::Stamp>;
+
     struct Completion
     {
         PB59::Recovery::Operation operation;
@@ -8378,6 +8381,7 @@ private:
     std::optional<PreparedTransactionWithOutcome<CharacterDatabaseConnection>> task;
     std::optional<SaveObserver::ProtectedReceipt> receipt;
     std::optional<Completion> retainedCompletion;
+    Readback readback;
     PB59::SaveEvidence membership;
     std::shared_ptr<PB59::Recovery::ExpectedInventoryWrites const> expectedWrites;
     bool completionBound = false;
@@ -8437,6 +8441,7 @@ class Player::PB59PendingRecoverySaves final
 public:
     using Admission = PB59::InventoryWriteAdmission;
     using Completion = PB59PreparedRecoverySave::Completion;
+    using Readback = PB59PreparedRecoverySave::Readback;
 
     explicit PB59PendingRecoverySaves(PB59RecoveryWriteFence& fence) noexcept : _fence(fence) {}
 
@@ -8514,6 +8519,33 @@ public:
         return std::nullopt;
     }
 
+    // Dormant diagnostic request only. No native query caller yet. The exact
+    // retained record and captured values are selected under the holder lock,
+    // never supplied by an external receipt copy.
+    [[nodiscard]] std::optional<Readback::Request> BeginRetainedReadback(Readback::Identity const& key)
+    {
+        std::lock_guard lock(_mutex);
+        if (_closed)
+            return std::nullopt;
+        auto* save = FindRetainedReadback(key);
+        if (!save)
+            return std::nullopt;
+        auto const& completed = *save->retainedCompletion;
+        return save->readback.Begin(key, completed.record, *completed.expectedWrites);
+    }
+
+    // Finish may consume an already issued request after admission closes.
+    // Supplied rows are diagnostic values only, not authenticated DB results.
+    [[nodiscard]] Readback::Observation FinishRetainedReadback(Readback::Request&& request,
+        std::optional<PB59::Recovery::InventoryReadbackRows> const& rows)
+    {
+        std::lock_guard lock(_mutex);
+        if (auto const* key = request.Key())
+            if (auto* save = FindRetainedReadback(*key))
+                return save->readback.Finish(std::move(request), rows);
+        return {Readback::Outcome::Refused, std::nullopt};
+    }
+
     void CloseAdmission()
     {
         std::lock_guard lock(_mutex);
@@ -8529,6 +8561,23 @@ public:
 
 private:
     friend class Player;
+
+    // Caller holds _mutex. Do not arm a gate for an uncertain/no-write result.
+    [[nodiscard]] PB59PreparedRecoverySave* FindRetainedReadback(Readback::Identity const& key) const
+    {
+        for (auto const& save : _saves)
+        {
+            if (!save || !save->retainedCompletion)
+                continue;
+            auto const& completed = *save->retainedCompletion;
+            if (completed.operation == key.operation && completed.stamp == key.stamp &&
+                completed.record.ticket == key.ticket &&
+                completed.settlement == PB59RecoveryWriteFence::RecoverySettlement::NeedsVerification &&
+                completed.expectedWrites)
+                return save.get();
+        }
+        return nullptr;
+    }
 
     PB59RecoveryWriteFence& _fence;
     mutable std::mutex _mutex;

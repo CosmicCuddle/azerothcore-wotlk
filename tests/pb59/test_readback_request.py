@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-readback-request-") as temp:
     (work / "PreparedStatement.h").write_text(preamble + "#include <string>\n#include <variant>\n#include <vector>\n"
                                               + binding + "\n", encoding="utf-8")
     for name in ("PB59ExpectedInventoryWrites.h", "PB59InventoryReadbackComparison.h",
-                 "PB59InventoryReadbackRequest.h", "PB59RecoveryEvidence.h",
+                 "PB59InventoryReadbackRequest.h", "PB59RetainedInventoryReadback.h", "PB59RecoveryEvidence.h",
                  "PB59InventoryBatchPlan.h", "PB59InventorySlotFacts.h",
                  "PB59CharacterSaveEvidence.h"):
         shutil.copyfile(player / name, work / name)
@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-readback-request-") as temp:
     flags = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic"]
     if args.ndebug:
         flags += ["-DNDEBUG", "-O2"]
-    for test in ("readback_request_checks.cpp", "receipt_store_checks.cpp"):
+    for test in ("readback_request_checks.cpp", "receipt_store_checks.cpp", "retained_readback_checks.cpp"):
         binary = work / (Path(test).stem + ".exe")
         subprocess.run(args.compiler + flags + ["-I", str(work),
             str(Path(__file__).with_name(test)), "-o", str(binary)],

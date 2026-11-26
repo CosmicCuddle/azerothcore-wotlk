@@ -499,3 +499,24 @@ python -B tests/pb59/test_recovery_receipt_retention.py --ndebug --compiler g++
 
 Native resource/pins/compile instructions are in NATIVE_GAME_BUILD_BRIEF.md. No production
 runtime code, IO, release, activation, installer, CI dispatch, merge, repin or live changes.
+
+## Retained holder owns the readback gate (development child)
+
+The pending recovery pool now owns the one-shot gate in its existing retained save.
+Begin selects only the exact operation, stamp and observer ticket with a retained
+NeedsVerification settlement and immutable expected values, under the existing pool
+mutex. It refuses new requests after admission closes. A request issued earlier can
+be consumed during closure. Finish routes by the capability identity and checks the
+exact gate; arbitrary rows remain diagnostic only. The one-shot owner marks an attempt
+before allocation or opening, and never re-arms on refusal, unavailable result or
+loss. The existing fence and retained completion remain held; no release, retry,
+query dispatch or actual DB row provenance is implemented.
+
+Targeted retained owner tests: 20/20 per five compiler configurations using actual
+gate/store/comparator headers with isolated declaration adapters. The checked-in
+request driver adds retained_readback_checks.cpp; the item-instance-save driver
+and fixture add actual pending-holder boundary assertions. These updated drivers
+still require exact-checkout execution. A future native query producer must own the
+request and real result, losslessly decode all rows, exclude competing writers and
+establish a shutdown/drain policy for query work before integration. No new native
+acceptance tuple, runtime caller, merge or activation.
