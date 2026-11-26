@@ -115,5 +115,15 @@ int main()
     CASE(f.expected.items[0].instance.parameters[12] = P(uint32(0)), Refused, "binding type");
     GIFT(f.expected.items[0].giftOwner->parameters[1] = P(uint32(102)), Refused, "identity");
     GIFT(f.expected.items[0].instance.index = CHAR_REP_ITEM_INSTANCE, Refused, "statement");
+    // Independent CS02/Grok mutation-review gaps (Coordination #52, 7191850277).
+    CASE(f.expected.items[0].instance.parameters[8] = P(std::string(65535, 'a')); f.observed.instances[0].enchantments = std::string(65535, 'a'), Match, "");
+    CASE(f.expected.items[0].instance.parameters[8] = P(std::string(65536, 'a')); f.observed.instances[0].enchantments = std::string(65536, 'a'), Unrepresentable, "enchantments");
+    CASE(f.expected.items[0].instance.parameters[6] = P(std::string()); f.observed.instances[0].charges.reset(), Mismatch, "charges");
+    CASE(f.expected.items[0].instance.parameters[0] = P(uint32(0)); f.observed.instances[0].entry = 0, Refused, "identity/count");
+    CASE(f.expected.items[0].instance.parameters[12] = P(std::string("\xe0\x80\x80")); f.observed.instances[0].text = "\xe0\x80\x80", Unrepresentable, "text");
+    CASE(f.expected.items[0].instance.parameters[12] = P(std::string("\xf0\x80\x80\x80")); f.observed.instances[0].text = "\xf0\x80\x80\x80", Unrepresentable, "text");
+    CASE(auto e = f.expected.items.front(); e.link.parameters[2] = P(uint8(16)); f.expected.items.push_back(e), Refused, "duplicate expected link");
+    CASE(auto e = f.expected.items.front(); e.itemGuid = InventoryComparisonDetail::ItemPrefix | 102; e.link.parameters[0] = P(uint64(8)); e.link.parameters[3] = P(uint32(102)); e.instance.parameters[1] = P(uint64(8)); e.instance.parameters[13] = P(uint32(102)); f.expected.items.push_back(e); auto l = f.observed.links.front(); l.owner = 8; l.item = 102; f.observed.links.push_back(l); auto v = f.observed.instances.front(); v.guid = 102; v.owner = 8; f.observed.instances.push_back(v), Refused, "mixed owners");
+    GIFT(f.expected.items[0].giftOwner->parameters.push_back(P(uint32(0))), Refused, "statement");
     std::cout << checks << "/" << checks << " inventory value comparison checks passed\n";
 }
