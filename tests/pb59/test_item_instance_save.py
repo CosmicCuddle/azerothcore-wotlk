@@ -13,6 +13,7 @@ parser.add_argument("--receipt-mutants", action="store_true")
 parser.add_argument("--hold-mutants", action="store_true")
 parser.add_argument("--pending-recovery-mutants", action="store_true")
 parser.add_argument("--shared-service-mutants", action="store_true")
+parser.add_argument("--retained-completion-mutants", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 database = root / "src/server/database/Database"
@@ -77,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
     subprocess.run(compile_fixture, check=True, timeout=90)
     subprocess.run([str(binary)], check=True, timeout=30)
     if any((args.mutants, args.batch_mutants, args.receipt_mutants, args.hold_mutants,
-            args.pending_recovery_mutants, args.shared_service_mutants)):
+            args.pending_recovery_mutants, args.shared_service_mutants, args.retained_completion_mutants)):
         variants = []
         if args.mutants:
             variants += [
@@ -148,6 +149,14 @@ with tempfile.TemporaryDirectory(prefix="pb59-item-instance-save-") as temporary
                 ("return {std::move(recovery), _producers", "return {(void(recovery), std::nullopt), _producers"),
                 ("if (service._closed)\n                return;", "if (false)\n                return;"),
                 ("standaloneDrained && _recovery.Idle()", "standaloneDrained"),
+            ]
+        if args.retained_completion_mutants:
+            variants += [
+                ("            retainedCompletion.emplace(completed);", "            retainedCompletion.reset();"),
+                ("Completion completed{operation, stamp, *record", "Completion completed{operation, {}, *record"),
+                ("completed.operation == operation &&", "(void(operation), true) &&"),
+                ("completed.stamp == stamp &&", "(void(stamp), true) &&"),
+                ("completed.record.ticket == ticket)", "(void(ticket), true))"),
             ]
         for before, after in variants:
             if definitions.count(before) != 1:

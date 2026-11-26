@@ -8298,6 +8298,7 @@ private:
     struct Completion
     {
         PB59::Recovery::Operation operation;
+        PB59::Stamp stamp;
         SaveObserver::Record record;
         PB59RecoveryWriteFence::RecoverySettlement settlement;
     };
@@ -8346,7 +8347,10 @@ private:
         if (!record)
             return std::nullopt;
         receipt.reset();
-        return Completion{operation, *record, hold.Settle(record->result)};
+        Completion completed{operation, stamp, *record, hold.Settle(record->result)};
+        if (completed.settlement != PB59RecoveryWriteFence::RecoverySettlement::NoWrite)
+            retainedCompletion.emplace(completed);
+        return completed;
     }
 
     SaveObserver& observer;
@@ -8356,6 +8360,7 @@ private:
     PB59RecoveryWriteFence::RecoveryWrite hold;
     std::optional<PreparedTransactionWithOutcome<CharacterDatabaseConnection>> task;
     std::optional<SaveObserver::ProtectedReceipt> receipt;
+    std::optional<Completion> retainedCompletion;
     PB59::SaveEvidence membership;
     bool completionBound = false;
     bool possiblySubmitted = false;
@@ -8467,6 +8472,22 @@ public:
             if (result->settlement == PB59RecoveryWriteFence::RecoverySettlement::NoWrite)
                 save.reset();
             return result;
+        }
+        return std::nullopt;
+    }
+
+    // Return a copy of the exact settled receipt while its recovery hold remains owned.
+    [[nodiscard]] std::optional<Completion> CopyRetainedCompletion(PB59::Recovery::Operation const& operation,
+        PB59::Stamp const& stamp, SaveObserver::Ticket const& ticket) const
+    {
+        std::lock_guard lock(_mutex);
+        for (auto const& save : _saves)
+        {
+            if (!save || !save->retainedCompletion)
+                continue;
+            auto const& completed = *save->retainedCompletion;
+            if (completed.operation == operation && completed.stamp == stamp && completed.record.ticket == ticket)
+                return completed;
         }
         return std::nullopt;
     }
@@ -8622,6 +8643,12 @@ public:
     {
         PollPB59TrackedStandaloneSave(_standalone);
         return _recovery.PollOne();
+    }
+
+    [[nodiscard]] std::optional<RecoveryCompletion> CopyRetainedRecoveryCompletion(
+        PB59::Recovery::Operation const& operation, PB59::Stamp const& stamp, SaveObserver::Ticket const& ticket) const
+    {
+        return _recovery.CopyRetainedCompletion(operation, stamp, ticket);
     }
 
     // Process the returned completion even on the final successful drain step.
