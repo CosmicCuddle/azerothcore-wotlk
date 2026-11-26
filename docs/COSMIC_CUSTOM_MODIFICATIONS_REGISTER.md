@@ -332,6 +332,15 @@
   plus Clang ASan/UBSan, using declaration adapters. No full Core build or DB evidence.
   Comparison does not prove receipt ownership, full custody, preservation of untouched gift
   fields or durable readback; no caller and no hold release. Discard child to roll back.
+- **Dormant readback request ownership (26 November 2026):** Core109 child
+  `953d73d4ccfa4bc63edde444ed739b1326bdfbb1`, header
+  `PB59InventoryReadbackRequest.h`, matching tests and requirements documentation.
+  Single-use request matches exact operation, stamp and receipt, immutable
+  expected write set and complete captured item membership. Only terminal
+  committed records admitted. 43/43 assertions per four GCC/Clang modes with
+  declaration adapters; real-header driver/native build pending. A future
+  retained holder must enforce one gate per completion and bind the actual
+  query result; no such wiring, durable verification, release or retry yet.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
