@@ -322,6 +322,16 @@
   optional gift-owner bindings with its exact receipt. Binding uses
   the existing bounded recovery capture and the ordinary serializer.
   DB row presence, normalization and durability remain future evidence.
+- **Dormant inventory value comparison (26 November 2026):** Maintenance
+  takes over the paused coding lane from exact Core108 `b38eabcc9e01c9b60a7bbc65f419d58febce54ea`.
+  `PB59InventoryReadbackComparison.h` compares captured SQL bindings with independently
+  supplied typed link, instance and gift rows. Rejects ambiguous keys, duplicate rows,
+  missing or unexpected rows, incorrect binding kinds/types, unrepresentable widths,
+  nullable and byte-exact differences. Single-realm item GUID representation is checked.
+  Local exact header/test blobs passed 59 checks per GCC/Clang debug and optimized mode,
+  plus Clang ASan/UBSan, using declaration adapters. No full Core build or DB evidence.
+  Comparison does not prove receipt ownership, full custody, preservation of untouched gift
+  fields or durable readback; no caller and no hold release. Discard child to roll back.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before
