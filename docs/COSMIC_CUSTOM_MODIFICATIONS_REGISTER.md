@@ -316,6 +316,12 @@
   copies a match by exact operation, stamp and observer ticket after
   actor retirement, drain or observer slot reuse. Persistence proof and
   hold release remain separate work.
+- **Expected protected inventory values (26 November 2026):** isolated
+  Core107 child, parent `68830039d2faf4efda1f8f3fb609f807498b19a9`.
+  The staged protected task retains immutable link, item-instance and
+  optional gift-owner bindings with its exact receipt. Binding uses
+  the existing bounded recovery capture and the ordinary serializer.
+  DB row presence, normalization and durability remain future evidence.
 - **Preservation/live/rollback:** no existing executor/custom-rule change, schema/IO/config/
   SQL/DBC/client, reset/replay/unlock, shutdown policy, CI dispatch or live action. Runtime
   binding/full reconciliation and any new persistence/global policy need review before

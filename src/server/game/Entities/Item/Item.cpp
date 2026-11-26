@@ -21,6 +21,8 @@
 #include "GameTime.h"
 #include "ItemEnchantmentMgr.h"
 #include "ObjectMgr.h"
+#include "PB59ExpectedInventoryWrites.h"
+#include "PB59RecoveryEvidence.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellInfo.h"
@@ -361,7 +363,8 @@ void Item::UpdateDuration(Player* owner, uint32 diff)
     SetState(ITEM_CHANGED, owner);                          // save new time in database
 }
 
-bool Item::AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction) const
+bool Item::AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction,
+    PB59::Recovery::InventoryWriteValues* expected) const
 {
     auto const state = GetState();
     if (state != ITEM_NEW && state != ITEM_CHANGED)
@@ -406,6 +409,20 @@ bool Item::AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& tran
         giftOwner.reset(CharacterDatabase.GetPreparedStatement(CHAR_UPD_GIFT_OWNER));
         giftOwner->SetData(0, owner);
         giftOwner->SetData(1, guid);
+    }
+
+    if (expected)
+    {
+        auto const& parameters = instance->GetParameters();
+        if (parameters.size() != 14)
+            return false;
+        auto const* text = std::get_if<std::string>(&parameters[12].data);
+        if (!text || text->size() > PB59::Recovery::MaximumTextBytes)
+            return false;
+        expected->instance = {instance->GetIndex(), parameters};
+        if (giftOwner)
+            expected->giftOwner.emplace(PB59::Recovery::InventorySaveStatement{
+                giftOwner->GetIndex(), giftOwner->GetParameters()});
     }
 
     transaction.Append(instance.get());

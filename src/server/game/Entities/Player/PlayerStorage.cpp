@@ -51,6 +51,7 @@
 #include "PB59VisibleEquipment.h"
 #include "PB59EffectBoundary.h"
 #include "PB59CharacterSaveObserver.h"
+#include "PB59ExpectedInventoryWrites.h"
 #include "PB59InventoryWriteFence.h"
 #include "PB59NativeRecoveryCollection.h"
 #include "PB59PendingInventoryWrites.h"
@@ -657,7 +658,7 @@ std::optional<Player::PB59InventorySlotLinks> Player::CheckPB59InventoryItemSave
 }
 
 bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
-    Transaction<CharacterDatabaseConnection>& transaction) const
+    Transaction<CharacterDatabaseConnection>& transaction, PB59::Recovery::InventoryWriteValues* values) const
 {
     auto const links = CheckPB59InventoryItemSave(pos, expected);
     if (!links)
@@ -669,13 +670,19 @@ bool Player::AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
     link->SetData(1, links->containerGuid.GetCounter());
     link->SetData(2, uint8(pos & 255));
     link->SetData(3, links->item->GetGUID().GetCounter());
+    if (values)
+    {
+        values->itemGuid = links->fieldGuid.GetRawValue();
+        values->link = {link->GetIndex(), link->GetParameters()};
+    }
     transaction.Append(link.get());
     (void)link.release();
-    return links->item->AppendItemInstanceSave(transaction);
+    return links->item->AppendItemInstanceSave(transaction, values);
 }
 
 bool Player::AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
-    Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership) const
+    Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership,
+    PB59::Recovery::ExpectedInventoryWrites* expectedWrites) const
 {
     auto eligible = [&]
     {
@@ -738,20 +745,29 @@ bool Player::AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
             // reaches an item getter without an independently located cell.
             if (!positions[index] || !CheckPB59InventoryItemSave(positions[index], queue[index]))
                 return false;
-            if (membership)
+            if (membership || expectedWrites)
                 captured.AddItem(queue[index]->GetGUID().GetRawValue());
             hasWork = true;
         }
     if (!hasWork || captured.incomplete || !eligible() || m_itemUpdateQueue != queue)
         return false;
 
+    PB59::Recovery::ExpectedInventoryWrites values;
+    if (expectedWrites)
+        values.items.reserve(captured.itemCount);
     for (std::size_t index = 0; index < queue.size(); ++index)
-        if (queue[index] && !AppendPB59InventoryItemSave(positions[index], queue[index], transaction))
-            return false;
+        if (queue[index])
+        {
+            auto* itemValues = expectedWrites ? &values.items.emplace_back() : nullptr;
+            if (!AppendPB59InventoryItemSave(positions[index], queue[index], transaction, itemValues))
+                return false;
+        }
     if (!eligible() || m_itemUpdateQueue != queue)
         return false;
     if (membership)
         *membership = captured;
+    if (expectedWrites)
+        *expectedWrites = std::move(values);
     return true;
 }
 
@@ -8301,6 +8317,7 @@ private:
         PB59::Stamp stamp;
         SaveObserver::Record record;
         PB59RecoveryWriteFence::RecoverySettlement settlement;
+        std::shared_ptr<PB59::Recovery::ExpectedInventoryWrites const> expectedWrites;
     };
 
     static bool Current(Player const* owner, PB59::Recovery::Operation const& operation,
@@ -8323,7 +8340,7 @@ private:
 
     [[nodiscard]] bool BindCompletion(Player const* owner, PB59::TransactionAdmission::MutationScope const& scope)
     {
-        if (!receipt || !task || completionBound || !Current(owner, operation, scope, stamp))
+        if (!receipt || !task || !expectedWrites || completionBound || !Current(owner, operation, scope, stamp))
             return false;
         completionBound = observer.BindPreparedOutcome(*receipt, membership, *task);
         return completionBound;
@@ -8347,7 +8364,7 @@ private:
         if (!record)
             return std::nullopt;
         receipt.reset();
-        Completion completed{operation, stamp, *record, hold.Settle(record->result)};
+        Completion completed{operation, stamp, *record, hold.Settle(record->result), expectedWrites};
         if (completed.settlement != PB59RecoveryWriteFence::RecoverySettlement::NoWrite)
             retainedCompletion.emplace(completed);
         return completed;
@@ -8362,6 +8379,7 @@ private:
     std::optional<SaveObserver::ProtectedReceipt> receipt;
     std::optional<Completion> retainedCompletion;
     PB59::SaveEvidence membership;
+    std::shared_ptr<PB59::Recovery::ExpectedInventoryWrites const> expectedWrites;
     bool completionBound = false;
     bool possiblySubmitted = false;
 };
@@ -8394,9 +8412,13 @@ std::unique_ptr<Player::PB59PreparedRecoverySave> Player::PreparePB59RecoverySav
             return {};
         prepared->receipt.emplace(std::move(*reservation.receipt));
         auto const& transaction = prepared->task->GetTransaction();
+        PB59::Recovery::ExpectedInventoryWrites expectedWrites;
         if (!transaction || !current() ||
-            !owner->AppendPB59InventorySaveBatch(stamp, *transaction, &prepared->membership) || !current())
+            !owner->AppendPB59InventorySaveBatch(stamp, *transaction, &prepared->membership, &expectedWrites) ||
+            !current())
             return {};
+        prepared->expectedWrites =
+            std::make_shared<PB59::Recovery::ExpectedInventoryWrites const>(std::move(expectedWrites));
 
         // Only this holder owns the task and reserved receipt. Keep the
         // observer reservation unsealed until actual submission is admitted.

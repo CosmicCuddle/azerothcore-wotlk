@@ -409,6 +409,27 @@ verification. The shared fence and held slot stay in place throughout
 lookup. Durable verification and eventual disposition remain separate
 private operations.
 
+## Expected values bound to the protected write
+
+The dormant serializer copies the bound parameters of the inventory link,
+the instance insert or update, and any wrapped-gift owner update. It uses
+the same statements later queued by the protected task. The snapshot
+retains the original full item GUID alongside the bound database key.
+The batch publishes immutable values only after the complete queue and
+capture stamp pass validation. It uses the existing evidence item and
+recovery text bounds. An oversized item text refuses staging and the
+factory discards the entire payload. Ordinary saves keep their existing
+serialization path.
+
+The holder and terminal receipt share these immutable values. A later
+comparison must establish the presence of the expected link and instance
+rows and account for database widths, signedness and exact string bytes.
+An instance or wrapped-gift update may match no row. The gift statement
+covers owner and item key, while gift entry and flags remain outside its
+write set. Untouched rows and relationships need separate evidence.
+The captured parameters describe the intended write; durable observation
+and disposition remain separate operations.
+
 Caller-owned writes require reservations at the outer operation. The
 source paths include trade, mail, auctions, guild, item and spell handlers,
 TC9, additional saves and refunds. They can mutate inventory before calling

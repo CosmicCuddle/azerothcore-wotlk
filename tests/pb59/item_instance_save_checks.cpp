@@ -3,6 +3,7 @@
 #include "DatabaseWorkerPool.h"
 #include "PCQueue.h"
 #include "PB59InventorySlotFacts.h"
+#include "PB59ExpectedInventoryWrites.h"
 #include "PB59NativeRecoveryCollection.h"
 #include "PB59CharacterSaveObserver.h"
 #include "PB59InventoryWriteFence.h"
@@ -164,7 +165,8 @@ class Item
 {
 public:
     ~Item() { ++Destroyed; }
-    bool AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction) const;
+    bool AppendItemInstanceSave(Transaction<CharacterDatabaseConnection>& transaction,
+        PB59::Recovery::InventoryWriteValues* expected = nullptr) const;
     void SaveToDB(CharacterDatabaseTransaction transaction);
 
     ObjectGuid GetGUID() const { if (guidReads) ++*guidReads; return guid; }
@@ -265,9 +267,11 @@ public:
     std::optional<PB59InventorySlotLinks> ReadPB59InventorySlotLinks(uint16 pos) const;
     std::optional<PB59InventorySlotLinks> CheckPB59InventoryItemSave(uint16 pos, Item const* expected) const;
     bool AppendPB59InventoryItemSave(uint16 pos, Item const* expected,
-        Transaction<CharacterDatabaseConnection>& transaction) const;
+        Transaction<CharacterDatabaseConnection>& transaction,
+        PB59::Recovery::InventoryWriteValues* values = nullptr) const;
     bool AppendPB59InventorySaveBatch(PB59::Stamp const& stamp,
-        Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr) const;
+        Transaction<CharacterDatabaseConnection>& transaction, PB59::SaveEvidence* membership = nullptr,
+        PB59::Recovery::ExpectedInventoryWrites* expectedWrites = nullptr) const;
     class PB59PreparedRecoverySave;
     class PB59PendingRecoverySaves;
     class PB59InventorySaveService;
@@ -373,6 +377,12 @@ static unsigned Checks = 0;
         return 1; \
     } \
 } while (false)
+
+static bool MatchesStatement(PB59::Recovery::InventorySaveStatement const& saved, PreparedStatementBase const& staged)
+{
+    return saved.index == staged.GetIndex() && std::ranges::equal(saved.parameters, staged.GetParameters(),
+        [](auto const& a, auto const& b) { return a.data == b.data; });
+}
 
 static int CheckInventoryLinks()
 {
@@ -552,13 +562,23 @@ static int CheckInventoryBatch()
         auto const queue = view.player.m_itemUpdateQueue;
         InspectTransaction transaction;
         view.item.wrapped = true;
-        ITEM_CHECK(view.player.AppendPB59InventorySaveBatch(fixture.stamp, transaction));
+        PB59::Recovery::ExpectedInventoryWrites writes;
+        ITEM_CHECK(view.player.AppendPB59InventorySaveBatch(fixture.stamp, transaction, nullptr, &writes));
         ITEM_CHECK(transaction.GetSize() == 5);
         ITEM_CHECK(transaction.StatementAt(0).GetIndex() == CHAR_REP_INVENTORY_ITEM);
         ITEM_CHECK(transaction.StatementAt(1).GetIndex() == CHAR_REP_ITEM_INSTANCE);
         ITEM_CHECK(transaction.StatementAt(2).GetIndex() == CHAR_REP_INVENTORY_ITEM);
         ITEM_CHECK(transaction.StatementAt(3).GetIndex() == CHAR_UPD_ITEM_INSTANCE);
         ITEM_CHECK(transaction.StatementAt(4).GetIndex() == CHAR_UPD_GIFT_OWNER);
+        ITEM_CHECK(writes.items.size() == 2 && writes.items[0].itemGuid == fixture.base.guid.value &&
+            writes.items[1].itemGuid == view.item.guid.value);
+        ITEM_CHECK(MatchesStatement(writes.items[0].link, transaction.StatementAt(0)));
+        ITEM_CHECK(MatchesStatement(writes.items[0].instance, transaction.StatementAt(1)) &&
+            !writes.items[0].giftOwner);
+        ITEM_CHECK(MatchesStatement(writes.items[1].link, transaction.StatementAt(2)));
+        ITEM_CHECK(MatchesStatement(writes.items[1].instance, transaction.StatementAt(3)));
+        ITEM_CHECK(writes.items[1].giftOwner &&
+            MatchesStatement(*writes.items[1].giftOwner, transaction.StatementAt(4)));
         ITEM_CHECK(!view.player.AppendPB59InventorySaveBatch(fixture.stamp, transaction) && transaction.GetSize() == 5);
         ITEM_CHECK(view.player.m_itemUpdateQueue == queue && fixture.base.uQueuePos == 0 && view.item.uQueuePos == 2);
         ITEM_CHECK(!fixture.base.stateChanges && !view.item.stateChanges && !CharacterDatabase.committed);
@@ -665,6 +685,10 @@ int Player::CheckRecoveryPayload()
         ITEM_CHECK(payload->membership.itemCount == 2 && !payload->membership.incomplete);
         ITEM_CHECK(payload->membership.items[0] == fixture.base.guid.value);
         ITEM_CHECK(payload->membership.items[1] == view.item.guid.value);
+        ITEM_CHECK(payload->expectedWrites && payload->expectedWrites->items.size() == 2);
+        auto stagedValues = std::move(payload->expectedWrites);
+        ITEM_CHECK(!payload->BindCompletion(&player, scope));
+        payload->expectedWrites = std::move(stagedValues);
         ITEM_CHECK(player.m_itemUpdateQueue == queue && !CharacterDatabase.committed);
         SaveObserver other;
         ITEM_CHECK(!other.AbandonProtected(*payload->receipt) && !observer.ConsumeProtected(*payload->receipt));
@@ -676,6 +700,19 @@ int Player::CheckRecoveryPayload()
             record->ticket.identity.player == expected.ownerIncarnation &&
             record->ticket.identity.session == expected.sessionIncarnation);
         ITEM_CHECK(!observer.ConsumeProtected(*payload->receipt));
+    }
+    {
+        InventoryBatchFixture fixture;
+        auto& view = fixture.inventory;
+        auto& player = view.player;
+        view.item.m_text.assign(PB59::Recovery::MaximumTextBytes + 1, 'x');
+        Ledger::MutationScope scope(player._pb59Transaction);
+        ITEM_CHECK(player.ArmRecovery(scope.GetTicket()));
+        auto const expected = operation(player, scope);
+        ITEM_CHECK(!PreparePB59RecoverySavePayload(fence, &player, expected, scope, fixture.stamp));
+        ITEM_CHECK(fence.TryTrackWrite(expected.owner) && !TrackedStatement::Live && RecoveryQueue->Empty());
+        InspectTransaction ordinary;
+        ITEM_CHECK(view.item.AppendItemInstanceSave(ordinary) && ordinary.GetSize() == 1);
     }
     {
         std::unique_ptr<PB59PreparedRecoverySave> pending;
@@ -981,9 +1018,17 @@ int Player::CheckPendingRecoverySaves()
         ITEM_CHECK(bool(fence.TryTrackWrite(expected.owner)) == (settlement == Settlement::NoWrite));
         auto const ticket = completed->record.ticket;
         auto retained = pending.CopyRetainedCompletion(expected, expectedStamp, ticket);
+        ITEM_CHECK(completed->expectedWrites && completed->expectedWrites->items.size() == 2);
         ITEM_CHECK(bool(retained) == (settlement != Settlement::NoWrite));
         if (retained)
         {
+            static_assert(std::is_const_v<decltype(retained->expectedWrites)::element_type>);
+            ITEM_CHECK(retained->expectedWrites == completed->expectedWrites);
+            auto const& rows = retained->expectedWrites->items;
+            ITEM_CHECK(rows[0].itemGuid == base && rows[1].itemGuid == item);
+            ITEM_CHECK(std::get<uint64>(rows[1].link.parameters.at(0).data) == expected.owner &&
+                std::get<uint32>(rows[1].link.parameters.at(3).data) == static_cast<uint32>(item));
+            ITEM_CHECK(std::get<std::string>(rows[1].instance.parameters.at(12).data) == std::string("rune\0text", 9));
             ITEM_CHECK(retained->stamp == expectedStamp && retained->operation == expected &&
                 retained->settlement == settlement);
             ITEM_CHECK(retained->record.ticket == ticket &&
@@ -1019,9 +1064,11 @@ int Player::CheckPendingRecoverySaves()
 
             retained->record.result = Result::FromExecutionCode(Result::NotEnqueuedCode);
             retained->record.evidence.itemCount = 0;
+            retained->expectedWrites.reset();
             auto const fresh = pending.CopyRetainedCompletion(expected, expectedStamp, ticket);
             ITEM_CHECK(fresh && fresh->record.result.executionCode == scenario.code &&
-                fresh->record.evidence.itemCount == 2 && !fence.TryTrackWrite(expected.owner));
+                fresh->record.evidence.itemCount == 2 && fresh->expectedWrites == completed->expectedWrites &&
+                !fence.TryTrackWrite(expected.owner));
         }
         ITEM_CHECK(std::ranges::any_of(pending._saves, [&](auto const& save)
         {
