@@ -4938,6 +4938,9 @@ void Player::DurabilityPointsLossAll(int32 points, bool inventory)
 
 void Player::DurabilityPointsLoss(Item* item, int32 points)
 {
+    if (!item || !_pb59Equipment.InventoryMutationAllowed() || !item->PB59InventoryMutationAllowed())
+        return;
+
     if (HasPreventDurabilityLossAura())
         return;
 
@@ -4990,10 +4993,13 @@ uint32 Player::DurabilityRepairAll(bool cost, float discountMod, bool guildBank)
 
 uint32 Player::DurabilityRepair(uint16 pos, bool cost, float discountMod, bool guildBank)
 {
+    if (!_pb59Equipment.InventoryMutationAllowed())
+        return 0;
+
     Item* item = GetItemByPos(pos);
 
     uint32 TotalCost = 0;
-    if (!item)
+    if (!item || !item->PB59InventoryMutationAllowed())
         return TotalCost;
 
     uint32 maxDurability = item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY);
