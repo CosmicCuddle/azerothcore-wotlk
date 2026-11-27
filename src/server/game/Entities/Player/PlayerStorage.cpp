@@ -53,6 +53,7 @@
 #include "PB59CharacterSaveObserver.h"
 #include "PB59ExpectedInventoryWrites.h"
 #include "PB59RetainedInventoryReadback.h"
+#include "PB59BoundSnapshotReadback.h"
 #include "PB59InventoryWriteFence.h"
 #include "PB59NativeRecoveryCollection.h"
 #include "PB59PendingInventoryWrites.h"
@@ -8743,6 +8744,28 @@ public:
 
 private:
     friend class Player;
+
+    using Readback = PB59PendingRecoverySaves::Readback;
+    // Dormant synchronous diagnostic only. No caller or trusted connection factory yet.
+    // Keep the service alive via its existing producer/drain protocol across request,
+    // snapshot, connection destruction and delivery. No service/holder lock spans SQL.
+    // The outer owner must still keep this service alive until PollShutdown drains;
+    // a drained queue is not permission to destroy an unresolved recovery hold.
+    [[nodiscard]] Readback::Observation ObserveRetainedReadback(Readback::Identity const& key,
+        PB59::Recovery::ReadbackWire::OwnedReadbackConnection connection, unsigned long expectedThread)
+    {
+        Producer const producer(*this);
+        if (!producer)
+            return {Readback::Outcome::Refused, std::nullopt};
+        // Destroy the admitted connection before dropping the producer, including on refusal.
+        auto owned = std::move(connection);
+        auto request = _recovery.BeginRetainedReadback(key);
+        if (!request)
+            return {Readback::Outcome::Refused, std::nullopt};
+        auto completion = PB59::Recovery::ReadbackWire::BoundSnapshotReadback<Readback>::Run(
+            std::move(*request), std::move(owned), expectedThread);
+        return std::move(completion).DeliverTo(_recovery);
+    }
 
     PB59RecoveryWriteFence _fence;
     PB59TrackedInventoryWrites _standalone;
